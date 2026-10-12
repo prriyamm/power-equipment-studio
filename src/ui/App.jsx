@@ -7,7 +7,7 @@ import { WORKSPACES } from "./workspaces.jsx";
 export function App() {
   const [active, setActive] = useState(() => {
     // deep link: a bare #token naming a workspace (e.g. #transformer) opens it
-    const h = (typeof location !== "undefined" ? location.hash : "").slice(1);
+    const h = (typeof location !== "undefined" ? location.hash : "").slice(1).split("-")[0];
     return WORKSPACES.some((w) => w.key === h) ? h : WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key;
   });
   const [opened, setOpened] = useState(() => new Set([active]));
