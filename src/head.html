@@ -322,6 +322,28 @@
   .lbl3d b { font-size: 10.5px; font-weight: 600; color: var(--fg); }
   .lbl3d span { font-family: var(--font-data); font-size: 9.5px; color: var(--muted); }
   .lbl3d span:empty { display: none; }
+
+  /* one-line diagram */
+  .sld-wrap { background: var(--bg); background-image: radial-gradient(var(--grid-major) 1px, transparent 1px); background-size: 20px 20px; }
+  .sld-scroll { position: absolute; inset: 0; overflow: auto; }
+  .sld { display: block; }
+  .sld-bus, .sld-edge, .sld-dev { cursor: pointer; }
+  .sld-hit { stroke: transparent; stroke-width: 16; fill: none; }
+  .sld-sel { stroke: var(--accent); stroke-width: 10; opacity: 0.3; fill: none; }
+  .sld-sel-box { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 4 3; }
+  .sld-brk { fill: var(--bg); stroke: var(--wire); stroke-width: 1.4; }
+  .sld-brk.is-closed { fill: var(--crit); fill-opacity: 0.85; stroke: var(--crit); }
+  .sld-sym circle, .sld-sym path, .sld-sym rect { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+  .sld-sym .sld-fill { fill: var(--fg); }
+  .sld-sym-text { font-family: var(--font-ui); font-weight: 600; font-size: 13px; fill: var(--fg); }
+  .sld-cable { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+  .sld-tie { fill: none; stroke: var(--wire); stroke-width: 1.4; stroke-dasharray: 6 4; }
+  .sld-bus-name { font-family: var(--font-ui); font-size: 12px; font-weight: 600; fill: var(--fg); }
+  .sld-bus-kv { font-family: var(--font-data); font-weight: 400; fill: var(--muted); font-size: 11px; }
+  .sld-bus-res { font-family: var(--font-data); font-size: 10.5px; }
+  .sld-bus-res .dim { fill: var(--muted); }
+  .sld-tag-title { font-family: var(--font-ui); font-size: 11px; font-weight: 600; fill: var(--fg); }
+  .sld-tag { font-family: var(--font-data); font-size: 10px; fill: var(--muted); }
   .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
   @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
 </style>

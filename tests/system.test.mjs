@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyseSystem, compileSystem, EXAMPLE_SYSTEM, rdcPer1000ft, tableAmpacity } from "../src/engine/system.js";
+import { analyseSystem, compileSystem, EXAMPLE_SYSTEM, rdcPer1000ft, racPer1000ft, tableAmpacity } from "../src/engine/system.js";
 import { shortCircuit, kappa } from "../src/engine/shortcircuit.js";
 
 test("example package compiles, solves and stays in a sane operating range", () => {
@@ -34,6 +34,9 @@ test("conductor data", () => {
   // 750 kcmil Cu at 75 °C: about 0.0171 Ω/1000 ft DC (NEC Ch. 9 Table 8 lists 0.0171 uncoated)
   assert.ok(Math.abs(rdcPer1000ft("750", "Cu", 75) - 0.0171) < 0.0006);
   assert.equal(tableAmpacity("cable", "500", "Cu", 75), 380);
+  // Rac adds skin + proximity: NEC Ch. 9 Table 9 lists 0.018 (PVC) to 0.019 (steel) Ω/1000 ft for 750 kcmil Cu
+  const rac = racPer1000ft("750", "Cu", 75);
+  assert.ok(rac > rdcPer1000ft("750", "Cu", 75) && rac > 0.0175 && rac < 0.0200, `Rac ${rac}`);
 });
 
 test("kappa and a single-source fault", () => {

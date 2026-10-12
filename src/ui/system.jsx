@@ -9,6 +9,7 @@ import { Btn, Pill, Section, Field, NumField, Tile, Icon, cx, fmt, clone } from 
 import { bus } from "./bus.js";
 import { dims, siteRoutes } from "./systemGeometry.js";
 import { Site3D } from "./system3d.jsx";
+import { SystemSld } from "./systemSld.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -667,7 +668,7 @@ export function SystemWorkspace({ goTo }) {
   const [motors, setMotors] = useState(true);
   const [fitSignal, setFitSignal] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
-  const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : "iso"));
+  const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso"));
   const analysis = useMemo(() => analyseSystem(sys, { motors }), [sys, motors]);
 
   const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === id ? clean({ ...e, ...patch }) : e)) }));
@@ -764,10 +765,11 @@ export function SystemWorkspace({ goTo }) {
                 <div className="seg">
                   <Btn active={mode === "iso"} onClick={() => setMode("iso")} title="Isometric site plan">Iso</Btn>
                   <Btn active={mode === "3d"} onClick={() => { setMode("3d"); setTool("select"); }} title="Orbitable 3D model">3D</Btn>
+                  <Btn active={mode === "sld"} onClick={() => { setMode("sld"); setTool("select"); }} title="Auto-generated single-line diagram">One-line</Btn>
                 </div>
                 <div className="seg">
                   <Btn active={tool === "select"} onClick={() => setTool("select")}><Icon name="select" size={14} />Select</Btn>
-                  <Btn active={tool === "connect"} disabled={mode === "3d"} onClick={() => setTool("connect")}><Icon name="connect" size={14} />Connect</Btn>
+                  <Btn active={tool === "connect"} disabled={mode !== "iso"} onClick={() => setTool("connect")}><Icon name="connect" size={14} />Connect</Btn>
                 </div>
                 <div className="relative">
                   <Btn kind="primary-soft" onClick={() => setAddOpen(!addOpen)}><Icon name="plus" size={14} />Add equipment</Btn>
@@ -779,7 +781,7 @@ export function SystemWorkspace({ goTo }) {
                   <Btn onClick={() => setFitSignal((x) => x + 1)}><Icon name="fit" size={14} />Fit</Btn>
                 </div>
               </div>
-              {mode === "3d" ? <Site3D sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} animate={animate} showTags={showTags} /> :
+              {mode === "sld" ? <SystemSld sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} showTags={showTags} /> : mode === "3d" ? <Site3D sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} animate={animate} showTags={showTags} /> :
               <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
