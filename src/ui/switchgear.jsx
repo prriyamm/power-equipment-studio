@@ -2,6 +2,8 @@
    (pecalc switchgear port), live as inputs change. Starts filled with the 3000 A switchboard example. */
 const { useState, useMemo } = React;
 import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
+import { SwitchgearBus3D } from "./switchgear3d.jsx";
+import { STOPS, scale, rgb } from "./three/parts.js";
 import { analyseBus, busInput, mesh, EMISSIVITY, SPAN } from "../engine/pecalc/switchgear.js";
 
 /* 3 x 1/4 x 6 in Cu per phase, edge to edge, 65 kA fault (examples/switchgear-bus-3000a.json). */
@@ -31,18 +33,6 @@ function solve(inp) {
 }
 
 /* ------------------------------------------------ temperature colour scale */
-const STOPS = [[0, [59, 111, 160]], [0.28, [79, 179, 160]], [0.55, [232, 195, 90]], [0.78, [255, 139, 74]], [1, [255, 95, 95]]];
-function scale(t) {
-  const x = Math.max(0, Math.min(1, t));
-  for (let k = 1; k < STOPS.length; k++) {
-    if (x <= STOPS[k][0]) {
-      const [a, ca] = STOPS[k - 1], [b, cb] = STOPS[k], f = (x - a) / (b - a);
-      return ca.map((v, j) => v + (cb[j] - v) * f);
-    }
-  }
-  return STOPS[STOPS.length - 1][1];
-}
-const rgb = (c, k = 1) => `rgb(${c.map((v) => Math.round(Math.min(255, v * k))).join(",")})`;
 const PH = ["var(--ph-a)", "var(--ph-b)", "var(--ph-c)"];
 
 export function SwitchgearWorkspace() {
@@ -183,8 +173,8 @@ function Results({ r, coarse }) {
         </Section>
       </div>
 
-      <Section title="Switchgear section" aside={<span className="text-faint text-[12px]">cut-away, bars coloured by temperature</span>}>
-        <IsoSection i={i} rise={r.rise_c} air={air} />
+      <Section title="Switchgear section" aside={<span className="text-faint text-[12px]">3D, to scale, bars coloured by temperature</span>}>
+        <SwitchgearBus3D input={i} result={r} fallback={<IsoSection i={i} rise={r.rise_c} air={air} />} />
       </Section>
 
       <Section title="Notes">

@@ -6,6 +6,7 @@ import { bus } from "./bus.js";
 import * as cond from "../engine/pecalc/conductors.js";
 import { analyse, cableBusInput, cableBusGroups, buildLayout, construction } from "../engine/pecalc/cablebus.js";
 import { designOptions, designRequest, designOptionLabel, BLOCK_MATERIALS } from "../engine/pecalc/cablebus_design.js";
+import { CableBus3D } from "./cablebus3d.jsx";
 import { cablebusSvg } from "../engine/pecalc/drawing.js";
 import { solveSharing } from "../engine/pecalc/impedance.js";
 import { bRmsUt, LIMITS_UT } from "../engine/pecalc/field.js";
@@ -386,8 +387,8 @@ function Results({ inp, res }) {
         </Section>
       </div>
 
-      <Section title="Enclosure, isometric view" aside={<span className="text-faint text-[12px]">short length, cover cut away</span>}>
-        <IsoBus inp={inp} res={res} />
+      <Section title="Enclosure, 3D view" aside={<span className="text-faint text-[12px]">to scale, cover cut away</span>}>
+        <CableBus3D input={inp} result={res} fallback={<IsoBus inp={inp} res={res} />} />
       </Section>
 
       <Section title="Notes">
