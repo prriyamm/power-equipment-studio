@@ -315,3 +315,13 @@ test("MagneticField: flat three-phase field matches the closed-form far field wi
 test("sanity: complex helpers", () => {
   assert.equal(cabs({ re: 3, im: 4 }), 5);
 });
+
+test("regression: X/R = 0 raises like the Python (ZeroDivisionError), instead of returning NaN-tainted forces", () => {
+  // Python: peak_factor -> math.exp(-3 / 0) and fault_forces -> -t / tau with tau = 0/w both raise.
+  // The JS returned peakFactor(0) = √2·1.02 = 1.4425 and a NaN first peak with finite forces.
+  assert.throws(() => frc.peakFactor(0), /division by zero/);
+  const c = [{ group: "A", x_mm: 0, y_mm: 0 }, { group: "B", x_mm: 100, y_mm: 0 }];
+  assert.throws(() => frc.faultForces(c, [1, 1], 10, 0), /division by zero/);
+  // Sanity: a normal X/R still matches IEC 60909 κ·√2: X/R 15 -> √2·(1.02 + 0.98·e^-0.2) = 2.57716
+  assert.ok(Math.abs(frc.peakFactor(15) - Math.SQRT2 * (1.02 + 0.98 * Math.exp(-0.2))) < 1e-12);
+});

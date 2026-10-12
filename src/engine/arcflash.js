@@ -89,6 +89,20 @@ function boundary(fn) {
   for (let i = 0; i < 100; i++) { const mid = Math.sqrt(lo * hi); if (fn(mid) > AFB_J) lo = mid; else hi = mid; }
   return Math.sqrt(lo * hi);
 }
+// IEEE 1584-2018 interpolates the boundary itself above 600 V: AFB_600/2700/14300 are each found from
+// their own level's energy equation, then combined with the same three-point interpolation as Iarc and E.
+// (Finding where the interpolated E crosses the threshold gives a different distance, because E is not
+// linear in D.) At or below 600 V the boundary comes straight from the final-E equation.
+export function arcFlashBoundary(voc, cfg, ibf, gap, t_ms, cur, cf) {
+  if (voc <= 0.6) return boundary((d) => energyLevel("600", cfg, ibf, gap, d, t_ms, cur.iarc, cf));
+  const a600 = boundary((d) => energyLevel("600", cfg, ibf, gap, d, t_ms, cur.i600, cf));
+  const a2700 = boundary((d) => energyLevel("2700", cfg, ibf, gap, d, t_ms, cur.i2700, cf));
+  const a14300 = boundary((d) => energyLevel("14300", cfg, ibf, gap, d, t_ms, cur.i14300, cf));
+  const b1 = ((a2700 - a600) / 2.1) * (voc - 2.7) + a2700;
+  const b2 = ((a14300 - a2700) / 11.6) * (voc - 14.3) + a14300;
+  const b3 = (b1 * (2.7 - voc)) / 2.1 + (b2 * (voc - 0.6)) / 2.1;
+  return voc <= 2.7 ? b3 : b2;
+}
 
 /* ------------------------------------------------------------- PPE (info) */
 // NFPA 70E Table 130.5(G) style thresholds, informative only.
@@ -133,7 +147,7 @@ export function arcFlash(inp) {
   const encl = enclosureCorrection(cfg, voc, enc);
   const scen = (cur, t) => {
     const e_j = energyAt(voc, cfg, ibf, gap, dist, t, cur, encl.cf);
-    const afb = boundary((d) => energyAt(voc, cfg, ibf, gap, d, t, cur, encl.cf));
+    const afb = arcFlashBoundary(voc, cfg, ibf, gap, t, cur, encl.cf);
     return { iarc_ka: cur.iarc, clearing_ms: t, e_j_cm2: e_j, e_cal_cm2: e_j * CAL_PER_J, afb_mm: afb, afb_in: afb / 25.4 };
   };
   const s1 = scen(full, t1), s2 = scen(red, t2);
