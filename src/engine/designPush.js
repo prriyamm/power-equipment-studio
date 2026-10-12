@@ -15,6 +15,8 @@
  * ========================================================================== */
 import { EQUIPMENT, CONNECTORS, CONDUCTOR_SIZES, compileSystem } from "./system.js";
 import { normalizeSize, sizeLabel } from "./pecalc/conductors.js";
+import { isDerivedReactance } from "./reactanceDerived.js";
+import AMPACITY from "./pecalc/data/ampacity_nec.json" with { type: "json" };
 
 /** Which System elements each module can write to. */
 export const PUSH_MODULES = {
@@ -96,9 +98,13 @@ const LABELS = {
   kva: ["Rating", "kVA"], hv_kv: ["HV", "kV"], lv_kv: ["LV", "kV"], z_pct: ["Impedance", "%Z"], xr: ["X/R", ""],
 };
 
-function checkSize(size, errors) {
+// A size is accepted only when the System has resistance (pecalc conductor model), ampacity (NEC table data)
+// and reactance for it. Reactance for sizes without an NEC Table 9 row is derived, which the preview flags.
+function checkSize(size, errors, warnings, material = "Cu") {
   let k; try { k = normalizeSize(size); } catch (e) { errors.push(e.message); return null; }
   if (!CONDUCTOR_SIZES.includes(k)) { errors.push(`The System has no impedance data for ${sizeLabel(k)}; it models ${CONDUCTOR_SIZES.join(", ")}.`); return null; }
+  if (AMPACITY.raceway?.[material]?.[k] == null || AMPACITY.free_air?.[material]?.[k] == null) { errors.push(`The System has no ${material} ampacity data for ${sizeLabel(k)}.`); return null; }
+  if (isDerivedReactance(k)) warnings.push(`Reactance for ${sizeLabel(k)} is ${["700", "800", "900"].includes(k) ? "interpolated" : "extrapolated"}, not from NEC Table 9 (DERIVED — UNVERIFIED).`);
   return k;
 }
 function checkVoltage(designKv, systemKvValue, id, errors, warnings, { rated = false } = {}) {
@@ -118,7 +124,7 @@ const MAPPERS = {
   feeder(d, el, ctx, errors, warnings) {
     if (d.phases !== 3) errors.push(`System runs are three-phase; this feeder is ${d.phases}-phase.`);
     checkVoltage(convert(d.voltage, "voltage", "Feeder voltage"), ctx.kv, el.raw.id, errors, warnings);
-    const size = checkSize(d.size, errors);
+    const size = checkSize(d.size, errors, warnings, d.material);
     if (!["Cu", "Al"].includes(d.material)) errors.push(`Unknown conductor material "${d.material}".`);
     const ins = convert(d.insulation, "temperature", "Insulation rating");
     if (![60, 75, 90].includes(ins)) errors.push(`The System models 60, 75 and 90 °C conductors, not ${ins} °C.`);
@@ -135,7 +141,7 @@ const MAPPERS = {
   },
   cablebus(d, el, ctx, errors, warnings) {
     checkVoltage(convert(d.voltage, "voltage", "Cable bus voltage"), ctx.kv, el.raw.id, errors, warnings);
-    const size = checkSize(d.size, errors);
+    const size = checkSize(d.size, errors, warnings, d.material);
     if (!["Cu", "Al"].includes(d.material)) errors.push(`Unknown conductor material "${d.material}".`);
     const ins = convert(d.insulation, "temperature", "Insulation rating");
     if (![60, 75, 90].includes(ins)) errors.push(`The System models 60, 75 and 90 °C conductors, not ${ins} °C.`);
@@ -256,7 +262,11 @@ export function feederDesign(result, option = result?.recommended) {
 }
 
 /** From a pecalc cable bus analyse() result. The rating is the phase current at which the most heavily
- *  loaded cable reaches its ampacity, so it includes the current-sharing imbalance. */
+ *  loaded cable reaches its ampacity, so it includes the current-sharing imbalance.
+ *  This is deliberately the conservative figure (decided on PR #19): parallel cables in a cable bus do not
+ *  share current equally (proximity and position in the layout), so "lowest cable ampacity × sets" — what the
+ *  Cable bus tile shows — overstates what the run can carry; the worst cable reaches 100 % first. Sharing is
+ *  linear in the phase current, so current_a / (max_loading_pct / 100) is the load at which that happens. */
 export function cableBusDesign(res) {
   const i = res.input;
   return {

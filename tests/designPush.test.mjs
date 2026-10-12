@@ -111,7 +111,6 @@ test("feeder: rejections", () => {
   assert.match(why(feeder({ voltage: { value: 480, unit: "ft" } })), /not a voltage unit/);
   assert.match(why(feeder({ length: { value: 60, unit: "kA" } })), /not a length unit/);
   assert.match(why(feeder({ phases: 1 })), /three-phase/);
-  assert.match(why(feeder({ size: "700" })), /no impedance data for 700 kcmil/);
   assert.match(why(feeder({ size: "13" })), /Unknown conductor size/);
   assert.match(why(feeder({ insulation: { value: 105, unit: "°C" } })), /60, 75 and 90/);
   assert.match(why(feeder({ sets: 1.5 })), /whole number/);
@@ -152,7 +151,10 @@ test("cable bus: rejections", () => {
   assert.equal(planPush(s, { kind: "con", id: "CB-1" }, d).ok, true);
   assert.match(planPush(s, { kind: "con", id: "C-MCC" }, d).errors.join(), /Cable bus designs go to a cable bus; C-MCC is a cable/);
   assert.match(planPush(s, { kind: "con", id: "CB-2" }, d).errors.join(), /480 V but CB-2 runs at 4\.16 kV/);
-  assert.match(planPush(s, { kind: "con", id: "CB-1" }, { ...d, size: "1250" }).errors.join(), /no impedance data for 1250 kcmil/);
+  assert.match(planPush(s, { kind: "con", id: "CB-1" }, { ...d, size: "2500" }).errors.join(), /Unknown conductor size/);
+  const big = planPush(s, { kind: "con", id: "CB-1" }, { ...d, size: "1250" });
+  assert.equal(big.ok, true, big.errors.join());
+  assert.match(big.warnings.join(), /Reactance for 1250 kcmil is extrapolated, not from NEC Table 9/);
   assert.match(planPush(s, { kind: "con", id: "CB-1" }, { ...d, rating: { value: 2.4, unit: "MVA" } }).errors.join(), /not a current unit/);
   assert.equal(planPush(s, { kind: "con", id: "CB-1" }, { ...d, rating: { value: 2.4, unit: "kA" } }).patch.ampacity_a, 600);
 });
@@ -258,4 +260,21 @@ test("every module has a mapper and a target kind", () => {
     assert.ok(["con", "eq"].includes(m.element), k);
     assert.ok(pushTargets(sys0(), k).length > 0, k);
   }
+});
+
+/* ------------------------------------------------- derived reactance sizes */
+test("feeder: 900 kcmil is accepted with a derived-reactance warning and changes the impedance", () => {
+  const s = sys0();
+  const plan = planPush(s, { kind: "con", id: "C-MCC" }, feeder({ size: "900", sets: 2 }));
+  assert.equal(plan.ok, true, plan.errors.join());
+  assert.equal(plan.patch.size, "900");
+  assert.match(plan.warnings.join(), /Reactance for 900 kcmil is interpolated, not from NEC Table 9/);
+  const z0 = analyseSystem(s).connectors["C-MCC"].ohms, z1 = analyseSystem(applyPush(s, plan)).connectors["C-MCC"].ohms;
+  assert.ok(z1.r < z0.r && z1.x < z0.x, `${JSON.stringify(z0)} -> ${JSON.stringify(z1)}`);
+});
+
+test("table sizes carry no derived-reactance warning", () => {
+  const plan = planPush(sys0(), { kind: "con", id: "C-MCC" }, feeder({ size: "750" }));
+  assert.equal(plan.ok, true);
+  assert.doesNotMatch(plan.warnings.join(), /Reactance/);
 });

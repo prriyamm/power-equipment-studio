@@ -12,6 +12,7 @@ import { runLoadFlow } from "./loadflow.js";
 import { shortCircuit } from "./shortcircuit.js";
 import AMPACITY from "./pecalc/data/ampacity_nec.json" with { type: "json" };
 import TABLE9 from "./pecalc/data/reactance_nec_table9.json" with { type: "json" };
+import { reactancePer1000ft } from "./reactanceDerived.js";
 import { racOhmPerM, cableOdMm } from "./pecalc/conductors.js";
 
 export const SQRT3 = Math.sqrt(3);
@@ -39,7 +40,8 @@ export const NODE_KINDS = new Set(["switchgear", "mcc", "panel"]);
 /* --------------------------------------------------------------- conductors */
 // Cross-section areas: AWG from the ASTM B258 formula, kcmil = 0.5067 mm² per kcmil.
 const AWG = { "14": 2.08, "12": 3.31, "10": 5.26, "8": 8.37, "6": 13.3, "4": 21.2, "3": 26.7, "2": 33.6, "1": 42.4, "1/0": 53.5, "2/0": 67.4, "3/0": 85.0, "4/0": 107.2 };
-export const CONDUCTOR_SIZES = [...Object.keys(AWG), "250", "300", "350", "400", "500", "600", "750", "1000"];
+// 700, 800, 900 and 1250–2000 kcmil have no NEC Table 9 row; their reactance is DERIVED (see reactanceDerived.js).
+export const CONDUCTOR_SIZES = [...Object.keys(AWG), "250", "300", "350", "400", "500", "600", "700", "750", "800", "900", "1000", "1250", "1500", "1750", "2000"];
 export function areaMm2(size) {
   if (AWG[size]) return AWG[size];
   const k = Number(size); if (!isFinite(k) || k <= 0) throw new Error(`Unknown conductor size "${size}"`);
@@ -56,9 +58,10 @@ export function rdcPer1000ft(size, material = "Cu", tempC = 75) {
   const r_per_m = (rho20 * (1 + alpha * (tempC - 20))) / (areaMm2(size) * 1e-6);
   return r_per_m * 304.8;
 }
+// NEC Table 9 where it has the size; otherwise the DERIVED (interpolated/extrapolated) value.
 export function xlPer1000ft(size, raceway = "steel") {
   const col = TABLE9[raceway] || TABLE9.steel;
-  return col[size] ?? col["1000"];
+  return reactancePer1000ft(size, raceway)?.xl ?? col["1000"];
 }
 // Table ampacity per conductor: 310.16 for cable in raceway, 310.17 (free air) for cable bus.
 export function tableAmpacity(kind, size, material = "Cu", tempC = 75) {
