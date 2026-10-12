@@ -5,6 +5,8 @@ import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx
 import { SwitchgearBus3D } from "./switchgear3d.jsx";
 import { STOPS, scale, rgb } from "./three/parts.js";
 import { analyseBus, busInput, mesh, EMISSIVITY, SPAN } from "../engine/pecalc/switchgear.js";
+import { kvRows, checkRows } from "../engine/report.js";
+import { ReportButton } from "./reportButton.jsx";
 
 /* 3 x 1/4 x 6 in Cu per phase, edge to edge, 65 kA fault (examples/switchgear-bus-3000a.json). */
 const EXAMPLE = {
@@ -35,6 +37,25 @@ function solve(inp) {
 /* ------------------------------------------------ temperature colour scale */
 const PH = ["var(--ph-a)", "var(--ph-b)", "var(--ph-c)"];
 
+/* Calculation package (see engine/report.js). */
+function busReport(r) {
+  return {
+    title: "Switchgear bus", module: "switchgear", subtitle: `${r.input.current_a} A, ${r.input.bars_per_phase} bar(s) per phase`,
+    inputs: kvRows(r.input, { current_a: "A", bar_thickness_mm: "mm", bar_width_mm: "mm", phase_spacing_mm: "mm", internal_air_rise_c: "C", fault_ka: "kA", support_span_m: "m" }),
+    results: [
+      { label: "Temperature rise", value: r.rise_c, unit: "C" }, { label: "Rating at allowable rise", value: r.rated_current_at_limit_a, unit: "A" },
+      { label: "Rac/Rdc", value: r.rac_over_rdc }, { label: "Loss per phase", value: r.loss_w_per_m_per_phase, unit: "W/m" },
+      { label: "Peak fault force", value: r.peak_force_n_per_m, unit: "N/m" }, { label: "Bending stress", value: r.bending_stress_mpa, unit: "MPa" },
+      { label: "Support load", value: r.support_load_n, unit: "N" }, { label: "Max span", value: r.max_span_m, unit: "m" },
+    ],
+    checks: checkRows(r.checks),
+    tables: [{ title: "Lamination current sharing", columns: ["Lamination", "% of equal share"], rows: (r.lamination_share_pct || []).map((v, k) => [k + 1, v]) }],
+    notes: r.notes,
+    // Bus material and UL 891 limits are entered from memory in the engine ([UNVERIFIED] markers in the check clauses).
+    dataStatus: [{ table: "Bus material constants and UL 891 limits", status: "UNVERIFIED", source: "Engine constants marked [UNVERIFIED]; confirm against the product standard and supplier data." }],
+  };
+}
+
 export function SwitchgearWorkspace() {
   const [inp, setInp] = useState(() => busInput(EXAMPLE));
   const { result: r, error, coarse } = useMemo(() => solve(inp), [inp]);
@@ -62,6 +83,7 @@ export function SwitchgearWorkspace() {
         <span className="text-muted text-[12.5px]">Switchboard main bus and risers · 3-phase</span>
         <div className="flex items-center gap-2 ml-auto">
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${nFail} check(s) fail`}</Pill>}
+          {r && <ReportButton filename="switchgear-bus-calc" getReport={() => busReport(r)} />}
           <Btn onClick={() => setInp(busInput(EXAMPLE))} title="Restore the 3000 A example inputs">Reset to example</Btn>
         </div>
       </header>

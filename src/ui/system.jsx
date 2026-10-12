@@ -16,6 +16,7 @@ import { CoordinationView } from "./tccView.jsx";
 import { useHistory, ProjectMenu } from "./systemProject.jsx";
 import { ArcFlashSection } from "./systemArcFlash.jsx";
 import { MotorStartSection, ProfileSection } from "./systemStudies.jsx";
+import { ReportButton, svgToString } from "./reportButton.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -711,6 +712,50 @@ function Schedule({ sys, analysis, select, updateEq, checks = {} }) {
   );
 }
 
+/* Calculation package for the whole system (see engine/report.js). The one-line SVG is included only when that view is mounted. */
+function systemReport(sys, analysis, host) {
+  if (!analysis?.ok) throw new Error(analysis?.message || "The system is not solved.");
+  const res = analysis.equipment, cres = analysis.connectors, t = analysis.totals;
+  const eq = sys.equipment.map((e) => ({ e, r: res[e.id], f: { ...EQUIPMENT[e.type].defaults, ...e } }));
+  const checks = [];
+  for (const { e, r } of eq) {
+    if (!r || r.deenergized) continue;
+    checks.push({ name: `${e.id} voltage`, value: r.v_pu, limit: "0.95 - 1.05", unit: "pu", pass: r.vflag === "ok", clause: "Voltage band (workspace setting)" });
+    if (r.loading_pct != null) checks.push({ name: `${e.id} loading`, value: r.loading_pct, limit: 100, unit: "%", pass: r.loading_pct <= 100, clause: "Equipment rating" });
+    if (r.sc_duty_pct != null) checks.push({ name: `${e.id} short-circuit duty`, value: r.sc_duty_pct, limit: 100, unit: "%", pass: r.sc_duty_pct <= 100, clause: "Equipment short-circuit rating vs IEC 60909 Ik" });
+  }
+  for (const c of sys.connectors) { const r = cres[c.id]; if (r?.loading_pct != null) checks.push({ name: `${c.id} loading`, value: r.loading_pct, limit: 100, unit: "%", pass: r.loading_pct <= 100, clause: "Cable ampacity (NEC table)" }); }
+  const attention = [
+    ...eq.filter(({ e, r }) => !["ok", "off", "muted"].includes(statusOf(e, r))).map(({ e, r }) =>
+      `${e.id}: ${r.sc_duty_pct > 90 ? `fault duty ${fmt(r.sc_duty_pct, 0)} %` : r.vflag !== "ok" ? `voltage ${r.v_pu.toFixed(3)} pu` : `loading ${fmt(r.loading_pct, 0)} %`}`),
+    ...Object.entries(cres).filter(([, r]) => (r.loading_pct ?? 0) > 80).map(([id, r]) => `${id}: cable loading ${fmt(r.loading_pct, 0)} %`),
+    ...eq.filter(({ r }) => r?.deenergized).map(({ e }) => `${e.id}: de-energized`),
+  ];
+  const svg = svgToString(host?.querySelector("svg.sld"));
+  return {
+    title: sys.name || "System study", module: "system", subtitle: "Load flow and IEC 60909 short circuit",
+    inputs: [{ label: "Equipment count", value: sys.equipment.length }, { label: "Cable runs", value: sys.connectors.length },
+      ...eq.flatMap(({ e, f }) => Object.entries(f).filter(([k, v]) => !["id", "name", "type", "gx", "gy"].includes(k) && ["number", "string"].includes(typeof v)).map(([k, v]) => ({ label: `${e.id} ${k.replace(/_/g, " ")}`, value: v })))],
+    results: [{ label: "Demand", value: t.load_kw, unit: "kW" }, { label: "Losses", value: t.loss_kw, unit: "kW" }, { label: "Voltage range", value: `${t.min_v.toFixed(3)} - ${t.max_v.toFixed(3)}`, unit: "pu" }, { label: "Highest Ik", value: t.max_ik_ka, unit: "kA" }],
+    checks,
+    tables: [
+      { title: "Equipment schedule", columns: ["Tag", "Type", "Description", "kV", "V (pu)", "Loading %", "Ik (kA)", "Rating (kA)", "Duty %"],
+        rows: eq.map(({ e, r, f }) => [e.id, EQUIPMENT[e.type].label, e.name || "", r?.kv ?? "", r?.v_pu != null ? r.v_pu.toFixed(4) : "", r?.loading_pct != null ? fmt(r.loading_pct, 0) : "", r?.ik_ka != null ? fmt(r.ik_ka, 2) : "", f.sc_ka ?? "", r?.sc_duty_pct != null ? fmt(r.sc_duty_pct, 0) : ""]) },
+      { title: "Cable and cable bus schedule", columns: ["Tag", "Kind", "From - To", "Conductors", "Length (ft)", "I (A)", "Ampacity (A)", "Loading %", "VD %", "Loss (kW)"],
+        rows: sys.connectors.map((c) => { const f = { ...CONNECTORS[c.kind].defaults, ...c }, r = cres[c.id]; return [c.id, CONNECTORS[c.kind].label, `${c.from} - ${c.to}`,
+          c.kind === "direct" ? "-" : `${f.sets} x 3 x ${f.size} ${f.material}`, c.kind === "direct" ? "-" : f.length_ft, r && !r.open ? fmt(r.i_a, 0) : "open", r?.ampacity_a != null ? fmt(r.ampacity_a, 0) : "",
+          r?.loading_pct != null ? fmt(r.loading_pct, 0) : "", r && !r.open ? fmt(r.vd_pct, 2) : "", r && !r.open ? fmt(r.loss_kw, 2) : ""]; }) },
+      ...(analysis.sc ? [{ title: "Short circuit, IEC 60909 three-phase bolted", columns: ["Bus", "Equipment", "kV", "c", "Ik (kA)", "S''k (MVA)", "X/R", "kappa", "ip (kA)"],
+        rows: analysis.sc.buses.map((b, i) => [b.id, analysis.compiled.busMeta[i].members.join(", "), b.kv, b.c.toFixed(2), fmt(b.ik_ka, 2), fmt(b.sk_mva, 1), fmt(b.xr, 1), b.kappa.toFixed(3), fmt(b.ip_ka, 2)]) }] : []),
+      { title: "Attention list", columns: ["Item"], rows: attention.length ? attention.map((a) => [a]) : [["No overloads, voltage or short-circuit duty issues."]] },
+    ],
+    figures: svg ? [{ title: "One-line diagram", svg, dark: true }] : [],
+    notes: ["Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with cmax.", "Cable R uses DC resistance at conductor temperature; reactance from NEC Chapter 9 Table 9 (UNVERIFIED).",
+      ...(svg ? [] : ["The one-line diagram is omitted: open the One-line view in the System workspace before exporting to include it."])],
+    dataStatus: [{ table: "NEC Table 310.16 ampacity", status: AMPACITY_STATUS, source: "Check against a licensed NFPA 70 copy." }, { table: "NEC Chapter 9 Table 9 reactance", status: "UNVERIFIED", source: "Entered from memory." }],
+  };
+}
+
 /* ============================================================== WORKSPACE */
 const ADDABLE = [["transformer", "Transformer"], ["switchgear", "Switchgear"], ["mcc", "MCC"], ["motor", "Motor"], ["load", "Load"], ["capacitor", "Capacitor"], ["generator", "Generator"], ["utility", "Utility"]];
 
@@ -807,6 +852,7 @@ export function SystemWorkspace({ goTo }) {
         <div className="flex items-center gap-2 ml-auto flex-wrap">
           <label className="live-toggle" title="Include induction-motor fault contribution"><input id="sc-motors" type="checkbox" checked={motors} onChange={(ev) => setMotors(ev.target.checked)} /><span>Motor contribution</span></label>
           <ProjectMenu sys={sys} setSys={setSys} history={history} onLoaded={() => { setSelection(null); setFitSignal((x) => x + 1); }} />
+          <ReportButton filename="system-calc" disabled={!analysis.ok} getReport={() => systemReport(sys, analysis, hostRef.current)} />
           <Btn onClick={sendToLoadFlow} disabled={!analysis.ok} title="Open the compiled bus model in the Load flow workspace">Open in Load flow</Btn>
           <Btn onClick={() => { setSys(clone(EXAMPLE_SYSTEM)); setSelection(null); setFitSignal((x) => x + 1); }}>Reset example</Btn>
         </div>

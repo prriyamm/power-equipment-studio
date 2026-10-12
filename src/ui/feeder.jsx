@@ -5,6 +5,9 @@ import { Btn, Field, NumField, Pill, Section, Tile, fmt } from "./common.jsx";
 import { feederInput, sizeFeeder, loadA } from "../engine/pecalc/sizing.js";
 import { selectLugs, lugInput } from "../engine/pecalc/lugs.js";
 import { cableOdMm, diameterMm, sizeIndex } from "../engine/pecalc/conductors.js";
+import { kvRows, checkRows } from "../engine/report.js";
+import { tableInfo } from "../engine/pecalc/ampacity.js";
+import { ReportButton } from "./reportButton.jsx";
 
 const FT = 0.3048;
 
@@ -75,6 +78,30 @@ function solve(ui) {
   }
 }
 
+/* Calculation package (see engine/report.js). */
+function feederReport(ui) {
+  const { result: r, lugs, error } = solve(ui);
+  if (!r) throw new Error(error || "no result");
+  const i = r.input, b = r.recommended, info = tableInfo(i.code, i.installation);
+  return {
+    title: "Feeder sizing", module: "feeder", subtitle: `${i.code}, ${i.voltage_v} V, ${i.phases}-phase, ${i.material}`,
+    inputs: kvRows(i, { voltage_v: "V", continuous_a: "A", noncontinuous_a: "A", length_m: "m", ambient_c: "C", fault_ka: "kA", max_vd_pct: "%" }),
+    results: b ? [
+      { label: "Recommended conductors", value: `${b.sets} x ${b.size_label} per phase` }, { label: "Ampacity per set", value: b.ampacity_per_set_a, unit: "A" },
+      { label: "Voltage drop", value: b.vd_pct, unit: "%" }, { label: "Voltage drop", value: b.vd_v, unit: "V" }, { label: "Losses", value: b.loss_w, unit: "W" },
+    ] : [{ label: "Recommended conductors", value: "none passes every check" }],
+    checks: checkRows(b ? b.checks : []),
+    tables: [
+      ...(r.alternatives.length ? [{ title: "Other passing options", columns: ["Conductors", "VD %", "Loss W", "Copper mm2 / phase"],
+        rows: r.alternatives.map((a) => [`${a.sets} x ${a.size_label}`, a.vd_pct, a.loss_w, a.total_area_mm2]) }] : []),
+      ...(lugs ? [{ title: "Lugs", columns: ["End", "Qty", "Conductor", "Style", "Material", "Stud (in)"],
+        rows: [["Source", lugs.source], ["Load", lugs.load]].flatMap(([e, l]) => l.lines.map((x) => [e, x.quantity, x.conductor, x.style, x.lug_material, x.stud_in])) }] : []),
+    ],
+    notes: [...r.notes, ...(lugs ? lugs.source.notes : [])],
+    dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
+  };
+}
+
 /* For each set count: the options tried, in order, and the rules that rejected the last failing size. */
 function candidates(result) {
   const bySets = new Map();
@@ -121,6 +148,7 @@ export function FeederWorkspace() {
         <div className="flex items-center gap-2 ml-auto">
           {r && <Pill tone={r.recommended ? "ok" : "crit"}>{r.recommended ? "Conductor found" : "No size passes"}</Pill>}
           {r && r.data_status !== "VERIFIED" && <Pill tone="warn" title={r.notes.find((n) => n.startsWith("WARNING")) || ""}>Data {r.data_status}</Pill>}
+          {r && <ReportButton filename="feeder-calc" getReport={() => feederReport(ui)} />}
           <Btn onClick={() => setUi(EXAMPLE)} title="Restore the 480 V 400 A example inputs">Reset to example</Btn>
         </div>
       </header>
