@@ -12,6 +12,7 @@ import { Site3D } from "./system3d.jsx";
 import { SystemSld } from "./systemSld.jsx";
 import { GearLineupModal } from "./gearLineup.jsx";
 import { designChecks } from "../engine/designchecks.js";
+import { CoordinationView } from "./tccView.jsx";
 import { useHistory, ProjectMenu } from "./systemProject.jsx";
 import { ArcFlashSection } from "./systemArcFlash.jsx";
 
@@ -714,7 +715,7 @@ export function SystemWorkspace({ goTo }) {
   const [sys, setSys, history] = useHistory(() => clone(EXAMPLE_SYSTEM));
   const [selection, setSelection] = useState(null);
   const [tool, setTool] = useState("select");
-  const [view, setView] = useState("site");
+  const [view, setView] = useState(() => (typeof location !== "undefined" && location.hash === "#system-tcc" ? "tcc" : typeof location !== "undefined" && location.hash === "#system-schedule" ? "schedule" : "site"));
   const [showTags, setShowTags] = useState(true);
   const [animate, setAnimate] = useState(true);
   const [motors, setMotors] = useState(true);
@@ -808,7 +809,7 @@ export function SystemWorkspace({ goTo }) {
         </div>
       </header>
       <nav className="tabs">
-        {[["site", "Site view"], ["schedule", "Schedules & fault table"]].map(([k, l]) => <button key={k} className={cx("tab", view === k && "is-active")} onClick={() => setView(k)}>{l}</button>)}
+        {[["site", "Site view"], ["schedule", "Schedules & studies"], ["tcc", "Coordination"]].map(([k, l]) => <button key={k} className={cx("tab", view === k && "is-active")} onClick={() => setView(k)}>{l}</button>)}
         <div className="ml-auto flex items-center gap-3 pr-1 text-[12.5px]">
           <Pill tone={status.tone}>{status.text}</Pill>
           {t && <span className="text-muted hidden md:inline">Demand <b className="text-fg font-mono">{fmt(t.load_kw, 0)}</b> kW · Losses <b className="text-fg font-mono">{fmt(t.loss_kw, 1)}</b> kW · Max I″k <b className="text-fg font-mono">{fmt(t.max_ik_ka, 1)}</b> kA</span>}
@@ -848,7 +849,7 @@ export function SystemWorkspace({ goTo }) {
                 : <SystemSummary sys={sys} analysis={analysis} checks={checks} />}
             </aside>
           </div>
-        ) : <Schedule updateEq={updateEq} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
+        ) : view === "tcc" ? <CoordinationView sys={sys} analysis={analysis} updateCon={updateCon} /> : <Schedule updateEq={updateEq} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
       </main>
       {lineupFor && sys.equipment.some((e) => e.id === lineupFor) && <GearLineupModal sys={sys} analysis={analysis} gearId={lineupFor} onClose={() => setLineupFor(null)} />}
     </div>

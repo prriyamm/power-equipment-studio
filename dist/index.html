@@ -7343,6 +7343,311 @@
     return out;
   }
 
+  // src/engine/tcc.js
+  var IEEE_CURVES = {
+    MI: { A: 0.0515, B: 0.114, p: 0.02, label: "IEEE moderately inverse" },
+    VI: { A: 19.61, B: 0.491, p: 2, label: "IEEE very inverse" },
+    EI: { A: 28.2, B: 0.1217, p: 2, label: "IEEE extremely inverse" }
+  };
+  var BRK_CLEAR = 0.05;
+  var LOG = Math.log10;
+  function lsigTimes(s, I) {
+    const Ir = s.ltpu * s.sensor;
+    const isd = s.stpu * Ir, ii = s.inst ? s.inst * s.sensor : Infinity;
+    const band = (lo) => {
+      const Ieff = lo ? I / 0.9 : I / 1.1;
+      if (Ieff >= ii) return lo ? 0.01 : BRK_CLEAR;
+      let t = Infinity;
+      if (Ieff > Ir * 1) t = s.ltd * Math.pow(6 * Ir / Ieff, 2) * (lo ? 0.8 : 1.2);
+      if (Ieff >= isd) {
+        let tsd = s.std;
+        if (s.st_i2t && Ieff < 10 * Ir) tsd = Math.max(s.std, s.std * Math.pow(10 * Ir / Ieff, 2));
+        tsd = lo ? tsd * 0.75 : tsd + 0.05;
+        t = Math.min(t, tsd);
+      }
+      return t;
+    };
+    return { min: band(true), max: band(false) };
+  }
+  function relayTimes(s, I) {
+    const c = IEEE_CURVES[s.curve] || IEEE_CURVES.VI;
+    const M = I / s.pickup;
+    const inst = s.inst_a && I >= s.inst_a ? 0.05 : Infinity;
+    const t51 = M > 1.05 ? s.td * (c.A / (Math.pow(M, c.p) - 1) + c.B) : Infinity;
+    const t = Math.min(t51, inst);
+    return { min: t, max: t === Infinity ? Infinity : t + 0.083 };
+  }
+  function deviceTimes(d, I) {
+    return d.kind === "relay" ? relayTimes(d.settings, I) : lsigTimes(d.settings, I);
+  }
+  function cableDamageTime(I, size, material = "Cu", sets = 1, t1 = 90, t2 = 250) {
+    const A = AREA_CMIL[String(size)];
+    if (!A) return null;
+    const [k, lam] = material === "Al" ? [0.0125, 228] : [0.0297, 234];
+    const Ic = I / sets;
+    return k * LOG((t2 + lam) / (t1 + lam)) * A * A / (Ic * Ic);
+  }
+  var SQ3 = Math.sqrt(3);
+  function defaultSettings(kind, rating_a, role, extra = {}) {
+    if (kind === "relay") {
+      return { curve: "VI", pickup: Math.max(rating_a * 1.25, 10), td: role === "main" ? 4 : 2, inst_a: extra.inst_a ?? null };
+    }
+    const sensor = rating_a;
+    return role === "main" ? { sensor, ltpu: 1, ltd: 12, stpu: 4, std: 0.3, st_i2t: false, inst: null } : { sensor, ltpu: 1, ltd: 4, stpu: 6, std: 0.1, st_i2t: false, inst: 12 };
+  }
+  function protectionPath(sys, analysis, startId, lineupTrips = {}) {
+    const eqs = Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }]));
+    if (!eqs[startId]) throw new Error(`No equipment "${startId}"`);
+    const res = analysis.equipment, cres = analysis.connectors;
+    const refKv = res[startId]?.kv;
+    const path = [], damage = [], faults = [];
+    const seen = /* @__PURE__ */ new Set();
+    let cur = startId;
+    for (let guard = 0; guard < 30; guard++) {
+      seen.add(cur);
+      const e = eqs[cur];
+      if (e.type === "utility") break;
+      if (e.type === "transformer") {
+        const fla = e.kva / (SQ3 * e.lv_kv);
+        damage.push({ kind: "transformer", id: e.id, label: `${e.id} damage (C57.109)`, fla_ref: fla * (e.lv_kv / refKv), kva: e.kva, inrush_ref: 12 * (e.kva / (SQ3 * e.hv_kv)) * (e.hv_kv / refKv) });
+        cur = e.id;
+      }
+      const incoming = sys.connectors.filter((c2) => {
+        if (c2.closed === false) return false;
+        const r2 = cres[c2.id];
+        if (!r2 || r2.open) return false;
+        const [fid] = c2.from.split("."), [tid] = c2.to.split(".");
+        if (tid === cur && !seen.has(fid)) return r2.dir > 0 || e.type === "transformer" && c2.to.endsWith(".hv");
+        if (fid === cur && !seen.has(tid)) return r2.dir < 0 || e.type === "transformer" && c2.from.endsWith(".hv");
+        return false;
+      }).filter((c2) => !(e.type === "transformer" && (c2.to === `${cur}.lv` || c2.from === `${cur}.lv`)));
+      if (!incoming.length) break;
+      const c = { ...CONNECTORS[incoming[0].kind].defaults, ...incoming[0] };
+      const srcEnd = c.to.split(".")[0] === cur ? c.from : c.to;
+      const srcId = srcEnd.split(".")[0];
+      const srcEq = eqs[srcId];
+      const kv = srcEq?.type === "transformer" ? srcEnd.endsWith(".lv") ? srcEq.lv_kv : srcEq.hv_kv : res[srcId]?.kv ?? res[cur]?.kv;
+      const ratio = kv / refKv;
+      const r = cres[c.id];
+      if (c.kind !== "direct") {
+        damage.push({ kind: "cable", id: c.id, label: `${c.id} ${c.sets}\xD7${c.size} ${c.material} damage (ICEA)`, size: c.size, material: c.material, sets: c.sets, ratio, insulation_c: c.insulation_c });
+      }
+      const isMain = srcEq?.type === "utility" || srcEq?.type === "transformer";
+      const mv = kv > 1;
+      const loadA2 = r?.i_a ?? 0;
+      const fed = eqs[cur];
+      const xfmrKvaFrom = (gearId) => sys.connectors.filter((x) => x.closed !== false && [x.from, x.to].some((t) => t.startsWith(gearId + "."))).map((x) => [x.from, x.to].find((t) => t.endsWith(".hv") && !t.startsWith(gearId + "."))).filter(Boolean).reduce((a, t) => a + (eqs[t.split(".")[0]]?.kva ?? 0), 0);
+      let base;
+      if (srcEq?.type === "transformer") base = srcEq.kva / (SQ3 * kv);
+      else if (fed?.type === "transformer") base = fed.kva / (SQ3 * kv);
+      else if (srcEq?.type === "utility") base = Math.max(xfmrKvaFrom(cur) / (SQ3 * kv), loadA2);
+      else base = Math.max(loadA2, 1);
+      const trip = lineupTrips[c.id] ?? null;
+      const kind = mv ? "relay" : "breaker";
+      const rating = kind === "relay" ? base : trip ?? Math.max(isMain ? base : loadA2 * 1.25, 15);
+      const ikDown = res[cur]?.ik_ka;
+      const extra = kind === "relay" && fed?.type === "transformer" ? { inst_a: Math.round((res[fed.id]?.lv_ik_ka ?? 0) * 1e3 * (fed.lv_kv / fed.hv_kv) * 1.3) || null } : {};
+      path.push({
+        id: `${c.id}@${srcId}`,
+        connector: c.id,
+        at: srcId,
+        kind,
+        kv,
+        ratio,
+        role: isMain ? "main" : "feeder",
+        rating_a: rating,
+        load_a: loadA2,
+        settings: { ...defaultSettings(kind, rating, isMain ? "main" : "feeder", extra) },
+        override: c.protection || null,
+        label: `${kind === "relay" ? "51/50" : "Breaker"} ${c.id} at ${srcId}`,
+        ik_ka_at_load_side: ikDown
+      });
+      faults.push({ id: cur, ka_ref: (res[cur]?.ik_ka ?? 0) * (res[cur]?.kv ?? refKv) / refKv, label: `I\u2033k ${cur}` });
+      cur = srcId;
+    }
+    autoCoordinate(path, faults);
+    for (const d of path) if (d.override) Object.assign(d.settings, d.override);
+    const st = eqs[startId];
+    const start = {};
+    if (st.type === "motor") {
+      const fla = st.hp * 0.746 / (st.eff * st.pf) / (SQ3 * refKv);
+      Object.assign(start, { kind: "motor", fla, lrc_a: st.lrc * fla, accel_s: st.accel_s ?? 5, stall_s: st.stall_s ?? 20 });
+    } else if (res[startId]?.i_a) start.kind = "load", start.fla = res[startId].i_a;
+    return { refKv, devices: path, damage, faults, start };
+  }
+  function autoCoordinate(path, faults = []) {
+    path.forEach((d, i) => {
+      if (i === 0) {
+        if (d.kind === "breaker") d.settings.inst = d.role === "main" ? null : 12;
+        return;
+      }
+      const down = path[i - 1], iMax = (faults[i - 1]?.ka_ref ?? 50) * 1e3;
+      const need = cti(down, d);
+      const fits = () => pairMargin(down, d, iMax) >= need - 1e-9;
+      if (d.kind === "breaker") {
+        d.settings.inst = null;
+        for (const std of [0.1, 0.2, 0.3, 0.4, 0.5]) for (const ltd of [4, 6, 12, 18, 24]) for (const stpu of [2, 3, 4, 5, 6, 8, 10]) {
+          Object.assign(d.settings, { std, ltd, stpu });
+          if (fits()) return;
+        }
+      } else {
+        d.settings.curve = down.kind === "breaker" ? "EI" : "VI";
+        if (down.kind === "breaker") d.settings.pickup = Math.max(d.settings.pickup, d.rating_a * 1.5);
+        for (let td = 0.5; td <= 15; td += 0.5) {
+          d.settings.td = td;
+          if (fits()) return;
+        }
+      }
+      d.uncoordinated = true;
+    });
+    return path;
+  }
+  var cti = (down, up) => up.kind === "relay" && down.kind === "relay" ? 0.3 : up.kind === "relay" ? 0.2 : 0;
+  function pairMargin(down, up, iMax) {
+    let worst = Infinity;
+    const lo = Math.max(down.rating_a, 10);
+    for (let k = 0; k <= 120; k++) {
+      const I = Math.pow(10, LOG(lo) + k / 120 * (LOG(Math.max(iMax, lo * 1.01)) - LOG(lo)));
+      const dd = deviceTimes(down, I / down.ratio), uu = deviceTimes(up, I / up.ratio);
+      if (dd.max === Infinity || uu.min === Infinity) continue;
+      worst = Math.min(worst, uu.min - dd.max);
+    }
+    return worst;
+  }
+  function coordination(pathResult, opts = {}) {
+    const { devices, faults } = pathResult;
+    const out = [];
+    for (let i = 0; i < devices.length - 1; i++) {
+      const down = devices[i], up = devices[i + 1];
+      const iMax = (faults[i]?.ka_ref ?? 50) * 1e3;
+      const need = up.kind === "relay" && down.kind === "relay" ? opts.ctiRelay ?? 0.3 : up.kind === "relay" ? opts.ctiRelayBrk ?? 0.2 : 0;
+      let worst = Infinity, worstI = null, ok = true;
+      for (let k = 0; k <= 120; k++) {
+        const I = Math.pow(10, LOG(Math.max(down.rating_a, 10)) + k / 120 * (LOG(iMax) - LOG(Math.max(down.rating_a, 10))));
+        const d = deviceTimes(down, I / down.ratio), u = deviceTimes(up, I / up.ratio);
+        if (d.max === Infinity) continue;
+        if (u.min === Infinity) continue;
+        const margin = u.min - d.max;
+        if (margin < worst) {
+          worst = margin;
+          worstI = I;
+        }
+        if (margin < need - 1e-9) ok = false;
+      }
+      out.push({ down: down.id, up: up.id, required_s: need, worst_margin_s: worst === Infinity ? null : worst, at_a: worstI, ok });
+    }
+    return out;
+  }
+
+  // src/ui/tccView.jsx
+  var { useMemo: useMemo6, useState: useState7 } = React;
+  var CSS4 = `
+.tcc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; }
+@media (max-width: 1100px) { .tcc-grid { grid-template-columns: minmax(0, 1fr); } }
+.tcc-svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.tcc-dec { stroke: var(--grid-major); stroke-width: 1; }
+.tcc-sub { stroke: var(--grid); stroke-width: 0.6; }
+.tcc-tick { font-family: var(--font-data); font-size: 10.5px; fill: var(--faint); }
+.tcc-axis { font-family: var(--font-ui); font-size: 11.5px; fill: var(--muted); }
+.tcc-lbl { font-family: var(--font-data); font-size: 10px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.tcc-dev { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.tcc-dev h4 { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.tcc-dev .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.tcc-set { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tcc-set label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); }
+`;
+  var PALETTE = ["#5aa0e0", "#e8c35a", "#c07ae0", "#4cc38a", "#ff8b4a", "#e05a8f", "#63d6d6"];
+  function CoordinationView({ sys, analysis, updateCon }) {
+    const starts = sys.equipment.filter((e) => ["motor", "load", "capacitor"].includes(e.type) || NODE_KINDS.has(e.type));
+    const [startId, setStartId] = useState7(() => (sys.equipment.find((e) => e.type === "motor") || starts[0])?.id);
+    const valid = starts.some((e) => e.id === startId) ? startId : starts[0]?.id;
+    const P3 = useMemo6(() => {
+      var _a;
+      if (!analysis?.ok || !valid) return null;
+      const trips = {};
+      for (const g of sys.equipment.filter((e) => NODE_KINDS.has(e.type))) {
+        try {
+          for (const c of buildLineup(sys, analysis, g.id).circuits) if (!(g.kv > 1)) trips[_a = c.tag] ?? (trips[_a] = c.trip);
+        } catch (err) {
+        }
+      }
+      try {
+        return protectionPath(sys, analysis, valid, trips);
+      } catch (err) {
+        return { error: err.message };
+      }
+    }, [sys, analysis, valid]);
+    const coord = useMemo6(() => P3 && !P3.error ? coordination(P3) : [], [P3]);
+    if (!analysis?.ok) return /* @__PURE__ */ React.createElement("div", { className: "p-6 text-muted" }, "Solve the system first.");
+    if (!P3 || P3.error) return /* @__PURE__ */ React.createElement("div", { className: "p-6 text-crit" }, P3?.error || "No protective path.");
+    const ratings = P3.devices.map((d) => d.rating_a * d.ratio);
+    const maxF = Math.max(...P3.faults.map((f) => f.ka_ref * 1e3), 1e3);
+    const x0 = Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.min(...ratings, P3.start.fla ?? Infinity) * 0.5)))), x1 = Math.pow(10, Math.ceil(Math.log10(maxF * 1.5)));
+    const y0 = 0.01, y1 = 1e3;
+    const W = 820, H = 620, L = 62, R = 16, T = 16, B = 46;
+    const X = (i) => L + (Math.log10(i) - Math.log10(x0)) / (Math.log10(x1) - Math.log10(x0)) * (W - L - R);
+    const Y = (t) => T + (Math.log10(y1) - Math.log10(Math.min(Math.max(t, y0), y1))) / (Math.log10(y1) - Math.log10(y0)) * (H - T - B);
+    const grid = [];
+    for (let e = Math.log10(x0); e <= Math.log10(x1); e++) for (let m = 1; m < 10; m++) {
+      const v = m * Math.pow(10, e);
+      if (v > x1) break;
+      grid.push(/* @__PURE__ */ React.createElement("line", { key: "x" + v, x1: X(v), x2: X(v), y1: T, y2: H - B, className: m === 1 ? "tcc-dec" : "tcc-sub" }));
+      if (m === 1) grid.push(/* @__PURE__ */ React.createElement("text", { key: "xt" + v, x: X(v), y: H - B + 16, textAnchor: "middle", className: "tcc-tick" }, v >= 1e3 ? `${v / 1e3}k` : v));
+    }
+    for (let e = -2; e <= 3; e++) for (let m = 1; m < 10; m++) {
+      const v = m * Math.pow(10, e);
+      if (v > y1) break;
+      grid.push(/* @__PURE__ */ React.createElement("line", { key: "y" + v, x1: L, x2: W - R, y1: Y(v), y2: Y(v), className: m === 1 ? "tcc-dec" : "tcc-sub" }));
+      if (m === 1) grid.push(/* @__PURE__ */ React.createElement("text", { key: "yt" + v, x: L - 6, y: Y(v) + 3.5, textAnchor: "end", className: "tcc-tick" }, v));
+    }
+    const N = 220, Is = Array.from({ length: N + 1 }, (_, k) => Math.pow(10, Math.log10(x0) + k / N * (Math.log10(x1) - Math.log10(x0))));
+    const curves = [];
+    P3.devices.forEach((d, k) => {
+      const col = PALETTE[k % PALETTE.length];
+      const lo = [], hi = [];
+      for (const I of Is) {
+        const tt = deviceTimes(d, I / d.ratio);
+        if (tt.min !== Infinity && tt.min <= y1) lo.push([X(I), Y(tt.min)]);
+        if (tt.max !== Infinity && tt.max <= y1) hi.push([X(I), Y(tt.max)]);
+      }
+      if (!lo.length) return;
+      const poly2 = [...hi, ...[...lo].reverse()].map((p) => p.join(",")).join(" ");
+      curves.push(/* @__PURE__ */ React.createElement("g", { key: d.id }, /* @__PURE__ */ React.createElement("polygon", { points: poly2, fill: col, fillOpacity: "0.16", stroke: "none" }), /* @__PURE__ */ React.createElement("polyline", { points: lo.map((p) => p.join(",")).join(" "), fill: "none", stroke: col, strokeWidth: "1.6" }), /* @__PURE__ */ React.createElement("polyline", { points: hi.map((p) => p.join(",")).join(" "), fill: "none", stroke: col, strokeWidth: "1.2", strokeOpacity: "0.7" }), /* @__PURE__ */ React.createElement("text", { x: hi[0]?.[0] + 4, y: Math.max(hi[0]?.[1] ?? T, T + 10) + 10, className: "tcc-lbl", fill: col }, d.connector)));
+    });
+    P3.damage.forEach((dm, k) => {
+      const pts = [];
+      if (dm.kind === "cable") {
+        for (const I of Is) {
+          const t = cableDamageTime(I / dm.ratio, dm.size, dm.material, dm.sets, dm.insulation_c >= 90 ? 90 : 75, dm.insulation_c >= 90 ? 250 : 200);
+          if (t && t >= y0 && t <= 10) pts.push([X(I), Y(t)]);
+        }
+      } else if (dm.kind === "transformer") {
+        for (const I of Is) {
+          const pu = I / dm.fla_ref;
+          const t = 1250 / (pu * pu);
+          if (pu >= 1.2 && t >= 2 && t <= y1) pts.push([X(I), Y(t)]);
+        }
+      }
+      if (pts.length > 1) curves.push(/* @__PURE__ */ React.createElement("g", { key: "dm" + k }, /* @__PURE__ */ React.createElement("polyline", { points: pts.map((p) => p.join(",")).join(" "), fill: "none", stroke: dm.kind === "transformer" ? "var(--crit)" : "var(--high)", strokeWidth: "1.4", strokeDasharray: "6 3" }), /* @__PURE__ */ React.createElement("text", { x: pts[pts.length - 1][0] + 3, y: pts[pts.length - 1][1] - 3, className: "tcc-lbl", fill: dm.kind === "transformer" ? "var(--crit)" : "var(--high)" }, dm.id, " damage")));
+      if (dm.kind === "transformer" && dm.inrush_ref >= x0 && dm.inrush_ref <= x1) curves.push(/* @__PURE__ */ React.createElement("g", { key: "in" + k }, /* @__PURE__ */ React.createElement("circle", { cx: X(dm.inrush_ref), cy: Y(0.1), r: "4", fill: "none", stroke: "var(--crit)", strokeWidth: "1.4" }), /* @__PURE__ */ React.createElement("text", { x: X(dm.inrush_ref) + 6, y: Y(0.1) + 4, className: "tcc-lbl", fill: "var(--crit)" }, dm.id, " inrush")));
+    });
+    if (P3.start.kind === "motor") {
+      const s = P3.start;
+      const d = `M${X(s.lrc_a)},${Y(y0)} V${Y(s.accel_s)} H${X(s.fla)} V${Y(y1)}`;
+      curves.push(/* @__PURE__ */ React.createElement("g", { key: "motor" }, /* @__PURE__ */ React.createElement("path", { d, fill: "none", stroke: "var(--fg)", strokeWidth: "1.6" }), /* @__PURE__ */ React.createElement("circle", { cx: X(s.lrc_a), cy: Y(s.stall_s), r: "4", fill: "var(--fg)" }), /* @__PURE__ */ React.createElement("text", { x: X(s.fla) + 4, y: Y(300), className: "tcc-lbl", fill: "var(--fg)" }, valid, " start")));
+    } else if (P3.start.fla) curves.push(/* @__PURE__ */ React.createElement("line", { key: "fla", x1: X(P3.start.fla), x2: X(P3.start.fla), y1: Y(y1), y2: Y(10), stroke: "var(--fg)", strokeWidth: "1.4" }));
+    P3.faults.forEach((f, k) => {
+      const I = f.ka_ref * 1e3;
+      if (I < x0 || I > x1) return;
+      const ty = 0.025 * Math.pow(2.2, k % 4);
+      curves.push(/* @__PURE__ */ React.createElement("g", { key: "f" + k }, /* @__PURE__ */ React.createElement("line", { x1: X(I), x2: X(I), y1: Y(y0), y2: Y(ty), stroke: "var(--accent)", strokeWidth: "2" }), /* @__PURE__ */ React.createElement("text", { x: X(I) - 3, y: Y(ty) - 4, textAnchor: "end", className: "tcc-lbl", fill: "var(--accent)" }, f.id, " ", fmt(f.ka_ref, 1), " kA")));
+    });
+    const setDev = (d, patch) => updateCon(d.connector, { protection: { ...sys.connectors.find((c) => c.id === d.connector)?.protection || {}, ...patch } });
+    const autoAll = () => P3.devices.forEach((d) => updateCon(d.connector, { protection: void 0 }));
+    const allOk = coord.every((c) => c.ok);
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 p-4 overflow-auto" }, /* @__PURE__ */ React.createElement("style", null, CSS4), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-3" }, /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 text-[13px]" }, /* @__PURE__ */ React.createElement("span", { className: "text-muted" }, "Path from"), /* @__PURE__ */ React.createElement("select", { id: "tcc-start", className: "num-input", style: { width: 220 }, value: valid, onChange: (e) => setStartId(e.target.value) }, starts.map((e) => /* @__PURE__ */ React.createElement("option", { key: e.id, value: e.id }, e.id, " \xB7 ", e.name || EQUIPMENT[e.type].label)))), /* @__PURE__ */ React.createElement(Pill, { tone: allOk ? "ok" : "crit" }, allOk ? "Selective" : "Not selective"), /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "Currents referred to ", P3.refKv < 1 ? `${Math.round(P3.refKv * 1e3)} V` : `${P3.refKv} kV`), /* @__PURE__ */ React.createElement(Btn, { className: "ml-auto", onClick: autoAll }, "Auto-coordinate")), /* @__PURE__ */ React.createElement("div", { className: "tcc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${H}`, className: "tcc-svg", role: "img", "aria-label": "Time-current coordination curves" }, grid, /* @__PURE__ */ React.createElement("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "none", stroke: "var(--line)" }), curves, /* @__PURE__ */ React.createElement("text", { x: (L + W - R) / 2, y: H - 8, textAnchor: "middle", className: "tcc-axis" }, "Current (A) at ", P3.refKv < 1 ? `${Math.round(P3.refKv * 1e3)} V` : `${P3.refKv} kV`), /* @__PURE__ */ React.createElement("text", { x: 14, y: (T + H - B) / 2, textAnchor: "middle", className: "tcc-axis", transform: `rotate(-90 14 ${(T + H - B) / 2})` }, "Time (s)"))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2 min-w-0" }, P3.devices.map((d, k) => /* @__PURE__ */ React.createElement("div", { key: d.id, className: "tcc-dev" }, /* @__PURE__ */ React.createElement("h4", null, /* @__PURE__ */ React.createElement("span", { className: "sw", style: { background: PALETTE[k % PALETTE.length] } }), d.label, d.override && /* @__PURE__ */ React.createElement(Pill, { tone: "accent" }, "manual"), d.uncoordinated && /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, "no selective setting")), /* @__PURE__ */ React.createElement("div", { className: "text-faint text-[11.5px]" }, d.kind === "relay" ? `${IEEE_CURVES[d.settings.curve]?.label} \xB7 base ${fmt(d.rating_a, 0)} A at ${d.kv} kV` : `sensor ${fmt(d.settings.sensor, 0)} A \xB7 ${d.role}`, " \xB7 load ", fmt(d.load_a, 0), " A"), d.kind === "relay" ? /* @__PURE__ */ React.createElement("div", { className: "tcc-set" }, /* @__PURE__ */ React.createElement("label", null, "Curve", /* @__PURE__ */ React.createElement("select", { className: "num-input", value: d.settings.curve, onChange: (e) => setDev(d, { curve: e.target.value }) }, Object.keys(IEEE_CURVES).map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c)))), /* @__PURE__ */ React.createElement("label", null, "Pickup A", /* @__PURE__ */ React.createElement(NumField, { value: +d.settings.pickup.toFixed(1), onCommit: (v) => setDev(d, { pickup: v }) })), /* @__PURE__ */ React.createElement("label", null, "Time dial", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.td, onCommit: (v) => setDev(d, { td: v }) })), /* @__PURE__ */ React.createElement("label", null, "50 inst A", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.inst_a ?? void 0, placeholder: "off", onCommit: (v) => setDev(d, { inst_a: v ?? null }) }))) : /* @__PURE__ */ React.createElement("div", { className: "tcc-set" }, /* @__PURE__ */ React.createElement("label", null, "LT pickup \xD7", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.ltpu, onCommit: (v) => setDev(d, { ltpu: v }) })), /* @__PURE__ */ React.createElement("label", null, "LT delay s", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.ltd, onCommit: (v) => setDev(d, { ltd: v }) })), /* @__PURE__ */ React.createElement("label", null, "ST pickup \xD7Ir", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.stpu, onCommit: (v) => setDev(d, { stpu: v }) })), /* @__PURE__ */ React.createElement("label", null, "ST delay s", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.std, onCommit: (v) => setDev(d, { std: v }) })), /* @__PURE__ */ React.createElement("label", null, "Inst \xD7In", /* @__PURE__ */ React.createElement(NumField, { value: d.settings.inst ?? void 0, placeholder: "off", onCommit: (v) => setDev(d, { inst: v ?? null }) }))))))), /* @__PURE__ */ React.createElement(Section, { title: "Selectivity", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "CTI 0.3 s relay\u2013relay, 0.2 s relay\u2013breaker (typical, IEEE 242); LV breakers selective when bands do not overlap") }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Downstream"), /* @__PURE__ */ React.createElement("th", null, "Upstream"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Required", /* @__PURE__ */ React.createElement("em", null, "s")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Worst margin", /* @__PURE__ */ React.createElement("em", null, "s")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "At", /* @__PURE__ */ React.createElement("em", null, "A")), /* @__PURE__ */ React.createElement("th", null, "Result"))), /* @__PURE__ */ React.createElement("tbody", null, coord.map((c) => /* @__PURE__ */ React.createElement("tr", { key: c.down + c.up }, /* @__PURE__ */ React.createElement("td", { className: "font-mono" }, c.down), /* @__PURE__ */ React.createElement("td", { className: "font-mono" }, c.up), /* @__PURE__ */ React.createElement("td", { className: "r" }, c.required_s), /* @__PURE__ */ React.createElement("td", { className: cx("r", !c.ok && "text-crit") }, c.worst_margin_s == null ? "\u2014" : c.worst_margin_s.toFixed(3)), /* @__PURE__ */ React.createElement("td", { className: "r" }, c.at_a ? fmt(c.at_a, 0) : "\u2014"), /* @__PURE__ */ React.createElement("td", null, c.ok ? /* @__PURE__ */ React.createElement(Pill, { tone: "ok" }, "Selective") : /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, "Overlap"))))))), /* @__PURE__ */ React.createElement("p", { className: "text-faint text-[12px] mt-2" }, "Breaker bands are generic LSIG shapes (\xB110 % current, typical clearing). Relays use IEEE C37.112 curves plus 5-cycle breaker time. Damage curves: cables ICEA P-32-382, transformers C57.109 thermal limit. Replace with the manufacturer's published curves before issuing a coordination study.")));
+  }
+
   // src/engine/systemLibrary.js
   var pvc = { raceway: "pvc", insulation_c: 90 };
   var DOUBLE_ENDED = {
@@ -7518,10 +7823,10 @@
   }
 
   // src/ui/systemProject.jsx
-  var { useState: useState7, useRef: useRef4, useEffect: useEffect6, useCallback: useCallback2 } = React;
+  var { useState: useState8, useRef: useRef4, useEffect: useEffect6, useCallback: useCallback2 } = React;
   var MAX_HISTORY = 100;
   function useHistory(initial) {
-    const [, force] = useState7(0);
+    const [, force] = useState8(0);
     const h = useRef4(null);
     if (!h.current) h.current = { present: typeof initial === "function" ? initial() : initial, past: [], future: [], held: null };
     const s = h.current;
@@ -7584,7 +7889,7 @@
     equipment: [{ id: "UTIL", type: "utility", name: "Utility 13.8 kV", kv: 13.8, mva_sc: 500, xr: 15, gx: 0, gy: 0 }],
     connectors: []
   });
-  var CSS4 = `
+  var CSS5 = `
 .sp-wrap { position: relative; }
 .sp-menu { min-width: 190px; }
 .sp-menu .sp-sep { height: 1px; background: var(--line); margin: 4px 0; }
@@ -7599,12 +7904,12 @@
 .sp-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
 `;
   function ProjectMenu({ sys, setSys, history, onLoaded }) {
-    const [open, setOpen] = useState7(false);
-    const [dialog, setDialog] = useState7(null);
-    const [paste, setPaste] = useState7("");
-    const [err, setErr] = useState7(null);
-    const [toast, setToast] = useState7(null);
-    const [downloads, setDownloads] = useState7(null);
+    const [open, setOpen] = useState8(false);
+    const [dialog, setDialog] = useState8(null);
+    const [paste, setPaste] = useState8("");
+    const [err, setErr] = useState8(null);
+    const [toast, setToast] = useState8(null);
+    const [downloads, setDownloads] = useState8(null);
     const fileRef = useRef4(null), rootRef = useRef4(null);
     const { undo, redo, canUndo, canRedo } = history;
     useEffect6(() => {
@@ -7699,7 +8004,7 @@
     } }, label, hint && /* @__PURE__ */ React.createElement("span", { className: "text-faint", style: { float: "right", marginLeft: 16 } }, hint));
     const mac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || "");
     const mod = mac ? "\u2318" : "Ctrl+";
-    return /* @__PURE__ */ React.createElement("div", { className: "sp-wrap", ref: rootRef }, /* @__PURE__ */ React.createElement("style", null, CSS4), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Btn, { onClick: () => setOpen(!open), active: open, title: "New, library, import and export" }, /* @__PURE__ */ React.createElement(Icon, { name: "layout", size: 14 }), "Project"), /* @__PURE__ */ React.createElement(Btn, { onClick: undo, disabled: !canUndo, title: `Undo (${mod}Z)` }, "Undo"), /* @__PURE__ */ React.createElement(Btn, { onClick: redo, disabled: !canRedo, title: `Redo (${mod}Shift+Z)` }, "Redo")), open && /* @__PURE__ */ React.createElement("div", { className: "menu sp-menu", style: { left: "auto", right: 0 } }, item("New package", () => load(emptyProject(), "New package with one utility")), item("Open library\u2026", () => setDialog("library")), /* @__PURE__ */ React.createElement("div", { className: "sp-sep" }), item("Import JSON\u2026", () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "sp-wrap", ref: rootRef }, /* @__PURE__ */ React.createElement("style", null, CSS5), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Btn, { onClick: () => setOpen(!open), active: open, title: "New, library, import and export" }, /* @__PURE__ */ React.createElement(Icon, { name: "layout", size: 14 }), "Project"), /* @__PURE__ */ React.createElement(Btn, { onClick: undo, disabled: !canUndo, title: `Undo (${mod}Z)` }, "Undo"), /* @__PURE__ */ React.createElement(Btn, { onClick: redo, disabled: !canRedo, title: `Redo (${mod}Shift+Z)` }, "Redo")), open && /* @__PURE__ */ React.createElement("div", { className: "menu sp-menu", style: { left: "auto", right: 0 } }, item("New package", () => load(emptyProject(), "New package with one utility")), item("Open library\u2026", () => setDialog("library")), /* @__PURE__ */ React.createElement("div", { className: "sp-sep" }), item("Import JSON\u2026", () => {
       setErr(null);
       setDialog("import");
     }), item("Export JSON", exportJson), /* @__PURE__ */ React.createElement("div", { className: "sp-sep" }), item("Undo", undo, !canUndo, `${mod}Z`), item("Redo", redo, !canRedo, `${mod}\u21E7Z`)), dialog && /* @__PURE__ */ React.createElement("div", { className: "modal-back", onClick: () => setDialog(null) }, /* @__PURE__ */ React.createElement("div", { className: "modal panel", style: { width: "min(760px, 100%)" }, role: "dialog", "aria-label": dialog === "library" ? "Example library" : "Import system JSON", onClick: (ev) => ev.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "sp-head" }, /* @__PURE__ */ React.createElement("b", null, dialog === "library" ? "Example library" : "Import system JSON"), /* @__PURE__ */ React.createElement("span", { className: "ml-auto" }), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setDialog(null), title: "Close" }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 14 }))), dialog === "library" ? /* @__PURE__ */ React.createElement("div", { className: "sp-lib" }, LIBRARY.map((l) => /* @__PURE__ */ React.createElement("button", { key: l.key, className: "sp-card", onClick: () => load(l.system, `Opened ${l.name}`) }, /* @__PURE__ */ React.createElement("b", null, l.name), /* @__PURE__ */ React.createElement("span", null, l.note), /* @__PURE__ */ React.createElement("i", null, l.system.equipment.length, " pieces \xB7 ", l.system.connectors.length, " runs")))) : /* @__PURE__ */ React.createElement("div", { className: "sp-body" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 items-center flex-wrap" }, /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: (ev) => {
@@ -8412,8 +8717,8 @@
   }
 
   // src/ui/systemArcFlash.jsx
-  var { useState: useState8, useMemo: useMemo6 } = React;
-  var CSS5 = `
+  var { useState: useState9, useMemo: useMemo7 } = React;
+  var CSS6 = `
 .af-ppe { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
 .af-l0 { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .af-l1 { color: #9ad45a; background: color-mix(in srgb, #9ad45a 14%, transparent); }
@@ -8435,8 +8740,8 @@
 .af-label footer { padding:5px 10px; font-size:10px; background:#eee; color:#444; }
 `;
   function ArcFlashSection({ sys, analysis, updateEq }) {
-    const rows = useMemo6(() => analysis?.ok ? arcFlashStudy(analysis, sys) : [], [analysis, sys]);
-    const [sel, setSel] = useState8(null);
+    const rows = useMemo7(() => analysis?.ok ? arcFlashStudy(analysis, sys) : [], [analysis, sys]);
+    const [sel, setSel] = useState9(null);
     if (!rows.length) return null;
     const cur = rows.find((r) => r.id === sel) || rows[0];
     const bad = (r) => !!r.error;
@@ -8446,14 +8751,14 @@
         title: "Arc flash \xB7 IEEE 1584-2018 incident energy",
         aside: /* @__PURE__ */ React.createElement(Pill, { tone: "crit", title: "Coefficient tables were entered from memory and some sets are approximations. Verify against a licensed copy of IEEE 1584-2018 before use." }, "Data ", DATA_STATUS)
       },
-      /* @__PURE__ */ React.createElement("style", null, CSS5),
+      /* @__PURE__ */ React.createElement("style", null, CSS6),
       /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit mb-3" }, "Placeholder coefficients: most IEEE 1584-2018 coefficient sets here were entered from memory or approximated. Results show the method and workflow only. Do not use them for labels or PPE selection until every coefficient is checked against a licensed copy of the standard."),
       /* @__PURE__ */ React.createElement("div", { className: "af-body px-4 pb-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Equipment"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "kV"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Ibf", /* @__PURE__ */ React.createElement("em", null, "kA")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Iarc", /* @__PURE__ */ React.createElement("em", null, "kA")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Iarc min", /* @__PURE__ */ React.createElement("em", null, "kA")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Clearing", /* @__PURE__ */ React.createElement("em", null, "ms")), /* @__PURE__ */ React.createElement("th", null, "Config"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Gap", /* @__PURE__ */ React.createElement("em", null, "mm")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Dist", /* @__PURE__ */ React.createElement("em", null, "mm")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "E", /* @__PURE__ */ React.createElement("em", null, "cal/cm\xB2")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "AFB", /* @__PURE__ */ React.createElement("em", null, "mm")), /* @__PURE__ */ React.createElement("th", null, "PPE level (informative)"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.id, className: cx("clickable", r.id === cur.id && "is-selected"), onClick: () => setSel(r.id) }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "font-mono" }, r.id), " ", /* @__PURE__ */ React.createElement("span", { className: "text-muted" }, r.class_label)), /* @__PURE__ */ React.createElement("td", { className: "r" }, r.input.voc_kv), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(r.input.ibf_ka, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, bad(r) ? "\u2014" : fmt(r.iarc_ka, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, bad(r) ? "\u2014" : fmt(r.iarc_min_ka, 2)), /* @__PURE__ */ React.createElement("td", { className: "r", onClick: (ev) => ev.stopPropagation() }, /* @__PURE__ */ React.createElement(NumField, { className: "num-input", value: r.input.clearing_ms, onCommit: (v) => updateEq(r.id, { af_clearing_ms: v > 0 ? v : void 0 }) }), r.clearing_assumed && /* @__PURE__ */ React.createElement("div", { className: "af-note", title: r.note }, "assumed")), /* @__PURE__ */ React.createElement("td", null, r.input.config), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(r.input.gap_mm, 0)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(r.input.working_mm, 0)), /* @__PURE__ */ React.createElement("td", { className: "r" }, bad(r) ? "\u2014" : fmt(r.e_cal_cm2, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, bad(r) ? "\u2014" : fmt(r.afb_mm, 0)), /* @__PURE__ */ React.createElement("td", null, bad(r) ? /* @__PURE__ */ React.createElement("span", { className: "text-crit", title: r.error }, "error") : /* @__PURE__ */ React.createElement("span", { className: cx("af-ppe", `af-l${r.ppe.level}`) }, r.ppe.label))))))), /* @__PURE__ */ React.createElement("p", { className: "text-faint text-[12px] leading-relaxed mt-2" }, "Ibf = I\u2033k \xF7 c", /* @__PURE__ */ React.createElement("sub", null, "max"), " (the IEC 60909 voltage factor is a margin; IEEE 1584 wants bolted fault at nominal voltage). Gap, distance, enclosure and configuration are the Table 8 class defaults; override with ", /* @__PURE__ */ React.createElement("span", { className: "font-mono" }, "af_gap_mm"), ", ", /* @__PURE__ */ React.createElement("span", { className: "font-mono" }, "af_working_mm"), ", ", /* @__PURE__ */ React.createElement("span", { className: "font-mono" }, "af_config"), ". Clearing times are ", /* @__PURE__ */ React.createElement("b", null, "assumed"), " (200 ms MV, 300 ms LV) until you enter the upstream device clearing time. Each row is the worse of the full and reduced arcing-current scenarios.", cur.warnings?.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "af-note" }, " ", cur.warnings.join(" ")))), !bad(cur) && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: cx("af-label", cur.e_cal_cm2 < 40 ? "is-warning" : "is-danger"), "aria-label": "Arc flash label preview" }, /* @__PURE__ */ React.createElement("header", null, cur.e_cal_cm2 < 40 ? "WARNING" : "DANGER"), /* @__PURE__ */ React.createElement("div", { className: "af-big" }, "Arc flash and shock hazard", /* @__PURE__ */ React.createElement("br", null), "appropriate PPE required", /* @__PURE__ */ React.createElement("b", null, fmt(cur.e_cal_cm2, 1), " cal/cm\xB2"), "incident energy at ", fmt(cur.input.working_mm, 0), " mm"), /* @__PURE__ */ React.createElement("div", { className: "af-row" }, /* @__PURE__ */ React.createElement("span", null, "Arc flash boundary"), /* @__PURE__ */ React.createElement("b", null, fmt(cur.afb_mm, 0), " mm")), /* @__PURE__ */ React.createElement("div", { className: "af-row" }, /* @__PURE__ */ React.createElement("span", null, "PPE level (informative)"), /* @__PURE__ */ React.createElement("b", null, cur.ppe.level === 5 ? "none" : cur.ppe.level === 0 ? "\u2014" : `Cat ${cur.ppe.level}`)), /* @__PURE__ */ React.createElement("div", { className: "af-row" }, /* @__PURE__ */ React.createElement("span", null, "Nominal voltage"), /* @__PURE__ */ React.createElement("b", null, cur.input.voc_kv < 1 ? Math.round(cur.input.voc_kv * 1e3) + " V" : cur.input.voc_kv + " kV")), /* @__PURE__ */ React.createElement("div", { className: "af-row" }, /* @__PURE__ */ React.createElement("span", null, "Limited approach"), /* @__PURE__ */ React.createElement("b", null, "\u2014")), /* @__PURE__ */ React.createElement("div", { className: "af-row" }, /* @__PURE__ */ React.createElement("span", null, "Restricted approach"), /* @__PURE__ */ React.createElement("b", null, "\u2014")), /* @__PURE__ */ React.createElement("div", { className: "af-row" }, /* @__PURE__ */ React.createElement("span", null, "Equipment"), /* @__PURE__ */ React.createElement("b", null, cur.id)), /* @__PURE__ */ React.createElement("footer", null, "IEEE 1584-2018 \xB7 data ", cur.data_status, " \xB7 ", cur.clearing_assumed ? "clearing time assumed" : `${cur.input.clearing_ms} ms clearing`, " \xB7 preview only"))))
     );
   }
 
   // src/ui/system.jsx
-  var { useState: useState9, useMemo: useMemo7, useEffect: useEffect7, useRef: useRef5, useCallback: useCallback3 } = React;
+  var { useState: useState10, useMemo: useMemo8, useEffect: useEffect7, useRef: useRef5, useCallback: useCallback3 } = React;
   var U = 34;
   var C30 = Math.cos(Math.PI / 6);
   var S30 = 0.5;
@@ -8692,10 +8997,10 @@
   }
   function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onMoveEnd, onConnect, showTags, animate, fitSignal }) {
     const wrapRef = useRef5(null), svgRef = useRef5(null);
-    const [size, setSize] = useState9({ w: 1e3, h: 640 });
-    const [view, setView] = useState9({ x: -600, y: -100, w: 1400 });
+    const [size, setSize] = useState10({ w: 1e3, h: 640 });
+    const [view, setView] = useState10({ x: -600, y: -100, w: 1400 });
     const drag = useRef5(null);
-    const [pending2, setPending] = useState9(null);
+    const [pending2, setPending] = useState10(null);
     useEffect7(() => {
       const el = wrapRef.current;
       const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 1e3, h: el.clientHeight || 640 }));
@@ -8706,8 +9011,8 @@
       if (tool !== "connect") setPending(null);
     }, [tool]);
     const vh = view.w * (size.h / size.w);
-    const eqMap = useMemo7(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
-    const { slots, routes } = useMemo7(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
+    const eqMap = useMemo8(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
+    const { slots, routes } = useMemo8(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
     const fit = useCallback3(() => {
       const pts = [];
       for (const e of Object.values(eqMap)) {
@@ -8861,7 +9166,7 @@
   }
   function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc }) {
     const full = { ...EQUIPMENT[e.type].defaults, ...e };
-    const [confirm, setConfirm] = useState9(false);
+    const [confirm, setConfirm] = useState10(false);
     useEffect7(() => setConfirm(false), [e.id]);
     return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "label" }, EQUIPMENT[e.type].label), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono truncate" }, e.id)), /* @__PURE__ */ React.createElement(Pill, { tone: statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : statusOf(e, r) === "off" ? "muted" : r ? "ok" : "muted" }, r ? r.deenergized ? "De-energized" : statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK" : "No result")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Tag" }, /* @__PURE__ */ React.createElement("input", { id: "eq-id", className: "num-input", defaultValue: e.id, key: e.id, onBlur: (ev) => rename(e.id, ev.target.value.trim()), onKeyDown: (ev) => ev.key === "Enter" && ev.currentTarget.blur() })), /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { id: "eq-name", className: "num-input", value: e.name ?? "", onChange: (ev) => update(e.id, { name: ev.target.value }) })), EQ_FIELDS[e.type].map(([k, l, u]) => /* @__PURE__ */ React.createElement(Field, { key: k, label: l, unit: u }, /* @__PURE__ */ React.createElement(NumField, { id: `eq-${k}`, value: e[k], placeholder: String(full[k]), onCommit: (v) => update(e.id, { [k]: v }) }))), e.type === "motor" && /* @__PURE__ */ React.createElement(Field, { label: "Fault contribution" }, /* @__PURE__ */ React.createElement("select", { id: "eq-contrib", className: "num-input", value: full.contributes ? "yes" : "no", onChange: (ev) => update(e.id, { contributes: ev.target.value === "yes" }) }, /* @__PURE__ */ React.createElement("option", { value: "yes" }, "Included"), /* @__PURE__ */ React.createElement("option", { value: "no" }, "Excluded")))), r?.deenergized && /* @__PURE__ */ React.createElement("div", { className: "notice notice-info" }, "No supply reaches ", e.id, ". Close the feeder breaker or tie upstream to energize it."), r && !r.deenergized && /* @__PURE__ */ React.createElement("div", { className: "res-block" }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Load flow", scShown && " \xB7 short circuit"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Voltage"), /* @__PURE__ */ React.createElement("dd", { style: { color: r.vflag === "ok" ? "var(--ok)" : r.vflag === "low" ? "var(--low)" : "var(--high)" } }, r.v_pu.toFixed(4), " pu \xB7 ", fmtKv(r.v_kv)), /* @__PURE__ */ React.createElement("dt", null, "Angle"), /* @__PURE__ */ React.createElement("dd", null, r.angle.toFixed(2), "\xB0"), r.bus_i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Bus current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.bus_i_a, 0), " A (", fmt(r.loading_pct, 1), " %)")), r.s_kva != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Through"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.s_kva, 0), " kVA (", fmt(r.loading_pct, 1), " %)")), r.i_hv_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "HV / LV current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_hv_a, 1), " / ", fmt(r.i_lv_a, 0), " A")), r.loss_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Losses"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.loss_kw, 2), " kW")), r.p_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "P"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_kw, 1), " kW")), r.q_kvar != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Q"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.q_kvar, 1), " kvar")), r.i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_a, 1), " A")), r.ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "I\u2033k (3\u03C6)"), /* @__PURE__ */ React.createElement("dd", { className: r.sc_duty_pct > 100 ? "text-crit" : "" }, fmt(r.ik_ka, 2), " kA", r.sc_duty_pct != null && ` \xB7 ${fmt(r.sc_duty_pct, 0)} % of ${full.sc_ka} kA`)), r.ip_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Peak ip"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.ip_ka, 2), " kA \xB7 X/R ", fmt(r.xr_fault, 1))), r.lv_ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "LV terminal I\u2033k"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.lv_ik_ka, 2), " kA")), r.contribution_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Motor contribution"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.contribution_ka, 2), " kA")))), /* @__PURE__ */ React.createElement(DesignCheckBlock, { dc }), NODE_KINDS.has(e.type) && openLineup && /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => openLineup(e.id) }, "Lineup elevation & breaker schedule"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, !confirm ? /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => setConfirm(true) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger-solid", onClick: () => remove(e.id) }, "Delete ", e.id, " and its connections"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setConfirm(false) }, "Cancel"))));
   }
@@ -8896,18 +9201,18 @@
   var ADDABLE = [["transformer", "Transformer"], ["switchgear", "Switchgear"], ["mcc", "MCC"], ["motor", "Motor"], ["load", "Load"], ["capacitor", "Capacitor"], ["generator", "Generator"], ["utility", "Utility"]];
   function SystemWorkspace({ goTo }) {
     const [sys, setSys, history] = useHistory(() => clone(EXAMPLE_SYSTEM));
-    const [selection, setSelection] = useState9(null);
-    const [tool, setTool] = useState9("select");
-    const [view, setView] = useState9("site");
-    const [showTags, setShowTags] = useState9(true);
-    const [animate, setAnimate] = useState9(true);
-    const [motors, setMotors] = useState9(true);
-    const [fitSignal, setFitSignal] = useState9(0);
-    const [addOpen, setAddOpen] = useState9(false);
-    const [lineupFor, setLineupFor] = useState9(() => typeof location !== "undefined" && location.hash === "#system-lineup" ? "SWGR-LV" : null);
-    const [mode, setMode] = useState9(() => typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso");
-    const analysis = useMemo7(() => analyseSystem(sys, { motors }), [sys, motors]);
-    const [checks, setChecks] = useState9({});
+    const [selection, setSelection] = useState10(null);
+    const [tool, setTool] = useState10("select");
+    const [view, setView] = useState10(() => typeof location !== "undefined" && location.hash === "#system-tcc" ? "tcc" : typeof location !== "undefined" && location.hash === "#system-schedule" ? "schedule" : "site");
+    const [showTags, setShowTags] = useState10(true);
+    const [animate, setAnimate] = useState10(true);
+    const [motors, setMotors] = useState10(true);
+    const [fitSignal, setFitSignal] = useState10(0);
+    const [addOpen, setAddOpen] = useState10(false);
+    const [lineupFor, setLineupFor] = useState10(() => typeof location !== "undefined" && location.hash === "#system-lineup" ? "SWGR-LV" : null);
+    const [mode, setMode] = useState10(() => typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso");
+    const analysis = useMemo8(() => analyseSystem(sys, { motors }), [sys, motors]);
+    const [checks, setChecks] = useState10({});
     useEffect7(() => {
       const t2 = setTimeout(() => {
         try {
@@ -9019,7 +9324,7 @@
       setSys(clone(EXAMPLE_SYSTEM));
       setSelection(null);
       setFitSignal((x) => x + 1);
-    } }, "Reset example"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs" }, [["site", "Site view"], ["schedule", "Schedules & fault table"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, className: cx("tab", view === k && "is-active"), onClick: () => setView(k) }, l)), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), t && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Demand ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.load_kw, 0)), " kW \xB7 Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.loss_kw, 1)), " kW \xB7 Max I\u2033k ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.max_ik_ka, 1)), " kA"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", view === "site" && "is-diagram") }, view === "site" ? /* @__PURE__ */ React.createElement("div", { className: "diagram-grid" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-w-0 min-h-0 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "toolbar" }, /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: mode === "iso", onClick: () => setMode("iso"), title: "Isometric site plan" }, "Iso"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "3d", onClick: () => {
+    } }, "Reset example"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs" }, [["site", "Site view"], ["schedule", "Schedules & studies"], ["tcc", "Coordination"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, className: cx("tab", view === k && "is-active"), onClick: () => setView(k) }, l)), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), t && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Demand ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.load_kw, 0)), " kW \xB7 Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.loss_kw, 1)), " kW \xB7 Max I\u2033k ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.max_ik_ka, 1)), " kA"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", view === "site" && "is-diagram") }, view === "site" ? /* @__PURE__ */ React.createElement("div", { className: "diagram-grid" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-w-0 min-h-0 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "toolbar" }, /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: mode === "iso", onClick: () => setMode("iso"), title: "Isometric site plan" }, "Iso"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "3d", onClick: () => {
       setMode("3d");
       setTool("select");
     }, title: "Orbitable 3D model" }, "3D"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "sld", onClick: () => {
@@ -9039,7 +9344,7 @@
           goTo("cablebus");
         }
       }
-    ) : /* @__PURE__ */ React.createElement(SystemSummary, { sys, analysis, checks }))) : /* @__PURE__ */ React.createElement(Schedule, { updateEq, checks, sys, analysis, select: (s) => {
+    ) : /* @__PURE__ */ React.createElement(SystemSummary, { sys, analysis, checks }))) : view === "tcc" ? /* @__PURE__ */ React.createElement(CoordinationView, { sys, analysis, updateCon }) : /* @__PURE__ */ React.createElement(Schedule, { updateEq, checks, sys, analysis, select: (s) => {
       setSelection(s);
       setView("site");
     } })), lineupFor && sys.equipment.some((e) => e.id === lineupFor) && /* @__PURE__ */ React.createElement(GearLineupModal, { sys, analysis, gearId: lineupFor, onClose: () => setLineupFor(null) }));
@@ -9051,7 +9356,7 @@
   };
 
   // src/ui/switchgear.jsx
-  var { useState: useState10, useMemo: useMemo8 } = React;
+  var { useState: useState11, useMemo: useMemo9 } = React;
   var EXAMPLE2 = {
     current_a: 3e3,
     bar_thickness_mm: 6.35,
@@ -9094,13 +9399,13 @@
   var rgb = (c, k = 1) => `rgb(${c.map((v) => Math.round(Math.min(255, v * k))).join(",")})`;
   var PH = ["var(--ph-a)", "var(--ph-b)", "var(--ph-c)"];
   function SwitchgearWorkspace() {
-    const [inp, setInp] = useState10(() => busInput(EXAMPLE2));
-    const { result: r, error, coarse } = useMemo8(() => solve2(inp), [inp]);
+    const [inp, setInp] = useState11(() => busInput(EXAMPLE2));
+    const { result: r, error, coarse } = useMemo9(() => solve2(inp), [inp]);
     const set = (k, optional) => (v) => setInp((s) => v === void 0 && !optional ? s : { ...s, [k]: v === void 0 ? null : v });
     const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `sg-${k}`, value: inp[k] === null ? void 0 : inp[k], placeholder: o.ph, onCommit: set(k, o.optional) }));
     const pick = (k, label, opts, parse) => /* @__PURE__ */ React.createElement(Field, { label }, /* @__PURE__ */ React.createElement("select", { id: `sg-${k}`, className: "num-input", value: inp[k], onChange: (e) => setInp((s) => ({ ...s, [k]: parse ? parse(e.target.value) : e.target.value })) }, opts.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))));
     const nFail = r ? r.checks.filter((c) => !c.passed).length : 0;
-    return /* @__PURE__ */ React.createElement("div", { className: "ws" }, /* @__PURE__ */ React.createElement("style", null, CSS6), /* @__PURE__ */ React.createElement("header", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "ws-title" }, "Switchgear bus"), /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[12.5px]" }, "Switchboard main bus and risers \xB7 3-phase"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, r && /* @__PURE__ */ React.createElement(Pill, { tone: r.passed ? "ok" : "crit" }, r.passed ? "All checks pass" : `${nFail} check(s) fail`), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setInp(busInput(EXAMPLE2)), title: "Restore the 3000 A example inputs" }, "Reset to example"))), /* @__PURE__ */ React.createElement("div", { className: "main" }, /* @__PURE__ */ React.createElement("div", { className: "sg-grid" }, /* @__PURE__ */ React.createElement("div", { className: "sg-form" }, /* @__PURE__ */ React.createElement(Section, { title: "Load and standard" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, num2("current_a", "Bus current", "A"), pick("standard", "Standard", [["UL 891", "UL 891"], ["ANSI C37.20.1", "ANSI C37.20.1"], ["ANSI C37.20.2", "ANSI C37.20.2"], ["ANSI C37.20.3", "ANSI C37.20.3"]]), num2("voltage_v", "Voltage", "V"), num2("frequency_hz", "Frequency", "Hz"))), /* @__PURE__ */ React.createElement(Section, { title: "Bars" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]]), pick("bars_per_phase", "Bars per phase", [1, 2, 3, 4, 5, 6].map((n) => [n, String(n)]), Number), num2("bar_thickness_mm", "Bar thickness", "mm"), num2("bar_width_mm", "Bar width", "mm"), num2("bar_gap_mm", "Gap between bars", "mm", { optional: true, ph: "= thickness" }), pick("finish", "Surface finish", Object.keys(EMISSIVITY).map((f) => [f, f[0].toUpperCase() + f.slice(1)])), pick("orientation", "Orientation", [["edge_to_edge", "Edge to edge"], ["face_to_face", "Face to face"]]), num2("phase_spacing_mm", "Phase spacing", "mm", { hint: "centre to centre" }))), /* @__PURE__ */ React.createElement(Section, { title: "Temperature" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, num2("ambient_c", "Room ambient", "\xB0C"), num2("internal_air_rise_c", "Enclosure air rise", "\xB0C", { hint: "above room" }), num2("max_rise_c", "Allowed rise", "\xB0C", { hint: "UNVERIFIED default" }))), /* @__PURE__ */ React.createElement(Section, { title: "Short circuit and supports" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, num2("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" }), num2("x_over_r", "X/R", ""), num2("support_span_m", "Support span", "m"), pick("support_condition", "Span condition", Object.keys(SPAN).map((c) => [c, c[0].toUpperCase() + c.slice(1)])), num2("yield_mpa", "Bar yield strength", "MPa", { optional: true, ph: inp.material === "Cu" ? "200 typical" : "165 typical" }), num2("support_rating_n", "Support rating", "N", { optional: true, ph: "not checked" })))), /* @__PURE__ */ React.createElement("div", { className: "sg-results" }, error && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Cannot analyse."), " ", error), r && /* @__PURE__ */ React.createElement(Results2, { r, coarse })))));
+    return /* @__PURE__ */ React.createElement("div", { className: "ws" }, /* @__PURE__ */ React.createElement("style", null, CSS7), /* @__PURE__ */ React.createElement("header", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "ws-title" }, "Switchgear bus"), /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[12.5px]" }, "Switchboard main bus and risers \xB7 3-phase"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, r && /* @__PURE__ */ React.createElement(Pill, { tone: r.passed ? "ok" : "crit" }, r.passed ? "All checks pass" : `${nFail} check(s) fail`), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setInp(busInput(EXAMPLE2)), title: "Restore the 3000 A example inputs" }, "Reset to example"))), /* @__PURE__ */ React.createElement("div", { className: "main" }, /* @__PURE__ */ React.createElement("div", { className: "sg-grid" }, /* @__PURE__ */ React.createElement("div", { className: "sg-form" }, /* @__PURE__ */ React.createElement(Section, { title: "Load and standard" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, num2("current_a", "Bus current", "A"), pick("standard", "Standard", [["UL 891", "UL 891"], ["ANSI C37.20.1", "ANSI C37.20.1"], ["ANSI C37.20.2", "ANSI C37.20.2"], ["ANSI C37.20.3", "ANSI C37.20.3"]]), num2("voltage_v", "Voltage", "V"), num2("frequency_hz", "Frequency", "Hz"))), /* @__PURE__ */ React.createElement(Section, { title: "Bars" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]]), pick("bars_per_phase", "Bars per phase", [1, 2, 3, 4, 5, 6].map((n) => [n, String(n)]), Number), num2("bar_thickness_mm", "Bar thickness", "mm"), num2("bar_width_mm", "Bar width", "mm"), num2("bar_gap_mm", "Gap between bars", "mm", { optional: true, ph: "= thickness" }), pick("finish", "Surface finish", Object.keys(EMISSIVITY).map((f) => [f, f[0].toUpperCase() + f.slice(1)])), pick("orientation", "Orientation", [["edge_to_edge", "Edge to edge"], ["face_to_face", "Face to face"]]), num2("phase_spacing_mm", "Phase spacing", "mm", { hint: "centre to centre" }))), /* @__PURE__ */ React.createElement(Section, { title: "Temperature" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, num2("ambient_c", "Room ambient", "\xB0C"), num2("internal_air_rise_c", "Enclosure air rise", "\xB0C", { hint: "above room" }), num2("max_rise_c", "Allowed rise", "\xB0C", { hint: "UNVERIFIED default" }))), /* @__PURE__ */ React.createElement(Section, { title: "Short circuit and supports" }, /* @__PURE__ */ React.createElement("div", { className: "sg-fields" }, num2("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" }), num2("x_over_r", "X/R", ""), num2("support_span_m", "Support span", "m"), pick("support_condition", "Span condition", Object.keys(SPAN).map((c) => [c, c[0].toUpperCase() + c.slice(1)])), num2("yield_mpa", "Bar yield strength", "MPa", { optional: true, ph: inp.material === "Cu" ? "200 typical" : "165 typical" }), num2("support_rating_n", "Support rating", "N", { optional: true, ph: "not checked" })))), /* @__PURE__ */ React.createElement("div", { className: "sg-results" }, error && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Cannot analyse."), " ", error), r && /* @__PURE__ */ React.createElement(Results2, { r, coarse })))));
   }
   var lim = (r, name) => r.checks.find((c) => c.name.startsWith(name));
   function Results2({ r, coarse }) {
@@ -9282,7 +9587,7 @@
       })
     ), /* @__PURE__ */ React.createElement("div", { className: "sg-scale" }, /* @__PURE__ */ React.createElement("div", { className: "sg-scale-bar", style: { background: grad }, role: "img", "aria-label": `Temperature scale ${fmt(tMin, 0)} to ${fmt(tMax, 0)} degrees C` }, /* @__PURE__ */ React.createElement("i", { className: "sg-mark", style: { left: `${gradDom(limPos) * 100}%` }, title: `limit ${fmt(limitT, 0)} \xB0C` }), /* @__PURE__ */ React.createElement("i", { className: "sg-mark sg-mark-now", style: { left: `${gradDom((riseT - tMin) / (tMax - tMin)) * 100}%` }, title: `bars ${fmt(riseT, 0)} \xB0C` })), /* @__PURE__ */ React.createElement("div", { className: "sg-scale-ticks" }, ticks.map((v, q) => /* @__PURE__ */ React.createElement("span", { key: q }, fmt(v, 0), " \xB0C"))), /* @__PURE__ */ React.createElement("div", { className: "sg-legend" }, /* @__PURE__ */ React.createElement("span", null, "Bars at ", fmt(riseT, 0), " \xB0C (", fmt(rise, 1), " K over ", fmt(air, 0), " \xB0C air)"), /* @__PURE__ */ React.createElement("span", { className: "text-faint" }, "marker: limit ", fmt(limitT, 0), " \xB0C \xB7 supports every ", fmt(i.support_span_m, 2), " m \xB7 bars ", fmt(t, 2), " mm drawn \u2265 8 mm thick \xB7 enclosure illustrative"))));
   }
-  var CSS6 = `
+  var CSS7 = `
 .sg-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
 .sg-form, .sg-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .sg-results .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
@@ -9316,7 +9621,7 @@
 `;
 
   // src/ui/transformer.jsx
-  var { useState: useState11, useMemo: useMemo9 } = React;
+  var { useState: useState12, useMemo: useMemo10 } = React;
   var EXAMPLE3 = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
   function solve3(inp, tune) {
     try {
@@ -9327,9 +9632,9 @@
     }
   }
   function TransformerWorkspace() {
-    const [inp, setInp] = useState11(() => transformerInput(EXAMPLE3));
-    const [tune, setTune] = useState11(true);
-    const { result: r, error } = useMemo9(() => solve3(inp, tune), [inp, tune]);
+    const [inp, setInp] = useState12(() => transformerInput(EXAMPLE3));
+    const [tune, setTune] = useState12(true);
+    const { result: r, error } = useMemo10(() => solve3(inp, tune), [inp, tune]);
     const set = (k, optional) => (v) => setInp((s) => v === void 0 && !optional ? s : { ...s, [k]: v === void 0 ? null : v });
     const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `xf-${k}`, value: inp[k] === null ? void 0 : inp[k], placeholder: o.ph, disabled: o.disabled, onCommit: set(k, o.optional) }));
     const pick = (k, label, opts) => /* @__PURE__ */ React.createElement(Field, { label }, /* @__PURE__ */ React.createElement("select", { id: `xf-${k}`, className: "num-input", value: inp[k], onChange: (e) => setInp((s) => ({ ...s, [k]: e.target.value })) }, opts.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))));
@@ -9744,8 +10049,8 @@
   }
 
   // src/ui/cablebus.jsx
-  var { useState: useState12, useMemo: useMemo10, useEffect: useEffect8, useRef: useRef6 } = React;
-  var CSS7 = `
+  var { useState: useState13, useMemo: useMemo11, useEffect: useEffect8, useRef: useRef6 } = React;
+  var CSS8 = `
 .cb-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
 .cb-form, .cb-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .cb-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
@@ -9899,7 +10204,7 @@
     return /* @__PURE__ */ React.createElement("svg", { className: "chart", viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Current per conductor" }, [0, 0.5, 1].map((t) => /* @__PURE__ */ React.createElement("g", { key: t }, /* @__PURE__ */ React.createElement("line", { className: "gridline", x1: L, x2: W - R, y1: y(maxV / 1.12 * t), y2: y(maxV / 1.12 * t) }), /* @__PURE__ */ React.createElement("text", { className: "tick", x: L - 6, y: y(maxV / 1.12 * t) + 3, textAnchor: "end" }, fmt(maxV / 1.12 * t, 0)))), rows.map((r, i) => /* @__PURE__ */ React.createElement("g", { key: r.index }, /* @__PURE__ */ React.createElement("rect", { x: L + i * bw + bw * 0.14, width: bw * 0.72, y: y(r.current_a), height: Math.max(0, y(0) - y(r.current_a)), fill: PH_COLOR[r.phase], rx: "2" }, /* @__PURE__ */ React.createElement("title", null, `${r.phase} (tier ${r.tier + 1}): ${r.current_a} A, ${r.share_pct} % of equal share, loading ${r.loading_pct} %`)), n <= 12 && /* @__PURE__ */ React.createElement("text", { className: "tick", x: L + i * bw + bw / 2, y: y(r.current_a) - 4, textAnchor: "middle" }, fmt(r.current_a, 0)), /* @__PURE__ */ React.createElement("text", { className: "tick", x: L + i * bw + bw / 2, y: Hh - B + 13, textAnchor: "middle" }, r.phase, n <= 18 ? r.tier + 1 : ""))), /* @__PURE__ */ React.createElement("line", { className: "limit", x1: L, x2: W - R, y1: y(equal), y2: y(equal) }), /* @__PURE__ */ React.createElement("text", { className: "tick accent", x: W - R, y: 11, textAnchor: "end" }, "- - equal share ", fmt(equal, 0), " A"), /* @__PURE__ */ React.createElement("text", { className: "tick", x: L, y: 11 }, "conductor current, A rms (phase and tier)"));
   }
   function CrossSection2({ inp, res }) {
-    const html = useMemo10(() => {
+    const html = useMemo11(() => {
       let s = cablebusSvg(inp, res);
       s = s.replace("fill='#ffffff'", "fill='#0a0f14'").replace("font-size='12'>", "font-size='12' fill='#d6dfe6'>").replace(/stroke='#333'/g, "stroke='#8a9aa7'").replace(/fill='#333'/g, "fill='#8a9aa7'").replace(/#d64545/g, "#e05a4f").replace(/#2f6fd6/g, "#e8c35a").replace(/#2e9d5b/g, "#5aa0e0").replace("fill='#fff' font-weight='bold'>B<", "fill='#1c1606' font-weight='bold'>B<").replace(/stroke='#222'/g, "stroke='#0a0f14'");
       return s;
@@ -9917,7 +10222,7 @@
   ];
   var stepOf = (b) => FIELD_STEPS.find((s) => b < s.max);
   function FieldMap({ inp, res }) {
-    const data = useMemo10(() => {
+    const data = useMemo11(() => {
       const od2 = res.cable_od_mm;
       const cs = buildLayout(inp, res.pattern, od2);
       const sol = solveSharing(cs, cableBusGroups(inp, inp.shield_bonding === "both_ends"), inp.frequency_hz);
@@ -9952,7 +10257,7 @@
   var BLOCK_L = "#a8664a";
   var BLOCK_R = "#b5785d";
   function IsoBus({ inp, res }) {
-    const g = useMemo10(() => {
+    const g = useMemo11(() => {
       const od2 = res.cable_od_mm, rows2 = res.conductors;
       const xs = rows2.map((r) => r.x_mm), ys = rows2.map((r) => r.y_mm);
       const xc2 = (Math.min(...xs) + Math.max(...xs)) / 2, yc2 = (Math.min(...ys) + Math.max(...ys)) / 2;
@@ -10056,7 +10361,7 @@
     )), /* @__PURE__ */ React.createElement(Section, { title: "Current sharing", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "per conductor, coloured by phase") }, /* @__PURE__ */ React.createElement(SharingChart, { res })), /* @__PURE__ */ React.createElement(Section, { title: "Checks", aside: /* @__PURE__ */ React.createElement(Pill, { tone: res.passed ? "ok" : "crit" }, res.passed ? "Pass" : "Fail") }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Check"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Value"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Limit"), /* @__PURE__ */ React.createElement("th", null, "Result"), /* @__PURE__ */ React.createElement("th", null, "Clause"))), /* @__PURE__ */ React.createElement("tbody", null, res.checks.map((c) => /* @__PURE__ */ React.createElement("tr", { key: c.name, title: c.note }, /* @__PURE__ */ React.createElement("td", { className: "cb-wrap" }, c.name, /* @__PURE__ */ React.createElement("div", { className: "cb-note" }, c.note)), /* @__PURE__ */ React.createElement("td", { className: "r" }, std(c.value), " ", /* @__PURE__ */ React.createElement("em", { className: "cb-unit" }, c.unit)), /* @__PURE__ */ React.createElement("td", { className: "r" }, std(c.limit), " ", /* @__PURE__ */ React.createElement("em", { className: "cb-unit" }, c.unit)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement(Pill, { tone: c.passed ? "ok" : "crit" }, c.passed ? "Pass" : "Fail")), /* @__PURE__ */ React.createElement("td", { className: "cb-wrap cb-clause" }, c.clause))))))), /* @__PURE__ */ React.createElement("div", { className: "cb-two" }, /* @__PURE__ */ React.createElement(Section, { title: "Cross-section", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "to scale \xB7 pitch ", fmt(res.pitch_mm, 0), " mm \xB7 OD ", fmt(res.cable_od_mm, 1), " mm") }, /* @__PURE__ */ React.createElement(CrossSection2, { inp, res })), /* @__PURE__ */ React.createElement(Section, { title: "Magnetic field", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "\xB5T, RMS") }, /* @__PURE__ */ React.createElement(FieldMap, { inp, res }))), /* @__PURE__ */ React.createElement(Section, { title: "Enclosure, isometric view", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "short length, cover cut away") }, /* @__PURE__ */ React.createElement(IsoBus, { inp, res })), /* @__PURE__ */ React.createElement(Section, { title: "Notes" }, /* @__PURE__ */ React.createElement("ul", { className: "cb-notes" }, res.notes.map((t, k) => /* @__PURE__ */ React.createElement("li", { key: k }, t)))));
   }
   function CheckTab({ f, setF, fromSystem, clearFrom }) {
-    const { inp, res, error } = useMemo10(() => solve4(f), [f]);
+    const { inp, res, error } = useMemo11(() => solve4(f), [f]);
     const set = (k, optional) => (v) => setF((s) => v === void 0 && !optional ? s : { ...s, [k]: v });
     const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `cb-${k}`, value: f[k], placeholder: o.ph, disabled: o.disabled, onCommit: set(k, o.optional) }));
     const pick = (k, label, opts, conv) => /* @__PURE__ */ React.createElement(Field, { label }, /* @__PURE__ */ React.createElement("select", { id: `cb-${k}`, className: "num-input", value: f[k], onChange: (e) => setF((s) => ({ ...s, [k]: conv ? conv(e.target.value) : e.target.value })) }, opts.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))));
@@ -10065,8 +10370,8 @@
     return /* @__PURE__ */ React.createElement("div", { className: "cb-grid" }, /* @__PURE__ */ React.createElement("div", { className: "cb-form" }, /* @__PURE__ */ React.createElement(Section, { title: "System", aside: fromSystem && /* @__PURE__ */ React.createElement(Pill, { tone: "accent" }, /* @__PURE__ */ React.createElement("span", { className: "cb-from" }, "From System: ", fromSystem, /* @__PURE__ */ React.createElement("button", { type: "button", "aria-label": "Clear", onClick: clearFrom }, "\xD7"))) }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, num2("voltage_v", "Voltage, line-line", "V"), num2("current_a", "Current per phase", "A"), num2("length_ft", "Length", "ft", { hint: `${fmt(f.length_ft * FT3, 1)} m` }), num2("ambient_c", "Ambient", "\xB0C"), num2("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" }), num2("x_over_r", "Fault X/R", ""))), /* @__PURE__ */ React.createElement(Section, { title: "Conductors" }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, pick("size", "Size", SIZE_CHOICES.map((s) => [s, sizeLabel(s)])), pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]]), pick("conductors_per_phase", "Conductors / phase", [1, 2, 3, 4, 5, 6, 8, 9, 10, 12].map((n) => [n, String(n)]), Number), pick("tiers", "Tiers", [[1, "1"], [2, "2"], [3, "3"]], Number), pick("insulation_temp_c", "Insulation rating", [[60, "60 \xB0C"], [75, "75 \xB0C"], [90, "90 \xB0C"]], Number), pick("terminal_temp_c", "Termination rating", [[60, "60 \xB0C"], [75, "75 \xB0C"], [90, "90 \xB0C"]], Number), num2("cable_od_mm", "Cable OD", "mm", { optional: true, ph: "from construction" }))), /* @__PURE__ */ React.createElement(Section, { title: "Insulation, shield, jacket", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, mv || calc ? "used" : "MV / calculated only") }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, pick("insulation", "Insulation", [["XLPE", "XLPE"], ["EPR", "EPR"], ["PVC", "PVC"], ["XHHW", "XHHW"], ["RW90", "RW90"]]), num2("insulation_mm", "Insulation wall", "mm", { optional: true, ph: "typical", disabled: !(mv || calc) }), num2("shield_mm", "Shield thickness", "mm", { disabled: !(mv || calc) }), num2("jacket_mm", "Jacket thickness", "mm", { disabled: !(mv || calc) }), /* @__PURE__ */ React.createElement("div", { className: "cb-wide" }, pick("shield_bonding", "Shield bonding", [["none", "None stated"], ["single_point", "Single point"], ["both_ends", "Both ends (circulating current)"]])))), /* @__PURE__ */ React.createElement(Section, { title: "Ampacity" }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, pick("ampacity_method", "Method", [["auto", "Auto"], ["table", "Code table (LV)"], ["datasheet", "Datasheet rating"], ["calculated", "Calculated (IEC 60287)"]]), num2("cable_ampacity_a", "Datasheet rating", "A / cable", { optional: true, ph: "none", hint: "free air, 40 \xB0C" }), num2("max_vd_pct", "Voltage drop limit", "%"))), /* @__PURE__ */ React.createElement(Section, { title: "Enclosure", aside: /* @__PURE__ */ React.createElement("label", { className: "live-toggle" }, /* @__PURE__ */ React.createElement("input", { id: "cb-enclosure_on", type: "checkbox", checked: f.enclosure_on, onChange: (e) => setF((s) => ({ ...s, enclosure_on: e.target.checked })) }), /* @__PURE__ */ React.createElement("span", null, "Model enclosure")) }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, num2("enc_w", "Inside width", "mm", { optional: true, ph: "auto-fit", disabled: !f.enclosure_on }), num2("enc_h", "Inside height", "mm", { optional: true, ph: "auto-fit", disabled: !f.enclosure_on }), /* @__PURE__ */ React.createElement("label", { className: "live-toggle cb-wide" }, /* @__PURE__ */ React.createElement("input", { id: "cb-covers", type: "checkbox", checked: f.covers_continuous, disabled: !f.enclosure_on, onChange: (e) => setF((s) => ({ ...s, covers_continuous: e.target.checked })) }), /* @__PURE__ */ React.createElement("span", null, "Covers electrically continuous (solid, not ventilated)"))))), /* @__PURE__ */ React.createElement("div", { className: "cb-results" }, error && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Cannot analyse."), " ", error), res && /* @__PURE__ */ React.createElement(Results4, { inp, res })));
   }
   function DesignerTab({ d, setD, onPick }) {
-    const [out, setOut] = useState12(null);
-    const [busy, setBusy] = useState12(false);
+    const [out, setOut] = useState13(null);
+    const [busy, setBusy] = useState13(false);
     const ran = useRef6(false);
     const run = (dd = d) => {
       setBusy(true);
@@ -10119,10 +10424,10 @@
     }
   }
   function CableBusWorkspace() {
-    const [tab, setTab] = useState12("check");
-    const [f, setF] = useState12(EXAMPLE4);
-    const [d, setD] = useState12(DESIGN_EXAMPLE);
-    const [fromSystem, setFromSystem] = useState12(null);
+    const [tab, setTab] = useState13("check");
+    const [f, setF] = useState13(EXAMPLE4);
+    const [d, setD] = useState13(DESIGN_EXAMPLE);
+    const [fromSystem, setFromSystem] = useState13(null);
     useEffect8(() => bus.on("cablebus:open", ({ connector, current_a, kv }) => {
       const c = connector || {};
       setF((s) => {
@@ -10183,8 +10488,8 @@
       setFromSystem(null);
       setTab("check");
     };
-    const { res } = useMemo10(() => tab === "check" ? solve4(f) : {}, [f, tab]);
-    return /* @__PURE__ */ React.createElement("div", { className: "ws" }, /* @__PURE__ */ React.createElement("style", null, CSS7), /* @__PURE__ */ React.createElement("header", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "ws-title" }, "Cable bus"), /* @__PURE__ */ React.createElement("div", { className: "seg", role: "tablist" }, /* @__PURE__ */ React.createElement(Btn, { active: tab === "check", onClick: () => setTab("check") }, "Check"), /* @__PURE__ */ React.createElement(Btn, { active: tab === "designer", onClick: () => setTab("designer") }, "Designer")), /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[12.5px]" }, tab === "check" ? "Analyse a given design" : "Enumerate and rank options"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, tab === "check" && res && /* @__PURE__ */ React.createElement(Pill, { tone: res.passed ? "ok" : "crit" }, res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`), tab === "check" && /* @__PURE__ */ React.createElement(Btn, { onClick: () => {
+    const { res } = useMemo11(() => tab === "check" ? solve4(f) : {}, [f, tab]);
+    return /* @__PURE__ */ React.createElement("div", { className: "ws" }, /* @__PURE__ */ React.createElement("style", null, CSS8), /* @__PURE__ */ React.createElement("header", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "ws-title" }, "Cable bus"), /* @__PURE__ */ React.createElement("div", { className: "seg", role: "tablist" }, /* @__PURE__ */ React.createElement(Btn, { active: tab === "check", onClick: () => setTab("check") }, "Check"), /* @__PURE__ */ React.createElement(Btn, { active: tab === "designer", onClick: () => setTab("designer") }, "Designer")), /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[12.5px]" }, tab === "check" ? "Analyse a given design" : "Enumerate and rank options"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, tab === "check" && res && /* @__PURE__ */ React.createElement(Pill, { tone: res.passed ? "ok" : "crit" }, res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`), tab === "check" && /* @__PURE__ */ React.createElement(Btn, { onClick: () => {
       setF(EXAMPLE4);
       setFromSystem(null);
     }, title: "Restore the 15 kV 2000 A example" }, "Reset to example"))), /* @__PURE__ */ React.createElement("div", { className: "main" }, tab === "check" ? /* @__PURE__ */ React.createElement(CheckTab, { f, setF, fromSystem, clearFrom: () => setFromSystem(null) }) : /* @__PURE__ */ React.createElement(DesignerTab, { d, setD, onPick: pick })));
@@ -10237,13 +10542,13 @@
   ];
 
   // src/ui/App.jsx
-  var { useState: useState13 } = React;
+  var { useState: useState14 } = React;
   function App() {
-    const [active, setActive] = useState13(() => {
+    const [active, setActive] = useState14(() => {
       const h = (typeof location !== "undefined" ? location.hash : "").slice(1).split("-")[0];
       return WORKSPACES.some((w) => w.key === h) ? h : WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key;
     });
-    const [opened, setOpened] = useState13(() => /* @__PURE__ */ new Set([active]));
+    const [opened, setOpened] = useState14(() => /* @__PURE__ */ new Set([active]));
     const open = (k) => {
       setActive(k);
       setOpened((s) => new Set(s).add(k));
