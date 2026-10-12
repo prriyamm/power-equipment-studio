@@ -1,0 +1,8 @@
+{
+ "_meta": {
+  "status": "EMPTY",
+  "source": "Fill from the manufacturer's current catalogue and installation sheets (Burndy, Panduit, ILSCO, ABB/T&B, etc.). One row per part. Set status to VERIFIED with who/when once rows are entered.",
+  "fields": "conductor_material (Cu|Al), size (e.g. 500), stud_in (1/4|3/8|1/2|...), holes (1|2), part_no, die, torque (text with units)"
+ },
+ "lugs": []
+}
