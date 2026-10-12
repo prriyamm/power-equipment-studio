@@ -4040,7 +4040,10 @@
   // src/ui/App.jsx
   var { useState: useState5 } = React;
   function App() {
-    const [active, setActive] = useState5(WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key);
+    const [active, setActive] = useState5(() => {
+      const h = (typeof location !== "undefined" ? location.hash : "").slice(1);
+      return WORKSPACES.some((w) => w.key === h) ? h : WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key;
+    });
     const [opened, setOpened] = useState5(() => /* @__PURE__ */ new Set([active]));
     const open = (k) => {
       setActive(k);
