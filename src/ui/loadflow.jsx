@@ -1028,8 +1028,12 @@ export function LoadFlowWorkspace() {
   // Networks handed over from other workspaces (System view → compiled bus model).
   useEffect(() => bus.on("loadflow:open", ({ data, name, layout }) => {
     const s = makeScenario(name, data, layout && Object.keys(layout).length === data.buses.length ? layout : undefined);
-    s.result = LF.runLoadFlow(s.data); s.solvedData = s.data;
+    s.result = LF.runLoadFlow(s.data); s.solvedData = s.data; s.fromSystem = true;
     addScenario(s); setTab("diagram"); setToast({ text: `Opened ${name}: ${data.buses.length} buses` });
+  }), []); // eslint-disable-line
+  // A design pushed into the System makes every case opened from it out of date.
+  useEffect(() => bus.on("system:stale", ({ reason }) => {
+    setScenarios((l) => (l.some((s) => s.fromSystem) ? l.map((s) => (s.fromSystem ? { ...s, systemStale: reason } : s)) : l));
   }), []); // eslint-disable-line
 
   const saveFile = async (filename, text) => {
@@ -1086,6 +1090,7 @@ export function LoadFlowWorkspace() {
         ))}
         <div className="ml-auto flex items-center gap-3 pr-1 text-[12.5px]">
           <Pill tone={status.tone}>{status.text}</Pill>
+          {active.systemStale && <Pill tone="warn" title={`${active.systemStale}. Open the System in Load flow again for the current model.`}>System changed</Pill>}
           {r?.converged && !stale && <span className="text-muted hidden md:inline">Losses <b className="text-fg font-mono">{fmt(r.total_p_loss_mw, 3)}</b> MW</span>}
         </div>
       </nav>

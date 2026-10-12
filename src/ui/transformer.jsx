@@ -1,6 +1,9 @@
 /* Transformer workspace: preliminary core-type design (pecalc transformer port), live as inputs change. */
-const { useState, useMemo } = React;
+const { useState, useMemo, useEffect } = React;
 import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
+import { bus } from "./bus.js";
+import { PushToSystem } from "./systemPush.jsx";
+import { transformerDesign } from "../engine/designPush.js";
 import { design, design_for_impedance, transformerInput } from "../engine/pecalc/transformer.js";
 import { kvRows, checkRows } from "../engine/report.js";
 import { ReportButton } from "./reportButton.jsx";
@@ -31,10 +34,19 @@ function transformerReport(r) {
   };
 }
 
-export function TransformerWorkspace() {
+export function TransformerWorkspace({ goTo }) {
   const [inp, setInp] = useState(() => transformerInput(EXAMPLE));
   const [tune, setTune] = useState(true);
+  const [link, setLink] = useState(null);            // System transformer this design is for
   const { result: r, error } = useMemo(() => solve(inp, tune), [inp, tune]);
+  const push = useMemo(() => (r ? { design: transformerDesign(r) } : { error }), [r, error]);
+
+  // A transformer opened from the System view: rating, voltages and its %Z as the tuning target.
+  useEffect(() => bus.on("transformer:open", ({ equipment: e, source_mva }) => {
+    setInp((s) => ({ ...s, kva: e.kva, hv_v: Math.round(e.hv_kv * 1000), lv_v: Math.round(e.lv_kv * 1000), target_z_pct: e.z_pct, ...(source_mva > 0 ? { source_mva } : {}) }));
+    setTune(true);
+    setLink({ kind: "eq", id: e.id });
+  }), []);
   const set = (k, optional) => (v) => setInp((s) => (v === undefined && !optional ? s : { ...s, [k]: v === undefined ? null : v }));
 
   const num = (k, label, unit, o = {}) => (
@@ -56,7 +68,8 @@ export function TransformerWorkspace() {
       <header className="topbar">
         <div className="ws-title">Transformer</div>
         <span className="text-muted text-[12.5px]">Preliminary core-type design · 3-phase</span>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <PushToSystem module="transformer" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
           {r && <ReportButton filename="transformer-calc" getReport={() => transformerReport(r)} />}
           <Btn onClick={() => { setInp(transformerInput(EXAMPLE)); setTune(true); }} title="Restore the 1500 kVA example inputs">Reset to example</Btn>

@@ -1,7 +1,10 @@
 /* Feeder & cable workspace: conductor sizing with parallel sets, voltage drop, withstand and lug schedule
    (pecalc sizing + lugs port), live as inputs change. */
-const { useState, useMemo } = React;
+const { useState, useMemo, useEffect } = React;
 import { Btn, Field, NumField, Pill, Section, Tile, fmt } from "./common.jsx";
+import { bus } from "./bus.js";
+import { PushToSystem } from "./systemPush.jsx";
+import { feederDesign } from "../engine/designPush.js";
 import { feederInput, sizeFeeder, loadA } from "../engine/pecalc/sizing.js";
 import { selectLugs, lugInput } from "../engine/pecalc/lugs.js";
 import { cableOdMm, diameterMm, sizeIndex } from "../engine/pecalc/conductors.js";
@@ -121,9 +124,24 @@ function candidates(result) {
   return rows;
 }
 
-export function FeederWorkspace() {
+export function FeederWorkspace({ goTo }) {
   const [ui, setUi] = useState(EXAMPLE);
+  const [link, setLink] = useState(null);            // System cable run this feeder is designed for
   const { result: r, lugs, amps, error, placeholder } = useMemo(() => solve(ui), [ui]);
+  const push = useMemo(() => { if (!r) return { error }; try { return { design: feederDesign(r) }; } catch (e) { return { error: e.message }; } }, [r, error]);
+
+  // A cable run opened from the System view: its voltage, load-flow current, length and construction.
+  useEffect(() => bus.on("feeder:open", ({ connector: c, current_a, kv, fault_ka }) => {
+    setUi((s) => ({
+      ...s, mode: "A", unit: "ft", installation: "raceway", sets: null,
+      ...(kv ? { voltage_v: Math.round(kv * 1000) } : {}), ...(current_a > 0 ? { load: Math.round(current_a) } : {}),
+      ...(c.length_ft ? { length: c.length_ft } : {}), ...(c.material ? { material: c.material } : {}),
+      ...([60, 75, 90].includes(c.insulation_c) ? { insulation_temp_c: c.insulation_c } : {}),
+      ...(["pvc", "aluminum", "steel"].includes(c.raceway) ? { conduit: c.raceway } : {}),
+      ...(fault_ka > 0 ? { fault_ka: Math.round(fault_ka * 10) / 10 } : {}),
+    }));
+    if (c.id) setLink({ kind: "con", id: c.id });
+  }), []);
   const set = (k, optional) => (v) => setUi((s) => (v === undefined && !optional ? s : { ...s, [k]: v === undefined ? null : v }));
   const num = (k, label, unit, o = {}) => (
     <Field label={label} unit={unit} hint={o.hint}>
@@ -145,7 +163,8 @@ export function FeederWorkspace() {
       <header className="topbar">
         <div className="ws-title">Feeder &amp; cable</div>
         <span className="text-muted text-[12.5px]">Conductor sizing, voltage drop, withstand and lugs</span>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <PushToSystem module="feeder" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {r && <Pill tone={r.recommended ? "ok" : "crit"}>{r.recommended ? "Conductor found" : "No size passes"}</Pill>}
           {r && r.data_status !== "VERIFIED" && <Pill tone="warn" title={r.notes.find((n) => n.startsWith("WARNING")) || ""}>Data {r.data_status}</Pill>}
           {r && <ReportButton filename="feeder-calc" getReport={() => feederReport(ui)} />}

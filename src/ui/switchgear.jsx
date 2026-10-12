@@ -1,7 +1,10 @@
 /* Switchgear bus workspace: Rac/Rdc, lamination sharing, temperature rise and short-circuit bracing
    (pecalc switchgear port), live as inputs change. Starts filled with the 3000 A switchboard example. */
-const { useState, useMemo } = React;
+const { useState, useMemo, useEffect } = React;
 import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
+import { bus } from "./bus.js";
+import { PushToSystem } from "./systemPush.jsx";
+import { switchgearDesign } from "../engine/designPush.js";
 import { SwitchgearBus3D } from "./switchgear3d.jsx";
 import { STOPS, scale, rgb } from "./three/parts.js";
 import { analyseBus, busInput, mesh, EMISSIVITY, SPAN } from "../engine/pecalc/switchgear.js";
@@ -56,9 +59,25 @@ function busReport(r) {
   };
 }
 
-export function SwitchgearWorkspace() {
+export function SwitchgearWorkspace({ goTo }) {
   const [inp, setInp] = useState(() => busInput(EXAMPLE));
+  const [link, setLink] = useState(null);            // System switchgear / MCC / panel this bus is for
   const { result: r, error, coarse } = useMemo(() => solve(inp), [inp]);
+  const push = useMemo(() => (r ? { design: switchgearDesign(r) } : { error }), [r, error]);
+
+  // Gear opened from the System view: its rating, voltage and withstand (and bus geometry if it has one).
+  useEffect(() => bus.on("switchgear:open", ({ equipment: e, xr }) => {
+    setInp((s) => ({
+      ...s, current_a: e.bus_a, voltage_v: Math.round(e.kv * 1000), standard: e.kv > 1 ? "ANSI C37.20.2" : "UL 891",
+      fault_ka: e.sc_ka ?? s.fault_ka, ...(xr > 0 ? { x_over_r: Math.round(Math.min(Math.max(xr, 2), 60) * 10) / 10 } : {}),
+      ...(e.bars_per_phase && e.bar_width_mm ? {
+        bars_per_phase: e.bars_per_phase, bar_width_mm: e.bar_width_mm, bar_thickness_mm: e.bar_thickness_mm ?? s.bar_thickness_mm,
+        phase_spacing_mm: e.phase_spacing_mm ?? s.phase_spacing_mm, support_span_m: e.support_span_m ?? s.support_span_m,
+        material: e.bus_material ?? s.material, orientation: e.bus_orientation ?? s.orientation,
+      } : {}),
+    }));
+    setLink({ kind: "eq", id: e.id });
+  }), []);
   const set = (k, optional) => (v) => setInp((s) => (v === undefined && !optional ? s : { ...s, [k]: v === undefined ? null : v }));
 
   const num = (k, label, unit, o = {}) => (
@@ -81,7 +100,8 @@ export function SwitchgearWorkspace() {
       <header className="topbar">
         <div className="ws-title">Switchgear bus</div>
         <span className="text-muted text-[12.5px]">Switchboard main bus and risers · 3-phase</span>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <PushToSystem module="switchgear" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${nFail} check(s) fail`}</Pill>}
           {r && <ReportButton filename="switchgear-bus-calc" getReport={() => busReport(r)} />}
           <Btn onClick={() => setInp(busInput(EXAMPLE))} title="Restore the 3000 A example inputs">Reset to example</Btn>

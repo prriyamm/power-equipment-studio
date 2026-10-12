@@ -17,6 +17,14 @@ import { useHistory, ProjectMenu } from "./systemProject.jsx";
 import { ArcFlashSection } from "./systemArcFlash.jsx";
 import { MotorStartSection, ProfileSection } from "./systemStudies.jsx";
 import { ReportButton, svgToString } from "./reportButton.jsx";
+import { planPush, applyPush, PUSH_MODULES, STUDY_LABELS } from "../engine/designPush.js";
+
+/* System-side styles for design pushes coming back from the module workspaces. */
+const CSS = `
+.sys-push { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 16px 0; }
+.sys-push .sys-push-studies { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.sys-push .ml-auto { margin-left: auto; }
+`;
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -501,12 +509,12 @@ const EQ_FIELDS = {
   capacitor: [["kvar", "Rating", "kvar"]],
 };
 
-function DesignCheckBlock({ dc }) {
+function DesignCheckBlock({ dc, stale }) {
   if (!dc) return null;
   const title = { cablebus: "Cable bus design check", bus: "Bus design check", transformer: "Transformer design check" }[dc.kind];
   return (
-    <div className="res-block">
-      <div className="flex items-center justify-between mb-2"><div className="label">{title}</div><Pill tone={dc.passed ? "ok" : "crit"}>{dc.passed ? "Pass" : "Fail"}</Pill></div>
+    <div className="res-block" style={stale ? { opacity: 0.55 } : undefined}>
+      <div className="flex items-center justify-between mb-2"><div className="label">{title}</div>{stale ? <Pill tone="warn" title="The model changed; the check is re-running">Stale</Pill> : <Pill tone={dc.passed ? "ok" : "crit"}>{dc.passed ? "Pass" : "Fail"}</Pill>}</div>
       {dc.error ? <p className="text-crit text-[12.5px]">{dc.error}</p> : <>
         <p className="text-muted text-[12.5px] mb-2">{dc.summary}</p>
         <ul className="flex flex-col gap-1 text-[12.5px]">{dc.checks.map((k, i) => (
@@ -517,7 +525,7 @@ function DesignCheckBlock({ dc }) {
   );
 }
 
-function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc }) {
+function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc, dcStale, goModule }) {
   const full = { ...EQUIPMENT[e.type].defaults, ...e };
   const [confirm, setConfirm] = useState(false);
   useEffect(() => setConfirm(false), [e.id]);
@@ -556,8 +564,10 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc }) 
           </dl>
         </div>
       )}
-      <DesignCheckBlock dc={dc} />
+      <DesignCheckBlock dc={dc} stale={dcStale} />
       {NODE_KINDS.has(e.type) && openLineup && <Btn kind="primary-soft" onClick={() => openLineup(e.id)}>Lineup elevation & breaker schedule</Btn>}
+      {goModule && NODE_KINDS.has(e.type) && <Btn kind="primary-soft" onClick={() => goModule("switchgear", e)} title="Open this bus in the Switchgear workspace, linked for Apply to System">Design bus in Switchgear</Btn>}
+      {goModule && e.type === "transformer" && <Btn kind="primary-soft" onClick={() => goModule("transformer", e)} title="Open this transformer in the Transformer workspace, linked for Apply to System">Design in Transformer</Btn>}
       <div className="flex gap-2">
         {!confirm ? <Btn kind="danger" onClick={() => setConfirm(true)}><Icon name="trash" size={14} />Delete</Btn>
           : <><Btn kind="danger-solid" onClick={() => remove(e.id)}>Delete {e.id} and its connections</Btn><Btn onClick={() => setConfirm(false)}>Cancel</Btn></>}
@@ -566,7 +576,7 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc }) 
   );
 }
 
-function ConInspector({ c, r, update, remove, kvAt, goCableBus, dc }) {
+function ConInspector({ c, r, update, remove, kvAt, goCableBus, goFeeder, dc, dcStale }) {
   const full = { ...CONNECTORS[c.kind].defaults, ...c };
   const table = c.kind === "direct" ? null : tableAmpacity(c.kind, full.size, full.material, full.insulation_c);
   return (
@@ -601,9 +611,10 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus, dc }) {
           </dl>
         </div>
       )}
-      <DesignCheckBlock dc={dc} />
+      <DesignCheckBlock dc={dc} stale={dcStale} />
       <div className="flex gap-2 flex-wrap">
         {c.kind === "cablebus" && goCableBus && <Btn kind="primary-soft" onClick={() => goCableBus(c)}>Design in Cable bus</Btn>}
+        {c.kind === "cable" && goFeeder && <Btn kind="primary-soft" onClick={() => goFeeder(c)} title="Open this run in the Feeder workspace, linked for Apply to System">Design in Feeder</Btn>}
         <Btn kind="danger" onClick={() => remove(c.id)}><Icon name="trash" size={14} />Delete</Btn>
       </div>
     </div>
@@ -774,7 +785,27 @@ export function SystemWorkspace({ goTo }) {
   const analysis = useMemo(() => analyseSystem(sys, { motors }), [sys, motors]);
   // Equipment design checks (pecalc cable bus / bus / transformer) are heavier: run them after the frame.
   const [checks, setChecks] = useState({});
-  useEffect(() => { const t = setTimeout(() => { try { setChecks(designChecks(sys, analysis)); } catch (err) { setChecks({}); } }, 220); return () => clearTimeout(t); }, [analysis]); // eslint-disable-line
+  // Design pushes from the module workspaces mark the studies stale; each clears when it has re-run on the new model.
+  const [pushed, setPushed] = useState(null);         // { module, target, changed, studies: [...] }
+  const unstale = (done) => setPushed((p) => (p && p.studies.some((x) => done.includes(x)) ? { ...p, studies: p.studies.filter((x) => !done.includes(x)) } : p));
+  useEffect(() => { unstale(["loadflow", "shortcircuit"]); }, [analysis]);
+  useEffect(() => { const t = setTimeout(() => { try { setChecks(designChecks(sys, analysis)); } catch (err) { setChecks({}); } unstale(["designchecks"]); }, 220); return () => clearTimeout(t); }, [analysis]); // eslint-disable-line
+  const checksStale = !!pushed?.studies.includes("designchecks");
+
+  // Publish the model for the module workspaces (target pickers, diff previews) and take their design pushes.
+  const sysRef = useRef(sys); sysRef.current = sys;
+  useEffect(() => { bus.retain("system:model", { sys }); }, [sys]);
+  useEffect(() => bus.on("system:apply", ({ module, target, design, reply }) => {
+    const plan = planPush(sysRef.current, target, design);
+    if (!plan.ok || !plan.changed) { reply?.({ ok: false, errors: plan.ok ? [`${plan.target.id} already matches this design.`] : plan.errors, plan }); return; }
+    let next;
+    try { next = applyPush(sysRef.current, plan); } catch (err) { reply?.({ ok: false, errors: [err.message], plan }); return; }
+    setSys(next);                                       // one history entry: a single undo restores the element
+    setPushed({ module, target: plan.target, changed: plan.changed, studies: plan.stale });
+    setSelection({ kind: plan.target.kind, id: plan.target.id });
+    bus.emit("system:stale", { studies: plan.stale, reason: `${PUSH_MODULES[module].label} design applied to ${plan.target.id}` });
+    reply?.({ ok: true, plan });
+  }), []); // eslint-disable-line
 
   const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === id ? clean({ ...e, ...patch }) : e)) }));
   const updateCon = (id, patch) => setSys((s) => ({ ...s, connectors: s.connectors.map((c) => (c.id === id ? clean({ ...c, ...patch }) : c)) }));
@@ -819,6 +850,18 @@ export function SystemWorkspace({ goTo }) {
     setSys((s) => ({ ...s, connectors: [...s.connectors, { id, kind, from: `${aId}.${ta}`, to: `${bId}.${tb}` }] }));
     setSelection({ kind: "con", id }); setTool("select");
   };
+  const goFeeder = (c) => {
+    const full = { ...CONNECTORS[c.kind].defaults, ...c }, end = (k) => c[k].split(".")[0];
+    const at = analysis.ok ? analysis.equipment[end("from")] : null;
+    bus.emit("feeder:open", { connector: full, current_a: analysis.connectors[c.id]?.i_a, kv: at?.kv ?? analysis.equipment[end("to")]?.kv, fault_ka: at?.ik_ka });
+    goTo("feeder");
+  };
+  const goModule = (module, e) => {
+    const full = { ...EQUIPMENT[e.type].defaults, ...e }, r = analysis.ok ? analysis.equipment[e.id] : null;
+    if (module === "switchgear") bus.emit("switchgear:open", { equipment: full, xr: r?.xr_fault });
+    else bus.emit("transformer:open", { equipment: full, source_mva: sys.equipment.find((x) => x.type === "utility")?.mva_sc });
+    goTo(module);
+  };
   const sendToLoadFlow = () => {
     const c = analysis.compiled;
     const layout = {};
@@ -846,6 +889,7 @@ export function SystemWorkspace({ goTo }) {
 
   return (
     <div className="ws" ref={hostRef}>
+      <style>{CSS}</style>
       <header className="topbar">
         <div className="ws-title">System</div>
         <input id="sys-name" className="num-input" style={{ width: 240, maxWidth: "100%" }} value={sys.name} onChange={(ev) => setSys((s) => ({ ...s, name: ev.target.value }))} aria-label="Package name" />
@@ -864,6 +908,16 @@ export function SystemWorkspace({ goTo }) {
           {t && <span className="text-muted hidden md:inline">Demand <b className="text-fg font-mono">{fmt(t.load_kw, 0)}</b> kW · Losses <b className="text-fg font-mono">{fmt(t.loss_kw, 1)}</b> kW · Max I″k <b className="text-fg font-mono">{fmt(t.max_ik_ka, 1)}</b> kA</span>}
         </div>
       </nav>
+      {pushed && (
+        <div className={cx("notice sys-push", pushed.studies.length ? "notice-warn" : "notice-info")} role="status">
+          <span><b>{PUSH_MODULES[pushed.module].label} design applied to {pushed.target.id}</b> · {pushed.changed} field{pushed.changed === 1 ? "" : "s"} changed.</span>
+          <span className="sys-push-studies">{Object.entries(STUDY_LABELS).map(([k, l]) => <Pill key={k} tone={pushed.studies.includes(k) ? "warn" : "ok"}>{l}: {pushed.studies.includes(k) ? "stale, re-running" : "re-run"}</Pill>)}</span>
+          <span className="ml-auto flex gap-1">
+            <Btn onClick={() => { history.undo(); setPushed(null); }} title="Undo the push (one step)">Undo push</Btn>
+            <Btn onClick={() => setPushed(null)} title="Dismiss"><Icon name="x" size={13} /></Btn>
+          </span>
+        </div>
+      )}
       <main className={cx("main", view === "site" && "is-diagram")}>
         {view === "site" ? (
           <div className="diagram-grid">
@@ -892,8 +946,8 @@ export function SystemWorkspace({ goTo }) {
               <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onMoveEnd={history.checkpoint} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
-              {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} dc={checks[selEq.id]} />
-                : selCon ? <ConInspector c={selCon} r={analysis.ok ? analysis.connectors[selCon.id] : null} update={updateCon} remove={removeCon} dc={checks[selCon.id]}
+              {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} dc={checks[selEq.id]} dcStale={checksStale} goModule={goModule} />
+                : selCon ? <ConInspector c={selCon} r={analysis.ok ? analysis.connectors[selCon.id] : null} update={updateCon} remove={removeCon} dc={checks[selCon.id]} dcStale={checksStale} goFeeder={goFeeder}
                     kvAt={analysis.ok ? analysis.equipment[selCon.from.split(".")[0]]?.kv : null} goCableBus={(c) => { bus.emit("cablebus:open", { connector: { ...CONNECTORS[c.kind].defaults, ...c }, current_a: analysis.connectors[c.id]?.i_a, kv: analysis.equipment[c.to.split(".")[0]]?.kv }); goTo("cablebus"); }} />
                 : <SystemSummary sys={sys} analysis={analysis} checks={checks} />}
             </aside>
