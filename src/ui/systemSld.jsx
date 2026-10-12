@@ -190,6 +190,7 @@ export function SystemSld({ sys, analysis, selection, setSelection, showTags }) 
   }
   return (
     <div ref={wrapRef} className="canvas-wrap sld-wrap" onPointerDown={() => setSelection(null)}>
+      {c.deenergized?.size > 0 && <div className="sld-off">Open breakers · not shown (de-energized): {[...c.deenergized].join(", ")}</div>}
       <div className="sld-scroll">
         <svg width={W * zoom} height={H * zoom} viewBox={`0 0 ${W} ${H}`} className="sld" role="img" aria-label="Single-line diagram">{out}</svg>
       </div>

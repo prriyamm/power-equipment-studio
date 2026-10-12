@@ -45,3 +45,15 @@ test("kappa and a single-source fault", () => {
   const ibase = 100 / (Math.sqrt(3) * 13.8);
   assert.ok(Math.abs(sc.buses[0].ik_ka - (1.1 * ibase) / 0.2) < 1e-9);
 });
+
+test("opening a feeder breaker de-energizes everything downstream", () => {
+  const sys = JSON.parse(JSON.stringify(EXAMPLE_SYSTEM));
+  sys.connectors.find((c) => c.id === "C-MCC").closed = false;
+  const r = analyseSystem(sys);
+  assert.ok(r.ok, r.message);
+  for (const id of ["MCC-1", "M1", "M2"]) assert.ok(r.equipment[id].deenergized, id);
+  assert.ok(!r.equipment["SWGR-LV"].deenergized);
+  assert.ok(r.connectors["C-MCC"].open);
+  const base = analyseSystem(EXAMPLE_SYSTEM);
+  assert.ok(r.totals.load_kw < base.totals.load_kw - 100);
+});
