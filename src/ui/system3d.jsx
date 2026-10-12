@@ -285,13 +285,13 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
     const ok = analysis?.ok, res = analysis?.equipment || {}, cres = analysis?.connectors || {};
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const e of Object.values(eqMap)) {
-      const g = buildEquipment(e, s.M, !!ok); s.world.add(g);
+      const g = buildEquipment(e, s.M, !!ok && !res[e.id]?.deenergized); s.world.add(g);
       const { w, d } = dims(e); minX = Math.min(minX, e.gx); maxX = Math.max(maxX, e.gx + w); minZ = Math.min(minZ, e.gy); maxZ = Math.max(maxZ, e.gy + d);
       const r = ok ? res[e.id] : null;
       const el = document.createElement("div"); el.className = "lbl3d";
-      const tone = !r ? "" : (r.loading_pct > 100 || r.sc_duty_pct > 100) ? "crit" : (r.vflag !== "ok" || r.loading_pct > 80 || r.sc_duty_pct > 90) ? "warn" : "ok";
+      const tone = !r || r.deenergized ? "" : (r.loading_pct > 100 || r.sc_duty_pct > 100) ? "crit" : (r.vflag !== "ok" || r.loading_pct > 80 || r.sc_duty_pct > 90) ? "warn" : "ok";
       el.dataset.tone = tone;
-      const line2 = !r ? "" : r.loading_pct != null ? `${r.v_pu.toFixed(3)} pu · ${fmt(r.loading_pct, 0)}%` : `${r.v_pu.toFixed(3)} pu`;
+      const line2 = !r ? "" : r.deenergized ? "De-energized" : r.loading_pct != null ? `${r.v_pu.toFixed(3)} pu · ${fmt(r.loading_pct, 0)}%` : `${r.v_pu.toFixed(3)} pu`;
       const line3 = r?.ik_ka != null && ["switchgear", "mcc", "panel", "utility"].includes(e.type) ? `I″k ${fmt(r.ik_ka, 1)} kA` : "";
       el.innerHTML = `<b></b><span></span><span></span>`;
       el.children[0].textContent = e.name || e.id; el.children[1].textContent = line2; el.children[2].textContent = line3;
@@ -301,7 +301,7 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
       const rt = routes[c.id]; if (!rt || rt.direct) continue;
       const r = ok ? cres[c.id] : null;
       s.world.add(buildConnector({ ...c }, rt, s.M, r));
-      if (r) {
+      if (r && !r.open) {
         let pts = rt.pts.map(V).map((p) => (c.kind === "cablebus" ? p.clone().setY(p.y + 0.05) : p.clone().setY(0.12)));
         if (c.kind !== "cablebus") pts = pts.map((p) => p.clone().setY(0.12));
         if (r.dir < 0) pts.reverse();

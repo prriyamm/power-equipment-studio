@@ -30,9 +30,9 @@ export const EQUIPMENT = {
   capacitor: { label: "Capacitor bank", terminals: ["in"], defaults: { kvar: 300 } },
 };
 export const CONNECTORS = {
-  cable: { label: "Cable", defaults: { size: "500", material: "Cu", sets: 1, length_ft: 150, raceway: "steel", insulation_c: 75 } },
-  cablebus: { label: "Cable bus", defaults: { size: "750", material: "Cu", sets: 4, length_ft: 100, insulation_c: 90 } },
-  direct: { label: "Close-coupled", defaults: {} },
+  cable: { label: "Cable", defaults: { size: "500", material: "Cu", sets: 1, length_ft: 150, raceway: "steel", insulation_c: 75, closed: true } },
+  cablebus: { label: "Cable bus", defaults: { size: "750", material: "Cu", sets: 4, length_ft: 100, insulation_c: 90, closed: true } },
+  direct: { label: "Close-coupled", defaults: { closed: true } },
 };
 export const NODE_KINDS = new Set(["switchgear", "mcc", "panel"]);
 
@@ -107,7 +107,8 @@ export function compileSystem(sys) {
     }
     if (c.from === c.to) { add("error", c.id, `Connector ${c.id} connects a terminal to itself.`); ok = false; }
     if (!ok) continue;
-    if (c.kind === "direct") union(c.from, c.to);
+    // an open feeder breaker removes the connector from the network (it still carries nominal kV for labelling)
+    if (c.kind === "direct" && c.closed !== false) union(c.from, c.to);
     cons.push(c);
   }
 
@@ -200,7 +201,7 @@ export function compileSystem(sys) {
     branches.push(br); branchMeta.push({ kind: "transformer", id: e.id, rating_kva: e.kva });
   }
   for (const c of cons) {
-    if (c.kind === "direct") continue;
+    if (c.kind === "direct" || c.closed === false) continue;
     const f = busOf(c.from), t = busOf(c.to);
     if (f === t) { add("warn", c.id, `${c.id} runs between two terminals of the same bus.`); continue; }
     const kv = busMeta[f - 1].kv;
@@ -217,8 +218,27 @@ export function compileSystem(sys) {
     branchMeta.push({ kind: c.kind, id: c.id, ampacity_a: perSet != null ? perSet * c.sets : null, ohms: { r: rOhm, x: xOhm }, kv });
   }
 
-  const lfCase = { base_mva, buses, branches };
-  return { lfCase, busMeta, branchMeta, scSources, issues, eq, cons, busOf, base_mva };
+  // Energization: keep only buses reachable from the swing source through closed branches.
+  // Everything else is de-energized (e.g. downstream of an open breaker) and left out of the studies.
+  const slackBus = buses.find((b) => b.type === "slack");
+  let keep = new Set(buses.map((b) => b.id));
+  if (slackBus) {
+    keep = new Set([slackBus.id]); const stack = [slackBus.id];
+    while (stack.length) { const u = stack.pop(); for (const br of branches) { const v = br.from === u ? br.to : br.to === u ? br.from : null; if (v != null && !keep.has(v)) { keep.add(v); stack.push(v); } } }
+  }
+  const remap = new Map(); let nid = 1;
+  for (const b of buses) if (keep.has(b.id)) remap.set(b.id, nid++);
+  const deenergized = busMeta.filter((m) => !keep.has(m.id)).flatMap((m) => m.members);
+  const lfCase = {
+    base_mva,
+    buses: buses.filter((b) => keep.has(b.id)).map((b) => ({ ...b, id: remap.get(b.id) })),
+    branches: branches.filter((br) => keep.has(br.from) && keep.has(br.to)).map((br) => ({ ...br, from: remap.get(br.from), to: remap.get(br.to) })),
+  };
+  const keptMeta = branchMeta.filter((_, i) => keep.has(branches[i].from) && keep.has(branches[i].to));
+  const metaOut = busMeta.filter((m) => keep.has(m.id)).map((m) => ({ ...m, id: remap.get(m.id) }));
+  const sources = scSources.filter((s) => keep.has(s.bus)).map((s) => ({ ...s, bus: remap.get(s.bus) }));
+  const busOfLive = (endKey) => remap.get(busOf(endKey)) ?? null;
+  return { lfCase, busMeta: metaOut, branchMeta: keptMeta, scSources: sources, issues, eq, cons, busOf: busOfLive, base_mva, deenergized: new Set(deenergized) };
 }
 
 /* ---------------------------------------------------------------- analysis */
@@ -248,6 +268,8 @@ export function analyseSystem(sys, opts = {}) {
   for (const e of c.eq.values()) {
     const terms = EQUIPMENT[e.type].terminals;
     const bid = c.busOf(`${e.id}.${terms[0]}`);
+    if (bid == null && (e.type !== "transformer" || c.busOf(`${e.id}.lv`) == null)) { out.equipment[e.id] = { deenergized: true }; continue; }
+    if (bid == null) { out.equipment[e.id] = { deenergized: true }; continue; }
     const r = busRes(bid), kv = kvOf(bid);
     const info = { bus: bid, kv, v_pu: r.v, v_kv: r.v * kv, angle: r.angle_deg, vflag: r.vflag, ik_ka: sc?.buses[bid - 1]?.ik_ka, ip_ka: sc?.buses[bid - 1]?.ip_ka, xr_fault: sc?.buses[bid - 1]?.xr };
     if (NODE_KINDS.has(e.type)) {
@@ -280,6 +302,7 @@ export function analyseSystem(sys, opts = {}) {
     }
     out.equipment[e.id] = info;
   }
+  for (const cn of c.cons) if (cn.closed === false) out.connectors[cn.id] = { open: true };
   brRes.forEach((b) => {
     if (b.meta.kind === "transformer") return;
     const ia = Math.max(b.i_from_a, b.i_to_a);

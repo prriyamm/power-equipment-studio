@@ -213,6 +213,7 @@ const ART = { switchgear: SwitchgearArt, mcc: MccArt, panel: MccArt, transformer
 
 /* ---------------------------------------------------------- connector art */
 function CableBusArt({ route, res, selected, animate }) {
+  if (res?.open) { animate = false; }
   const W = 0.42, H = 0.2;
   const segs = [];
   for (let i = 0; i < route.pts.length - 1; i++) {
@@ -255,7 +256,8 @@ function CableBusArt({ route, res, selected, animate }) {
 }
 
 function CableArt({ route, res, selected, animate, sets = 1 }) {
-  const color = loadColor(res?.loading_pct);
+  const open = !!res?.open;
+  const color = open ? "var(--faint)" : loadColor(res?.loading_pct);
   const ground = route.pts.map((p) => [p[0], p[1], 0]);
   const W = Math.min(0.18 + sets * 0.05, 0.5);
   const segs = [];
@@ -274,8 +276,8 @@ function CableArt({ route, res, selected, animate, sets = 1 }) {
     <g>
       {selected && <polyline points={P(flow)} fill="none" stroke="var(--accent)" strokeWidth="12" opacity="0.28" strokeLinejoin="round" />}
       {segs}
-      <polyline points={P(flow)} fill="none" stroke={color} strokeWidth="1.6" opacity="0.9" strokeLinejoin="round" />
-      {animate && res && <polyline points={P(ordered)} className="flow" stroke="var(--fg)" style={{ animationDuration: flowSpeed(res.loading_pct) }} />}
+      <polyline points={P(flow)} fill="none" stroke={color} strokeWidth="1.6" opacity="0.9" strokeLinejoin="round" strokeDasharray={open ? "5 4" : undefined} />
+      {animate && res && !open && <polyline points={P(ordered)} className="flow" stroke="var(--fg)" style={{ animationDuration: flowSpeed(res.loading_pct) }} />}
     </g>
   );
 }
@@ -302,12 +304,14 @@ function depthOrder(items) {
 /* ------------------------------------------------------------- tag cards */
 function statusOf(e, r) {
   if (!r) return "muted";
+  if (r.deenergized) return "off";
   const bad = (r.loading_pct ?? 0) > 100 || (r.sc_duty_pct ?? 0) > 100;
   const warn = r.vflag !== "ok" || (r.loading_pct ?? 0) > 80 || (r.sc_duty_pct ?? 0) > 90;
   return bad ? "crit" : warn ? "warn" : "ok";
 }
 function tagLines(e, r) {
   if (!r) return [e.name || e.id];
+  if (r.deenergized) return [e.name || e.id, "De-energized"];
   const v = `${r.v_pu.toFixed(3)} pu`;
   switch (e.type) {
     case "switchgear": case "mcc": case "panel":
@@ -329,7 +333,7 @@ function Tag({ x, y, lines, tone, selected }) {
     <g transform={`translate(${x - w / 2},${y - h - 10})`} className="tag" pointerEvents="none">
       <line x1={w / 2} y1={h} x2={w / 2} y2={h + 10} stroke="var(--faint)" strokeWidth="0.8" />
       <rect width={w} height={h} rx="4" fill="var(--tag-bg)" stroke={selected ? "var(--accent)" : "var(--line)"} strokeWidth={selected ? 1.4 : 0.8} />
-      <rect width="3" height={h} rx="1.5" fill={tone === "crit" ? "var(--crit)" : tone === "warn" ? "var(--high)" : tone === "ok" ? "var(--ok)" : "var(--faint)"} />
+      <rect width="3" height={h} rx="1.5" fill={tone === "crit" ? "var(--crit)" : tone === "warn" ? "var(--high)" : tone === "ok" ? "var(--ok)" : "var(--faint)"} opacity={tone === "off" ? 0.6 : 1} />
       {lines.map((l, i) => <text key={i} x="9" y={14 + i * 12.5} className={i ? "tag-sub" : "tag-title"}>{l}</text>)}
     </g>
   );
@@ -426,7 +430,7 @@ function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConn
             <g key={e.id} className={cx("eq", sel && "is-sel", pending === e.id && "is-pending")} onPointerDown={(ev) => onEqDown(ev, e.id)}>
               <polygon points={P(shadow)} className="eq-shadow" />
               {sel && <polygon points={P([iso(e.gx - 0.15, e.gy - 0.15), iso(e.gx + w + 0.15, e.gy - 0.15), iso(e.gx + w + 0.15, e.gy + d + 0.15), iso(e.gx - 0.15, e.gy + d + 0.15)])} className="sel-ring" />}
-              {A ? <A e={e} x={e.gx} y={e.gy} res={r} energized={!!r} /> : <Box x={e.gx} y={e.gy} w={w} d={d} h={1} />}
+              <g opacity={r?.deenergized ? 0.5 : 1}>{A ? <A e={e} x={e.gx} y={e.gy} res={r} energized={!!r && !r.deenergized} /> : <Box x={e.gx} y={e.gy} w={w} d={d} h={1} />}</g>
             </g>
           );
         })}
@@ -438,6 +442,7 @@ function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConn
         {/* connector labels */}
         {showTags && ok && sys.connectors.map((c) => {
           const rt = routes[c.id], r = cres[c.id]; if (!rt || !r || rt.direct) return null;
+          const openLbl = r.open;
           const pts = rt.pts; let best = 0, bi = 0;
           for (let i = 0; i < pts.length - 1; i++) { const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); if (L > best) { best = L; bi = i; } }
           const m = pts[bi], n = pts[bi + 1];
@@ -445,7 +450,8 @@ function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConn
           return (
             <g key={"l" + c.id} transform={`translate(${p[0]},${p[1]})`} pointerEvents="none">
               <text className="con-label" textAnchor="middle" y="-6">{c.id}</text>
-              <text className="con-label sub" textAnchor="middle" y="6" fill={loadColor(r.loading_pct)}>{fmt(r.i_a, 0)} A · {r.loading_pct == null ? "—" : fmt(r.loading_pct, 0) + "%"}</text>
+              {openLbl ? <text className="con-label sub" textAnchor="middle" y="6" fill="var(--ok)">OPEN</text>
+                : <text className="con-label sub" textAnchor="middle" y="6" fill={loadColor(r.loading_pct)}>{fmt(r.i_a, 0)} A · {r.loading_pct == null ? "—" : fmt(r.loading_pct, 0) + "%"}</text>}
             </g>
           );
         })}
@@ -496,7 +502,7 @@ function EqInspector({ e, r, update, remove, rename, scShown }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0"><div className="label">{EQUIPMENT[e.type].label}</div><div className="text-xl font-mono truncate">{e.id}</div></div>
-        <Pill tone={statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : r ? "ok" : "muted"}>{r ? (statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK") : "No result"}</Pill>
+        <Pill tone={statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : statusOf(e, r) === "off" ? "muted" : r ? "ok" : "muted"}>{r ? (r.deenergized ? "De-energized" : statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK") : "No result"}</Pill>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Tag"><input id="eq-id" className="num-input" defaultValue={e.id} key={e.id} onBlur={(ev) => rename(e.id, ev.target.value.trim())} onKeyDown={(ev) => ev.key === "Enter" && ev.currentTarget.blur()} /></Field>
@@ -506,7 +512,8 @@ function EqInspector({ e, r, update, remove, rename, scShown }) {
         ))}
         {e.type === "motor" && <Field label="Fault contribution"><select id="eq-contrib" className="num-input" value={full.contributes ? "yes" : "no"} onChange={(ev) => update(e.id, { contributes: ev.target.value === "yes" })}><option value="yes">Included</option><option value="no">Excluded</option></select></Field>}
       </div>
-      {r && (
+      {r?.deenergized && <div className="notice notice-info">No supply reaches {e.id}. Close the feeder breaker or tie upstream to energize it.</div>}
+      {r && !r.deenergized && (
         <div className="res-block">
           <div className="label mb-2">Load flow{scShown && " · short circuit"}</div>
           <dl className="kv">
@@ -541,9 +548,10 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0"><div className="label">{CONNECTORS[c.kind].label}</div><div className="text-xl font-mono truncate">{c.id}</div><div className="text-muted text-[12.5px] font-mono">{c.from} → {c.to}{kvAt ? ` · ${fmtKv(kvAt)}` : ""}</div></div>
-        {r && <Pill tone={r.loading_pct > 100 ? "crit" : r.loading_pct > 80 ? "warn" : "ok"}>{r.loading_pct == null ? "No rating" : `${fmt(r.loading_pct, 0)} %`}</Pill>}
+        {r && (r.open ? <Pill tone="ok">Breaker open</Pill> : <Pill tone={r.loading_pct > 100 ? "crit" : r.loading_pct > 80 ? "warn" : "ok"}>{r.loading_pct == null ? "No rating" : `${fmt(r.loading_pct, 0)} %`}</Pill>)}
       </div>
       <div className="grid grid-cols-2 gap-3">
+        <Field label="Feeder breaker"><select id="con-closed" className="num-input" value={full.closed === false ? "open" : "closed"} onChange={(ev) => update(c.id, { closed: ev.target.value === "closed" })}><option value="closed">Closed</option><option value="open">Open</option></select></Field>
         <Field label="Kind"><select id="con-kind" className="num-input" value={c.kind} onChange={(ev) => update(c.id, { kind: ev.target.value })}>{Object.entries(CONNECTORS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
         {c.kind !== "direct" && <>
           <Field label="Size" unit="AWG/kcmil"><select id="con-size" className="num-input" value={full.size} onChange={(ev) => update(c.id, { size: ev.target.value })}>{CONDUCTOR_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}</select></Field>
@@ -555,7 +563,7 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
           <Field label="Ampacity / set" unit="A" hint={`Table ${c.kind === "cablebus" ? "310.17" : "310.16"}: ${table ?? "—"} A (${AMPACITY_STATUS})`}><NumField id="con-amp" value={c.ampacity_a} placeholder={table != null ? String(table) : "—"} onCommit={(v) => update(c.id, { ampacity_a: v })} /></Field>
         </>}
       </div>
-      {r && (
+      {r && !r.open && (
         <div className="res-block">
           <div className="label mb-2">Load flow</div>
           <dl className="kv">
@@ -579,7 +587,8 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
 function SystemSummary({ sys, analysis }) {
   const t = analysis?.totals;
   const errs = analysis?.issues?.filter((x) => x.level === "error") || [];
-  const flagged = analysis?.ok ? Object.entries(analysis.equipment).filter(([id, r]) => statusOf(sys.equipment.find((e) => e.id === id), r) !== "ok") : [];
+  const flagged = analysis?.ok ? Object.entries(analysis.equipment).filter(([id, r]) => !["ok", "off"].includes(statusOf(sys.equipment.find((e) => e.id === id), r))) : [];
+  const off = analysis?.ok ? Object.entries(analysis.equipment).filter(([, r]) => r.deenergized).map(([id]) => id) : [];
   const conFlag = analysis?.ok ? Object.entries(analysis.connectors).filter(([, r]) => (r.loading_pct ?? 0) > 80) : [];
   return (
     <div className="flex flex-col gap-4">
@@ -603,6 +612,7 @@ function SystemSummary({ sys, analysis }) {
           </ul>
         )}
       </div>
+      {off.length > 0 && <div className="notice notice-info"><b>De-energized:</b> {off.join(", ")}</div>}
       <p className="text-faint text-[12px] leading-relaxed">Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with c<sub>max</sub>, motors included. Ampacity from NEC tables ({AMPACITY_STATUS}). Cable R uses DC resistance at conductor temperature; reactance from NEC Chapter 9 Table 9.</p>
     </div>
   );
@@ -619,8 +629,8 @@ function Schedule({ sys, analysis, select }) {
           <tbody>{sys.equipment.map((e) => { const r = res[e.id]; const f = { ...EQUIPMENT[e.type].defaults, ...e }; return (
             <tr key={e.id} className="clickable" onClick={() => select({ kind: "eq", id: e.id })}>
               <td className="font-mono">{e.id}</td><td className="text-muted">{EQUIPMENT[e.type].label}</td><td style={{ fontFamily: "var(--font-ui)" }}>{e.name}</td>
-              <td className="r">{r ? (r.kv < 1 ? r.kv.toFixed(3) : r.kv) : "—"}</td>
-              <td className="r">{r ? <span className={cx("vchip", `v-${r.vflag}`)}>{r.v_pu.toFixed(4)}</span> : "—"}</td>
+              <td className="r">{r && !r.deenergized ? (r.kv < 1 ? r.kv.toFixed(3) : r.kv) : "—"}</td>
+              <td className="r">{r?.deenergized ? <span className="text-faint">off</span> : r ? <span className={cx("vchip", `v-${r.vflag}`)}>{r.v_pu.toFixed(4)}</span> : "—"}</td>
               <td className={cx("r", r?.loading_pct > 100 && "text-crit", r?.loading_pct > 80 && r?.loading_pct <= 100 && "text-warn")}>{r?.loading_pct != null ? fmt(r.loading_pct, 0) + " %" : "—"}</td>
               <td className="r">{r?.ik_ka != null ? fmt(r.ik_ka, 2) : "—"}</td><td className="r">{f.sc_ka ?? "—"}</td>
               <td className={cx("r", r?.sc_duty_pct > 100 && "text-crit", r?.sc_duty_pct > 90 && r?.sc_duty_pct <= 100 && "text-warn")}>{r?.sc_duty_pct != null ? fmt(r.sc_duty_pct, 0) + " %" : "—"}</td>
@@ -634,9 +644,9 @@ function Schedule({ sys, analysis, select }) {
             <tr key={c.id} className="clickable" onClick={() => select({ kind: "con", id: c.id })}>
               <td className="font-mono">{c.id}</td><td className="text-muted">{CONNECTORS[c.kind].label}</td><td>{c.from} → {c.to}</td>
               <td>{c.kind === "direct" ? "—" : `${f.sets} × 3 × ${f.size} ${f.material}`}</td><td className="r">{c.kind === "direct" ? "—" : f.length_ft}</td>
-              <td className="r">{r ? fmt(r.i_a, 0) : "—"}</td><td className="r">{r?.ampacity_a != null ? fmt(r.ampacity_a, 0) : "—"}</td>
+              <td className="r">{r?.open ? <span className="text-ok">open</span> : r ? fmt(r.i_a, 0) : "—"}</td><td className="r">{r?.ampacity_a != null ? fmt(r.ampacity_a, 0) : "—"}</td>
               <td className={cx("r", r?.loading_pct > 100 && "text-crit", r?.loading_pct > 80 && r?.loading_pct <= 100 && "text-warn")}>{r?.loading_pct != null ? fmt(r.loading_pct, 0) + " %" : "—"}</td>
-              <td className={cx("r", Math.abs(r?.vd_pct ?? 0) > 3 && "text-warn")}>{r ? fmt(r.vd_pct, 2) + " %" : "—"}</td><td className="r">{r ? fmt(r.loss_kw, 2) : "—"}</td>
+              <td className={cx("r", Math.abs(r?.vd_pct ?? 0) > 3 && "text-warn")}>{r && !r.open ? fmt(r.vd_pct, 2) + " %" : "—"}</td><td className="r">{r && !r.open ? fmt(r.loss_kw, 2) : "—"}</td>
             </tr>); })}</tbody>
         </table></div>
       </Section>
