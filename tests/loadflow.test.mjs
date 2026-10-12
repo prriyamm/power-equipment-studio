@@ -42,3 +42,14 @@ test("power balance holds on every built-in case", () => {
     assert.ok(r.balance_residual_pu < 1e-8);
   }
 });
+
+test("2-bus lossless line matches the closed-form solution", () => {
+  // Slack V1 = 1∠0, line x = 0.1 pu (r = 0), PQ load P = 0.5 pu, Q = 0.
+  // Q2 = (V2² − V1·V2·cosδ)/x = 0 -> V2 = cosδ; P2 = −V1·V2·sinδ/x = −0.5 -> sinδ·cosδ = 0.05 -> sin2δ = 0.1.
+  // δ = −asin(0.1)/2 = −2.86959°, V2 = cos(2.86959°) = 0.998746 pu.
+  const r = LF.runLoadFlow({ base_mva: 100, buses: [{ id: 1, type: "slack", v: 1 }, { id: 2, type: "PQ", p_load: 50 }], branches: [{ from: 1, to: 2, r: 0, x: 0.1 }] });
+  const d = Math.asin(0.1) / 2;
+  assert.ok(Math.abs(r.buses[1].v - Math.cos(d)) < 1e-8);
+  assert.ok(Math.abs(r.buses[1].angle_deg + (d * 180) / Math.PI) < 1e-6);
+  assert.ok(Math.abs(r.total_p_loss_mw) < 1e-6);
+});

@@ -19,6 +19,9 @@ export const MV_FRAMES = [1200, 2000, 3000];
 // typical section geometry, inches (W × H × D)
 export const SECTION_IN = { lv: { w: 22, wMain: 30, h: 90, d: 60, perSection: 3 }, mv: { w: 36, wMain: 36, h: 95, d: 96, perSection: 2 } };
 
+// NEC 240.4(D) small-conductor OCPD limits (A), regardless of ampacity. [UNVERIFIED: entered from memory]
+export const SMALL_CONDUCTOR_MAX_OCPD = { Cu: { "14": 15, "12": 20, "10": 30 }, Al: { "12": 15, "10": 25 } };
+
 export const nextStandard = (a) => NEC_240_6.find((r) => r >= a - 1e-9) ?? null;
 export const frameFor = (trip, mv) => (mv ? MV_FRAMES : LV_FRAMES).find((f) => f >= trip) ?? null;
 
@@ -52,7 +55,9 @@ export function buildLineup(sys, analysis, gearId, opts = {}) {
     else incoming = far && (far.type === "utility" || far.type === "generator" || (far.type === "transformer" && farEnd.endsWith(".lv")));
     const load_a = res && !res.open ? res.i_a : 0;
     const amp = res?.ampacity_a ?? null;
-    let trip = nextStandard(Math.max(load_a * (incoming ? 1 : 1 + (factor - 1) * cont), 15));
+    // 215.3: 125 % of the continuous share plus 100 % of the non-continuous share
+    const minTrip = load_a * (1 + (factor - 1) * cont);
+    let trip = nextStandard(Math.max(incoming ? load_a : minTrip, 15));
     // incoming mains are sized to the bus (or the transformer secondary) rather than today's load
     if (incoming) {
       const src = far?.type === "transformer" ? ({ ...EQUIPMENT.transformer.defaults, ...far }) : null;
@@ -64,7 +69,9 @@ export function buildLineup(sys, analysis, gearId, opts = {}) {
       const ok = trip <= 800 ? trip <= nextStandard(amp) : amp >= trip;
       checks.push({ name: trip <= 800 ? "Conductor protected (240.4(B) next size up)" : "Conductor ampacity ≥ trip (240.4(C))", ok, value: amp, limit: trip });
     }
-    if (!incoming) checks.push({ name: `Trip ≥ ${opts.rated100 ? "100" : "125"} % of load (215.3)`, ok: trip >= load_a * factor * cont - 1e-9, value: trip, limit: load_a * factor * cont });
+    const small = c.kind !== "direct" ? SMALL_CONDUCTOR_MAX_OCPD[c.material]?.[String(c.size)] : undefined;
+    if (small != null && !incoming) checks.push({ name: "Small conductor OCPD limit (240.4(D))", ok: trip <= small, value: trip, limit: small });
+    if (!incoming) checks.push({ name: `Trip ≥ ${opts.rated100 ? "100" : "125"} % of continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
     const frame = frameFor(trip, mv);
     if (frame == null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
     circuits.push({ tag: c.id, kind: incoming ? "main" : "feeder", to: far ? (far.name || far.id) : farId, toId: farId, conductor: c.kind === "direct" ? "close-coupled" : `${c.sets}×3×${c.size} ${c.material}`,

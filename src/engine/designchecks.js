@@ -66,7 +66,10 @@ export function designChecks(sys, analysis) {
     if (c0.kind !== "cablebus" || c0.closed === false) continue;
     const c = { ...CONNECTORS.cablebus.defaults, ...c0 };
     const r = analysis.connectors[c.id]; if (!r || r.open) continue;
-    const kv = analysis.equipment[c.from.split(".")[0]]?.kv ?? analysis.equipment[c.to.split(".")[0]]?.kv;
+    // Nominal kV of the run's own bus. (equipment[id].kv is the kV of the equipment's first terminal, which
+    // for a transformer is the HV side, so a run from T.lv was checked at the primary voltage.)
+    const busKv = (b) => analysis.compiled?.busMeta?.[b - 1]?.kv;
+    const kv = busKv(r.from_bus) ?? busKv(r.to_bus);
     const sc = [scAt(r.from_bus), scAt(r.to_bus)].filter(Boolean).sort((a, b) => b.ik_ka - a.ik_ka)[0];
     try {
       const res = cableBusCheck(c, r.i_a, kv, sc ? sc.ik_ka / sc.c : null, sc?.xr);
