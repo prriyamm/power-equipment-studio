@@ -11,6 +11,7 @@ import { dims, siteRoutes } from "./systemGeometry.js";
 import { Site3D } from "./system3d.jsx";
 import { SystemSld } from "./systemSld.jsx";
 import { GearLineupModal } from "./gearLineup.jsx";
+import { useHistory, ProjectMenu } from "./systemProject.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -341,7 +342,7 @@ function Tag({ x, y, lines, tone, selected }) {
 }
 
 /* ================================================================ SITE VIEW */
-function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConnect, showTags, animate, fitSignal }) {
+function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onMoveEnd, onConnect, showTags, animate, fitSignal }) {
   const wrapRef = useRef(null), svgRef = useRef(null);
   const [size, setSize] = useState({ w: 1000, h: 640 });
   const [view, setView] = useState({ x: -600, y: -100, w: 1400 });
@@ -392,7 +393,7 @@ function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConn
       setView((v) => ({ ...v, x: d.ox - (ev.clientX - d.sx) * s, y: d.oy - (ev.clientY - d.sy) * s }));
     }
   };
-  const onUp = () => { const d = drag.current; drag.current = null; if (d?.mode === "pan" && !d.moved) setSelection(null); };
+  const onUp = () => { const d = drag.current; drag.current = null; if (d?.mode === "eq") onMoveEnd?.(); if (d?.mode === "pan" && !d.moved) setSelection(null); };
 
   const items = Object.values(eqMap).map((e) => { const { w, d } = dims(e); return { e, x0: e.gx, y0: e.gy, x1: e.gx + w, y1: e.gy + d }; });
   const ordered = depthOrder(items);
@@ -671,7 +672,7 @@ function Schedule({ sys, analysis, select }) {
 const ADDABLE = [["transformer", "Transformer"], ["switchgear", "Switchgear"], ["mcc", "MCC"], ["motor", "Motor"], ["load", "Load"], ["capacitor", "Capacitor"], ["generator", "Generator"], ["utility", "Utility"]];
 
 export function SystemWorkspace({ goTo }) {
-  const [sys, setSys] = useState(() => clone(EXAMPLE_SYSTEM));
+  const [sys, setSys, history] = useHistory(() => clone(EXAMPLE_SYSTEM));
   const [selection, setSelection] = useState(null);
   const [tool, setTool] = useState("select");
   const [view, setView] = useState("site");
@@ -686,7 +687,7 @@ export function SystemWorkspace({ goTo }) {
 
   const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === id ? clean({ ...e, ...patch }) : e)) }));
   const updateCon = (id, patch) => setSys((s) => ({ ...s, connectors: s.connectors.map((c) => (c.id === id ? clean({ ...c, ...patch }) : c)) }));
-  const move = (id, gx, gy) => updateEq(id, { gx, gy });
+  const move = (id, gx, gy) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === id ? { ...e, gx, gy } : e)) }), { silent: true }); // one history entry per drag, committed on pointer-up
   const removeEq = (id) => { setSys((s) => ({ ...s, equipment: s.equipment.filter((e) => e.id !== id), connectors: s.connectors.filter((c) => !c.from.startsWith(id + ".") && !c.to.startsWith(id + ".")) })); setSelection(null); };
   const removeCon = (id) => { setSys((s) => ({ ...s, connectors: s.connectors.filter((c) => c.id !== id) })); setSelection(null); };
   const renameEq = (oldId, newIdV) => {
@@ -759,6 +760,7 @@ export function SystemWorkspace({ goTo }) {
         <input id="sys-name" className="num-input" style={{ width: 240, maxWidth: "100%" }} value={sys.name} onChange={(ev) => setSys((s) => ({ ...s, name: ev.target.value }))} aria-label="Package name" />
         <div className="flex items-center gap-2 ml-auto flex-wrap">
           <label className="live-toggle" title="Include induction-motor fault contribution"><input id="sc-motors" type="checkbox" checked={motors} onChange={(ev) => setMotors(ev.target.checked)} /><span>Motor contribution</span></label>
+          <ProjectMenu sys={sys} setSys={setSys} history={history} onLoaded={() => { setSelection(null); setFitSignal((x) => x + 1); }} />
           <Btn onClick={sendToLoadFlow} disabled={!analysis.ok} title="Open the compiled bus model in the Load flow workspace">Open in Load flow</Btn>
           <Btn onClick={() => { setSys(clone(EXAMPLE_SYSTEM)); setSelection(null); setFitSignal((x) => x + 1); }}>Reset example</Btn>
         </div>
@@ -795,7 +797,7 @@ export function SystemWorkspace({ goTo }) {
                 </div>
               </div>
               {mode === "sld" ? <SystemSld sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} showTags={showTags} /> : mode === "3d" ? <Site3D sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} animate={animate} showTags={showTags} /> :
-              <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
+              <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onMoveEnd={history.checkpoint} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
               {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} />
