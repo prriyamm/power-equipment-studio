@@ -283,6 +283,34 @@
   .menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px; display: flex; flex-direction: column; min-width: 160px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
   .menu button { text-align: left; padding: 6px 10px; border-radius: 5px; font-size: 13px; color: var(--fg); }
   .menu button:hover { background: var(--panel); color: var(--accent); }
+  /* transformer workspace */
+  .xf-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
+  .xf-results .tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .xf-form, .xf-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .xf-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+  .xf-kv-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .xf-wrap { white-space: normal !important; min-width: 150px; font-family: var(--font-ui) !important; }
+  .xf-note { font-size: 11px; color: var(--faint); margin-top: 2px; }
+  .xf-clause { color: var(--muted); font-size: 12px !important; }
+  .xf-unit { font-style: normal; color: var(--faint); font-size: 11px; }
+  .xf-notes { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); list-style: disc; padding-left: 18px; }
+  .xf-draw { display: flex; flex-direction: column; gap: 8px; }
+  .xf-svg { width: 100%; height: auto; max-height: 640px; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+  .xf-svg text { font-family: var(--font-data); fill: var(--fg); }
+  .xf-core { fill: color-mix(in srgb, var(--wire) 24%, var(--bg)); stroke: var(--wire); stroke-linejoin: round; }
+  .xf-axis { stroke: var(--faint); stroke-dasharray: 6 5; fill: none; }
+  .xf-lv { fill: color-mix(in srgb, var(--info) 55%, var(--bg)); stroke: var(--info); }
+  .xf-hv { fill: color-mix(in srgb, var(--accent) 55%, var(--bg)); stroke: var(--accent); }
+  .xf-dim path, .xf-lead path { stroke: var(--muted); fill: none; }
+  .xf-dim text { fill: var(--muted); }
+  .xf-lead circle { fill: var(--fg); }
+  .xf-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-data); font-size: 11.5px; color: var(--muted); }
+  .xf-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -2px; border: 1px solid; }
+  .xf-sw-core { background: color-mix(in srgb, var(--wire) 24%, var(--bg)); border-color: var(--wire) !important; }
+  .xf-sw-lv { background: color-mix(in srgb, var(--info) 55%, var(--bg)); border-color: var(--info) !important; }
+  .xf-sw-hv { background: color-mix(in srgb, var(--accent) 55%, var(--bg)); border-color: var(--accent) !important; }
+  @media (max-width: 899px) { .xf-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 420px) { .xf-fields { grid-template-columns: minmax(0, 1fr); } .xf-grid { padding: 10px 12px; } }
   .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
   @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
 </style>
@@ -1367,9 +1395,9 @@
     const d = lg.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join("");
     return /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${H}`, className: "chart", role: "img", "aria-label": "Newton-Raphson convergence" }, ticks.map((t) => /* @__PURE__ */ React.createElement("g", { key: t }, /* @__PURE__ */ React.createElement("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), className: "gridline" }), /* @__PURE__ */ React.createElement("text", { x: L - 5, y: y(t) + 3.5, textAnchor: "end", className: "tick" }, "1e", t))), /* @__PURE__ */ React.createElement("line", { x1: L, x2: W - R, y1: y(Math.log10(tol)), y2: y(Math.log10(tol)), className: "limit" }), /* @__PURE__ */ React.createElement("text", { x: W - R, y: y(Math.log10(tol)) - 4, textAnchor: "end", className: "tick accent" }, "tol 1e-8"), /* @__PURE__ */ React.createElement("path", { d: `${d}L${x(lg.length - 1)},${y(bot)}L${x(0)},${y(bot)}Z`, className: "area" }), /* @__PURE__ */ React.createElement("path", { d, className: "line" }), lg.map((v, i) => /* @__PURE__ */ React.createElement("circle", { key: i, cx: x(i), cy: y(v), r: i === lg.length - 1 ? 3.5 : 2.2, className: i === lg.length - 1 ? "pt-end" : "pt" }, /* @__PURE__ */ React.createElement("title", null, `iter ${i}: ${history[i].toExponential(2)} pu`))), lg.map((_, i) => /* @__PURE__ */ React.createElement("text", { key: "t" + i, x: x(i), y: H - 10, textAnchor: "middle", className: "tick" }, i)));
   }
-  function ResultsTab({ scenario, result, stale, solve, issues, saveFile, copyText, onSelectBus }) {
+  function ResultsTab({ scenario, result, stale, solve: solve2, issues, saveFile, copyText, onSelectBus }) {
     if (!result) {
-      return /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "panel p-8 text-center flex flex-col items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg" }, "No results yet"), /* @__PURE__ */ React.createElement("p", { className: "text-muted" }, "Solve the active network to see bus voltages, branch flows and losses."), /* @__PURE__ */ React.createElement(Btn, { kind: "primary", onClick: solve }, /* @__PURE__ */ React.createElement(Icon, { name: "bolt", size: 15 }), "Solve load flow")));
+      return /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "panel p-8 text-center flex flex-col items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg" }, "No results yet"), /* @__PURE__ */ React.createElement("p", { className: "text-muted" }, "Solve the active network to see bus voltages, branch flows and losses."), /* @__PURE__ */ React.createElement(Btn, { kind: "primary", onClick: solve2 }, /* @__PURE__ */ React.createElement(Icon, { name: "bolt", size: 15 }), "Solve load flow")));
     }
     if (!result.buses) {
       return /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Solve failed."), " ", result.message, " ", result.issues?.some((x) => x.level === "error") && "Fix the errors on the Data tab, then solve again."));
@@ -1381,7 +1409,7 @@
     const nOver = r.branches.filter((b) => b.loading_pct > 100).length;
     const lossSorted = [...r.branches].sort((a, b) => b.p_loss_mw - a.p_loss_mw);
     const maxLoss = Math.max(1e-9, lossSorted[0]?.p_loss_mw ?? 0);
-    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 p-4" }, !r.converged && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Did not converge."), " ", r.message, ". Values below are the last iterate and are not a valid operating point."), stale && /* @__PURE__ */ React.createElement("div", { className: "notice notice-warn" }, "The network changed since this solve. ", /* @__PURE__ */ React.createElement("button", { className: "link", onClick: solve }, "Solve again"), " to refresh."), /* @__PURE__ */ React.createElement("div", { className: "tiles" }, /* @__PURE__ */ React.createElement(Tile, { label: "Status", value: r.converged ? "Converged" : "Diverged", tone: r.converged ? "ok" : "crit", sub: `${r.iterations} iter \xB7 max \u0394S ${r.max_mismatch_pu.toExponential(1)} pu \xB7 ${r.solve_ms.toFixed(1)} ms` }), /* @__PURE__ */ React.createElement(Tile, { label: "Generation", value: fmt(r.total_gen_mw, 1), unit: "MW", sub: `${fmt(r.total_gen_mvar, 1)} Mvar` }), /* @__PURE__ */ React.createElement(Tile, { label: "Load", value: fmt(r.total_load_mw, 1), unit: "MW", sub: `${fmt(r.total_load_mvar, 1)} Mvar` }), /* @__PURE__ */ React.createElement(Tile, { label: "Losses", value: fmt(r.total_p_loss_mw, 3), unit: "MW", sub: `${fmt(100 * r.total_p_loss_mw / Math.max(r.total_load_mw, 1e-9), 2)} % of load \xB7 ${fmt(r.total_q_loss_mvar, 2)} Mvar` }), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 p-4" }, !r.converged && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Did not converge."), " ", r.message, ". Values below are the last iterate and are not a valid operating point."), stale && /* @__PURE__ */ React.createElement("div", { className: "notice notice-warn" }, "The network changed since this solve. ", /* @__PURE__ */ React.createElement("button", { className: "link", onClick: solve2 }, "Solve again"), " to refresh."), /* @__PURE__ */ React.createElement("div", { className: "tiles" }, /* @__PURE__ */ React.createElement(Tile, { label: "Status", value: r.converged ? "Converged" : "Diverged", tone: r.converged ? "ok" : "crit", sub: `${r.iterations} iter \xB7 max \u0394S ${r.max_mismatch_pu.toExponential(1)} pu \xB7 ${r.solve_ms.toFixed(1)} ms` }), /* @__PURE__ */ React.createElement(Tile, { label: "Generation", value: fmt(r.total_gen_mw, 1), unit: "MW", sub: `${fmt(r.total_gen_mvar, 1)} Mvar` }), /* @__PURE__ */ React.createElement(Tile, { label: "Load", value: fmt(r.total_load_mw, 1), unit: "MW", sub: `${fmt(r.total_load_mvar, 1)} Mvar` }), /* @__PURE__ */ React.createElement(Tile, { label: "Losses", value: fmt(r.total_p_loss_mw, 3), unit: "MW", sub: `${fmt(100 * r.total_p_loss_mw / Math.max(r.total_load_mw, 1e-9), 2)} % of load \xB7 ${fmt(r.total_q_loss_mvar, 2)} Mvar` }), /* @__PURE__ */ React.createElement(
       Tile,
       {
         label: "Voltage range",
@@ -1563,14 +1591,14 @@
       fn(d);
       return { ...s, data: d };
     }), [activeId]);
-    const solve = useCallback(() => patch(activeId, (s) => ({ ...s, result: runLoadFlow(s.data), solvedData: s.data })), [activeId]);
+    const solve2 = useCallback(() => patch(activeId, (s) => ({ ...s, result: runLoadFlow(s.data), solvedData: s.data })), [activeId]);
     useEffect2(() => {
       if (!live || !stale) return;
-      const t = setTimeout(solve, 120);
+      const t = setTimeout(solve2, 120);
       return () => clearTimeout(t);
-    }, [live, active.data, stale, solve]);
+    }, [live, active.data, stale, solve2]);
     useEffect2(() => {
-      if (live && !active.result) solve();
+      if (live && !active.result) solve2();
     }, [live, activeId]);
     const renameBus = (oldId, newIdV) => {
       if (newIdV === void 0 || !Number.isInteger(newIdV) || newIdV === oldId) return;
@@ -1698,7 +1726,7 @@
         const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
-          solve();
+          solve2();
           setToast({ text: "Solved" });
           return;
         }
@@ -1727,7 +1755,7 @@
       setActiveId(s.id);
       setSelection(null);
     } }, s.name)), /* @__PURE__ */ React.createElement("button", { className: "chip chip-add", onClick: () => duplicate(activeId), title: "Duplicate active scenario" }, /* @__PURE__ */ React.createElement(Icon, { name: "dup", size: 13 }))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, /* @__PURE__ */ React.createElement("label", { className: "live-toggle", title: "Re-solve after every edit" }, /* @__PURE__ */ React.createElement("input", { id: "live", type: "checkbox", checked: live, onChange: (e) => setLive(e.target.checked) }), /* @__PURE__ */ React.createElement("span", null, "Live solve")), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setVerify(true), title: "Run IEEE 14-bus self-test" }, /* @__PURE__ */ React.createElement(Icon, { name: "check", size: 14 }), "Verify solver"), /* @__PURE__ */ React.createElement(Btn, { kind: "primary", onClick: () => {
-      solve();
+      solve2();
       setToast({ text: "Solved" });
     }, title: "Solve (Ctrl+Enter)" }, /* @__PURE__ */ React.createElement(Icon, { name: "bolt", size: 15 }), "Solve"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs", role: "tablist" }, TABS.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, role: "tab", "aria-selected": tab === k, className: cx("tab", tab === k && "is-active"), onClick: () => setTab(k) }, l, k === "data" && errCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "dot dot-crit" }), k === "results" && stale && /* @__PURE__ */ React.createElement("span", { className: "dot dot-warn" }))), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), r?.converged && !stale && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(r.total_p_loss_mw, 3)), " MW"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", tab === "diagram" && "is-diagram") }, tab === "diagram" && /* @__PURE__ */ React.createElement(
       DiagramTab,
@@ -1771,7 +1799,7 @@
         scenario: active,
         result: r,
         stale,
-        solve,
+        solve: solve2,
         issues,
         saveFile,
         copyText,
@@ -3565,6 +3593,404 @@
     return out;
   };
 
+  // src/engine/pecalc/transformer.js
+  var MU0 = 4e-7 * Math.PI;
+  var STEEL_DENSITY = 7650;
+  var WINDING = { Cu: [17241e-12, 234.5], Al: [28264e-12, 225] };
+  var CORE_LOSS_60HZ = [
+    [1, 0.35],
+    [1.2, 0.5],
+    [1.3, 0.58],
+    [1.4, 0.68],
+    [1.5, 0.8],
+    [1.6, 0.95],
+    [1.7, 1.17],
+    [1.8, 1.5]
+  ];
+  function pyRound(x, n = 0) {
+    if (!isFinite(x)) return x;
+    if (Math.abs(x) < 1e15) {
+      const ex = Math.abs(x).toFixed(Math.min(100, n + 30));
+      const tail = ex.slice(ex.indexOf(".") + 1 + n);
+      if (/^50*$/.test(tail)) {
+        const lo = Math.floor(Math.abs(x) * 10 ** n);
+        const even = lo % 2 === 0 ? lo : lo + 1;
+        return Math.sign(x) * (n === 0 ? even : Number((even / 10 ** n).toFixed(n)));
+      }
+    }
+    return Number(x.toFixed(n));
+  }
+  var pyNum = (x) => Number.isInteger(x) ? x.toFixed(1) : String(x);
+  var pct0 = (x) => `${(x * 100).toFixed(0)}%`;
+  var given = (v) => v !== null && v !== void 0;
+  function transformerInput(overrides = {}) {
+    const inp = {
+      kva: 1500,
+      hv_v: 13800,
+      lv_v: 480,
+      hv_connection: "delta",
+      lv_connection: "wye",
+      frequency_hz: 60,
+      kind: "liquid",
+      // "liquid" or "dry"
+      conductor: "Cu",
+      // winding material (both windings)
+      b_max_t: 1.55,
+      k_et: 0.45,
+      // Et = K sqrt(kVA) [UNVERIFIED: 0.45 Cu / ~0.37 Al, distribution]
+      j_lv_a_mm2: 3,
+      j_hv_a_mm2: 3,
+      window_ratio: 3,
+      // window height / width
+      core_fill: 0.6,
+      // net iron area / circumscribing-circle d^2 (stepped core) [UNVERIFIED]
+      kw: null,
+      // window space factor; default 10 / (30 + kV_HV) [UNVERIFIED]
+      lv_fill: 0.7,
+      // conductor fraction of LV winding cross-section (foil/strip)
+      hv_fill: 0.45,
+      // conductor fraction of HV winding cross-section (round/rect wire)
+      core_to_lv_mm: 8,
+      lv_hv_duct_mm: null,
+      // default 8 + 0.9 kV_HV [UNVERIFIED]
+      end_clearance_mm: null,
+      // winding to yoke; default 15 + 1.2 kV_HV
+      phase_gap_mm: null,
+      // between HV windings of adjacent limbs; default 10 + 0.8 kV_HV
+      stray_loss_frac: 0.1,
+      // stray + eddy as fraction of I2R
+      building_factor: 1.25,
+      // core loss building factor [UNVERIFIED typical]
+      reference_temp_c: null,
+      // load-loss reference; default 85 C liquid / 115 C dry (avg rise + 20)
+      target_z_pct: null,
+      z_tolerance_pct: 7.5,
+      // of the specified value [UNVERIFIED: C57.12.00 two-winding tolerance]
+      power_factor: 0.9,
+      source_mva: null,
+      // available fault MVA at HV terminals (null: infinite bus)
+      fault_duration_s: 2,
+      // through-fault thermal duration
+      conductor_proof_mpa: 100,
+      // 0.2 % proof stress of winding conductor [UNVERIFIED: annealed Cu]
+      doe_min_efficiency_pct: null
+      // from 10 CFR 431.196 for this kVA/BIL (enter from the rule)
+    };
+    for (const k of Object.keys(overrides)) {
+      if (!(k in inp)) throw new TypeError(`TransformerInput got an unexpected field '${k}'`);
+      if (overrides[k] !== void 0) inp[k] = overrides[k];
+    }
+    return inp;
+  }
+  function specific_core_loss(b) {
+    const pts = CORE_LOSS_60HZ;
+    if (b <= pts[0][0]) return pts[0][1] * (b / pts[0][0]) ** 2;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [b02, w02] = pts[i], [b12, w12] = pts[i + 1];
+      if (b <= b12) return w02 + (w12 - w02) * (b - b02) / (b12 - b02);
+    }
+    const [b0, w0] = pts[pts.length - 2], [b1, w1] = pts[pts.length - 1];
+    return w1 + (w1 - w0) * (b - b1) / (b1 - b0);
+  }
+  function rogowski_factor(h, w) {
+    const x = Math.PI * h / w;
+    return 1 - (1 - Math.exp(-x)) / x;
+  }
+  var _phase = (v_ll, conn) => conn === "delta" ? v_ll : v_ll / Math.sqrt(3);
+  function design(inp) {
+    if (inp.kind !== "liquid" && inp.kind !== "dry") throw new Error("kind must be liquid or dry");
+    if (!(inp.conductor in WINDING)) throw new Error("conductor must be Cu or Al");
+    const f = inp.frequency_hz, s = inp.kva * 1e3;
+    const kv_hv = inp.hv_v / 1e3;
+    const vph_lv = _phase(inp.lv_v, inp.lv_connection), vph_hv = _phase(inp.hv_v, inp.hv_connection);
+    const iph_lv = s / 3 / vph_lv, iph_hv = s / 3 / vph_hv;
+    const i_line_lv = s / (Math.sqrt(3) * inp.lv_v);
+    const et0 = inp.k_et * Math.sqrt(inp.kva);
+    const n_lv = Math.max(1, pyRound(vph_lv / et0));
+    const et = vph_lv / n_lv;
+    const n_hv = pyRound(n_lv * vph_hv / vph_lv);
+    const ai = et0 / (4.44 * f * inp.b_max_t);
+    const bm = et / (4.44 * f * ai);
+    const d = Math.sqrt(ai / inp.core_fill);
+    const kw = inp.kw || 10 / (30 + kv_hv);
+    const j_avg = (inp.j_lv_a_mm2 + inp.j_hv_a_mm2) / 2 * 1e6;
+    const aw = inp.kva / (3.33 * f * bm * kw * j_avg * ai * 1e-3);
+    const hw = Math.sqrt(aw * inp.window_ratio);
+    const ww = aw / hw;
+    const a_lv = iph_lv / inp.j_lv_a_mm2 * 1e-6, a_hv = iph_hv / inp.j_hv_a_mm2 * 1e-6;
+    const end = (given(inp.end_clearance_mm) ? inp.end_clearance_mm : 15 + 1.2 * kv_hv) / 1e3;
+    const h = hw - 2 * end;
+    if (h <= 0) throw new Error("Window too short for the end clearances; reduce window_ratio or clearances");
+    const b_lv = n_lv * a_lv / (h * inp.lv_fill);
+    const b_hv = n_hv * a_hv / (h * inp.hv_fill);
+    const c1 = inp.core_to_lv_mm / 1e3;
+    const duct = (given(inp.lv_hv_duct_mm) ? inp.lv_hv_duct_mm : 8 + 0.9 * kv_hv) / 1e3;
+    const gap_pp = (given(inp.phase_gap_mm) ? inp.phase_gap_mm : 10 + 0.8 * kv_hv) / 1e3;
+    const lmt_lv = Math.PI * (d + 2 * c1 + b_lv);
+    const lmt_hv = Math.PI * (d + 2 * c1 + 2 * b_lv + 2 * duct + b_hv);
+    const lmt_duct = Math.PI * (d + 2 * c1 + 2 * b_lv + duct);
+    const width_needed = 2 * (c1 + b_lv + duct + b_hv) + gap_pp;
+    const t_ref = inp.reference_temp_c || (inp.kind === "liquid" ? 85 : 115);
+    const [rho20, t0] = WINDING[inp.conductor];
+    const rho = rho20 * (t0 + t_ref) / (t0 + 20);
+    const r_lv = rho * n_lv * lmt_lv / a_lv;
+    const r_hv = rho * n_hv * lmt_hv / a_hv;
+    const i2r = 3 * (iph_lv ** 2 * r_lv + iph_hv ** 2 * r_hv);
+    const load_loss = i2r * (1 + inp.stray_loss_frac);
+    const centre = ww + d;
+    const core_vol = 3 * ai * hw + 2 * ai * (2 * centre + d);
+    const core_mass = core_vol * STEEL_DENSITY;
+    const nll = core_mass * specific_core_loss(bm) * inp.building_factor;
+    const w_rad = duct + b_lv + b_hv;
+    const kr = rogowski_factor(h, w_rad);
+    const x_pct = 2 * Math.PI * f * MU0 * (n_lv * iph_lv / et) * lmt_duct * (duct + (b_lv + b_hv) / 3) / (h / kr) * 100;
+    const r_pct = load_loss / s * 100;
+    const z_pct = Math.hypot(x_pct, r_pct);
+    const x_over_r = x_pct / r_pct;
+    const eff = (load) => {
+      const out = s * load * inp.power_factor;
+      return out / (out + nll + load_loss * load ** 2) * 100;
+    };
+    const doe_load = inp.kind === "liquid" || inp.lv_v > 600 ? 0.5 : 0.35;
+    const doe_temp = inp.kind === "liquid" ? 55 : 75;
+    const ll_doe = load_loss * (t0 + doe_temp) / (t0 + t_ref);
+    const eff_doe = s * doe_load / (s * doe_load + nll + ll_doe * doe_load ** 2) * 100;
+    const sin_phi = Math.sqrt(1 - inp.power_factor ** 2);
+    const reg = r_pct * inp.power_factor + x_pct * sin_phi + (x_pct * inp.power_factor - r_pct * sin_phi) ** 2 / 200;
+    const z_pu = z_pct / 100 + (inp.source_mva ? inp.kva / 1e3 / inp.source_mva : 0);
+    const isc_lv = i_line_lv / z_pu;
+    const kappa2 = 1.02 + 0.98 * Math.exp(-3 / x_over_r);
+    const i_peak = Math.sqrt(2) * kappa2 * isc_lv;
+    const t1 = t_ref;
+    const jsc = iph_lv / z_pu / (a_lv * 1e6);
+    const [k_mat, t_lim] = inp.conductor === "Cu" ? [106e3, 250] : [45700, 200];
+    const denom = k_mat / (jsc ** 2 * inp.fault_duration_s) - 1;
+    const t_fault = denom > 0 ? t1 + 2 * (t1 + t0) / denom : Infinity;
+    const b_peak = MU0 * n_hv * Math.sqrt(2) * kappa2 * (iph_hv / z_pu) / (h / kr);
+    const pressure = b_peak ** 2 / (2 * MU0);
+    const r_hv_mean = lmt_hv / (2 * Math.PI);
+    const hoop = pressure * r_hv_mean / (n_hv * a_hv / h) / 1e6;
+    const checks = [];
+    const check = (name, clause, value, limit, unit, passed, note = "") => {
+      checks.push({ name, clause, value: pyRound(value, 3), limit: pyRound(limit, 3), unit, passed: Boolean(passed), note });
+    };
+    check("Peak flux density", "design practice (CRGO)", bm, 1.75, "T", bm <= 1.75, "keep margin for overexcitation");
+    check(
+      "Windings fit the window width",
+      "geometry",
+      width_needed * 1e3,
+      ww * 1e3,
+      "mm",
+      width_needed <= ww,
+      "2 x (core-LV + LV + duct + HV) + phase gap"
+    );
+    if (inp.target_z_pct) {
+      const tol = inp.target_z_pct * inp.z_tolerance_pct / 100;
+      check(
+        "Impedance within tolerance of target",
+        "IEEE C57.12.00 [tolerance UNVERIFIED]",
+        z_pct,
+        inp.target_z_pct + tol,
+        "%",
+        Math.abs(z_pct - inp.target_z_pct) <= tol,
+        `target ${pyNum(inp.target_z_pct)} % +/- ${pyNum(inp.z_tolerance_pct)} %`
+      );
+    }
+    if (inp.doe_min_efficiency_pct) {
+      check(
+        "Efficiency at DOE test point",
+        "10 CFR 431.196 (value entered by user)",
+        eff_doe,
+        inp.doe_min_efficiency_pct,
+        "%",
+        eff_doe >= inp.doe_min_efficiency_pct,
+        `${pct0(doe_load)} load, load loss at ${doe_temp.toFixed(0)} C`
+      );
+    }
+    check(
+      `Winding temperature after ${String(inp.fault_duration_s)} s through-fault`,
+      "IEC 60076-5 method; C57.12.00 limit [UNVERIFIED]",
+      t_fault,
+      t_lim,
+      "C",
+      t_fault <= t_lim,
+      `LV current density ${jsc.toFixed(1)} A/mm2 during fault`
+    );
+    check(
+      "Mean hoop stress in outer (HV) winding",
+      "Kulkarni & Khaparde method [UNVERIFIED]",
+      hoop,
+      inp.conductor_proof_mpa,
+      "MPa",
+      hoop <= inp.conductor_proof_mpa,
+      "compare with conductor 0.2 % proof stress"
+    );
+    const notes = [
+      `Preliminary design only (empirical K = ${pyNum(inp.k_et)}, Kw = ${kw.toFixed(3)}, core fill ${pyNum(inp.core_fill)}); refine with detailed design and FEA, and confirm by test (IEEE C57.12.90 / C57.12.91).`,
+      `DOE test point: ${pct0(doe_load)} load, load loss corrected to ${doe_temp.toFixed(0)} C; enter the 10 CFR 431.196 minimum efficiency for this kVA and BIL (tables not loaded).`,
+      "Inner (LV) winding radial buckling and axial forces are not checked yet."
+    ];
+    if (!inp.source_mva) notes.push("Secondary fault current assumes an infinite source (no utility impedance).");
+    const r = (v, n = 1) => pyRound(v, n);
+    const effs = {};
+    for (const l of [0.25, 0.5, 0.75, 1]) effs[`${Math.trunc(l * 100)}%`] = r(eff(l), 3);
+    return {
+      input: { ...inp },
+      design: {
+        volts_per_turn: r(et, 3),
+        turns_lv: n_lv,
+        turns_hv: n_hv,
+        b_max_t: r(bm, 3),
+        core_area_net_cm2: r(ai * 1e4),
+        core_diameter_mm: r(d * 1e3),
+        window_h_mm: r(hw * 1e3),
+        window_w_mm: r(ww * 1e3),
+        winding_height_mm: r(h * 1e3),
+        lv_conductor_mm2: r(a_lv * 1e6),
+        hv_conductor_mm2: r(a_hv * 1e6, 2),
+        lv_radial_mm: r(b_lv * 1e3),
+        hv_radial_mm: r(b_hv * 1e3),
+        duct_mm: r(duct * 1e3),
+        core_mass_kg: r(core_mass),
+        kw: r(kw, 3)
+      },
+      losses: {
+        no_load_w: r(nll),
+        load_loss_w: r(load_loss),
+        reference_temp_c: t_ref,
+        r_lv_mohm: r(r_lv * 1e3, 3),
+        r_hv_ohm: r(r_hv, 3)
+      },
+      impedance: { r_pct: r(r_pct, 2), x_pct: r(x_pct, 2), z_pct: r(z_pct, 2), x_over_r: r(x_over_r, 2), rogowski_kr: r(kr, 3) },
+      performance: {
+        efficiency_pct: effs,
+        doe_point: { load: doe_load, efficiency_pct: r(eff_doe, 3) },
+        regulation_pct: r(reg, 2),
+        max_efficiency_load_pct: r(Math.sqrt(nll / load_loss) * 100)
+      },
+      short_circuit: {
+        lv_fault_ka_rms: r(isc_lv / 1e3, 2),
+        lv_fault_peak_ka: r(i_peak / 1e3, 2),
+        winding_temp_after_fault_c: r(t_fault),
+        hv_hoop_stress_mpa: r(hoop, 1)
+      },
+      checks,
+      notes,
+      passed: checks.every((c) => c.passed)
+    };
+  }
+  function design_for_impedance(inp, lo = 1.2, hi = 8) {
+    if (!inp.target_z_pct) throw new Error("target_z_pct is required to tune impedance");
+    const z = (ratio) => design({ ...inp, window_ratio: ratio }).impedance.z_pct;
+    const z_lo = z(lo), z_hi = z(hi);
+    if (!(z_hi <= inp.target_z_pct && inp.target_z_pct <= z_lo)) {
+      throw new Error(`Target ${pyNum(inp.target_z_pct)} % Z is outside ${z_hi.toFixed(2)}-${z_lo.toFixed(2)} % reachable by window ratio alone; change the LV-HV duct, current density or volts per turn`);
+    }
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (z(mid) > inp.target_z_pct) lo = mid;
+      else hi = mid;
+    }
+    const result = design({ ...inp, window_ratio: (lo + hi) / 2 });
+    result.notes.unshift(`Window height/width ratio tuned to ${((lo + hi) / 2).toFixed(2)} to meet ${pyNum(inp.target_z_pct)} % Z.`);
+    return result;
+  }
+
+  // src/ui/transformer.jsx
+  var { useState: useState4, useMemo: useMemo3 } = React;
+  var EXAMPLE = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
+  function solve(inp, tune) {
+    try {
+      const i = transformerInput(inp);
+      return { result: tune && i.target_z_pct ? design_for_impedance(i) : design(i) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+  function TransformerWorkspace() {
+    const [inp, setInp] = useState4(() => transformerInput(EXAMPLE));
+    const [tune, setTune] = useState4(true);
+    const { result: r, error } = useMemo3(() => solve(inp, tune), [inp, tune]);
+    const set = (k, optional) => (v) => setInp((s) => v === void 0 && !optional ? s : { ...s, [k]: v === void 0 ? null : v });
+    const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `xf-${k}`, value: inp[k] === null ? void 0 : inp[k], placeholder: o.ph, disabled: o.disabled, onCommit: set(k, o.optional) }));
+    const pick = (k, label, opts) => /* @__PURE__ */ React.createElement(Field, { label }, /* @__PURE__ */ React.createElement("select", { id: `xf-${k}`, className: "num-input", value: inp[k], onChange: (e) => setInp((s) => ({ ...s, [k]: e.target.value })) }, opts.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))));
+    const tuned = tune && !!inp.target_z_pct;
+    return /* @__PURE__ */ React.createElement("div", { className: "ws" }, /* @__PURE__ */ React.createElement("header", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "ws-title" }, "Transformer"), /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[12.5px]" }, "Preliminary core-type design \xB7 3-phase"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, r && /* @__PURE__ */ React.createElement(Pill, { tone: r.passed ? "ok" : "crit" }, r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`), /* @__PURE__ */ React.createElement(Btn, { onClick: () => {
+      setInp(transformerInput(EXAMPLE));
+      setTune(true);
+    }, title: "Restore the 1500 kVA example inputs" }, "Reset to example"))), /* @__PURE__ */ React.createElement("div", { className: "main" }, /* @__PURE__ */ React.createElement("div", { className: "xf-grid" }, /* @__PURE__ */ React.createElement("div", { className: "xf-form" }, /* @__PURE__ */ React.createElement(Section, { title: "Rating" }, /* @__PURE__ */ React.createElement("div", { className: "xf-fields" }, num2("kva", "Rated power", "kVA"), num2("frequency_hz", "Frequency", "Hz"), pick("kind", "Cooling type", [["liquid", "Liquid-filled"], ["dry", "Dry-type"]]), num2("power_factor", "Load power factor", "pu"), num2("source_mva", "Source fault level", "MVA", { optional: true, ph: "infinite bus", hint: "at HV terminals" }), num2("fault_duration_s", "Through-fault duration", "s"))), /* @__PURE__ */ React.createElement(Section, { title: "Voltages" }, /* @__PURE__ */ React.createElement("div", { className: "xf-fields" }, num2("hv_v", "HV line-line", "V"), pick("hv_connection", "HV connection", [["delta", "Delta"], ["wye", "Wye"]]), num2("lv_v", "LV line-line", "V"), pick("lv_connection", "LV connection", [["wye", "Wye"], ["delta", "Delta"]]))), /* @__PURE__ */ React.createElement(Section, { title: "Design targets" }, /* @__PURE__ */ React.createElement("div", { className: "xf-fields" }, num2("target_z_pct", "Target impedance", "%Z", { optional: true, ph: "none" }), num2("z_tolerance_pct", "%Z tolerance", "% of value"), num2("window_ratio", "Window height / width", "", { disabled: tuned, hint: tuned ? "set by tuning" : void 0 }), num2("b_max_t", "Peak flux density", "T"), num2("k_et", "Volts/turn constant K", "Et = K\u221AkVA"), num2("j_lv_a_mm2", "LV current density", "A/mm\xB2"), num2("j_hv_a_mm2", "HV current density", "A/mm\xB2"), num2("doe_min_efficiency_pct", "DOE minimum efficiency", "%", { optional: true, ph: "not checked", hint: "from 10 CFR 431.196" })), /* @__PURE__ */ React.createElement("label", { className: "live-toggle mt-3", title: "Bisect the window height/width ratio until %Z meets the target" }, /* @__PURE__ */ React.createElement("input", { id: "xf-tune", type: "checkbox", checked: tune, onChange: (e) => setTune(e.target.checked) }), /* @__PURE__ */ React.createElement("span", null, "Tune window ratio to target %Z"))), /* @__PURE__ */ React.createElement(Section, { title: "Materials" }, /* @__PURE__ */ React.createElement("div", { className: "xf-fields" }, pick("conductor", "Winding conductor", [["Cu", "Copper"], ["Al", "Aluminium"]]), num2("conductor_proof_mpa", "Conductor proof stress", "MPa"), num2("core_fill", "Core fill factor", ""), num2("building_factor", "Core loss building factor", ""), num2("lv_fill", "LV conductor fill", ""), num2("hv_fill", "HV conductor fill", ""), num2("stray_loss_frac", "Stray loss", "\xD7 I\xB2R"), num2("reference_temp_c", "Load-loss reference", "\xB0C", { optional: true, ph: inp.kind === "liquid" ? "85" : "115" }))), /* @__PURE__ */ React.createElement(Section, { title: "Clearances", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "blank = default") }, /* @__PURE__ */ React.createElement("div", { className: "xf-fields" }, num2("core_to_lv_mm", "Core to LV", "mm"), num2("lv_hv_duct_mm", "LV-HV duct", "mm", { optional: true, ph: "8 + 0.9 kV" }), num2("end_clearance_mm", "Winding to yoke", "mm", { optional: true, ph: "15 + 1.2 kV" }), num2("phase_gap_mm", "Phase gap", "mm", { optional: true, ph: "10 + 0.8 kV" }), num2("kw", "Window space factor Kw", "", { optional: true, ph: "10 / (30 + kV)" })))), /* @__PURE__ */ React.createElement("div", { className: "xf-results" }, error && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Cannot design."), " ", error), r && /* @__PURE__ */ React.createElement(Results, { r })))));
+  }
+  function Results({ r }) {
+    const i = r.input, d = r.design, z = r.impedance, p = r.performance, sc = r.short_circuit, l = r.losses;
+    const zCheck = r.checks.find((c) => c.name.startsWith("Impedance"));
+    const doeCheck = r.checks.find((c) => c.name.startsWith("Efficiency"));
+    const lossTotal = (l.no_load_w + l.load_loss_w) / 1e3;
+    const std = (v) => Number.isFinite(v) ? fmt(v, Math.abs(v) < 10 ? 2 : 1) : "\u221E";
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "tiles" }, /* @__PURE__ */ React.createElement(Tile, { label: "Rating", value: fmt(i.kva, i.kva % 1 ? 1 : 0), unit: "kVA", sub: `${fmt(i.hv_v / 1e3, 2)} kV ${i.hv_connection === "delta" ? "\u0394" : "Y"} / ${fmt(i.lv_v, 0)} V ${i.lv_connection === "delta" ? "\u0394" : "Y"}` }), /* @__PURE__ */ React.createElement(
+      Tile,
+      {
+        label: "Impedance",
+        value: fmt(z.z_pct, 2),
+        unit: "%Z",
+        tone: zCheck ? zCheck.passed ? "ok" : "crit" : void 0,
+        sub: `R ${fmt(z.r_pct, 2)} % \xB7 X ${fmt(z.x_pct, 2)} % \xB7 X/R ${fmt(z.x_over_r, 1)}`
+      }
+    ), /* @__PURE__ */ React.createElement(
+      Tile,
+      {
+        label: "Efficiency, full load",
+        value: fmt(p.efficiency_pct["100%"], 2),
+        unit: "%",
+        tone: doeCheck ? doeCheck.passed ? "ok" : "crit" : void 0,
+        sub: `DOE point (${fmt(p.doe_point.load * 100, 0)} %): ${fmt(p.doe_point.efficiency_pct, 3)} %`
+      }
+    ), /* @__PURE__ */ React.createElement(Tile, { label: "Losses", value: fmt(lossTotal, 2), unit: "kW", sub: `no-load ${fmt(l.no_load_w / 1e3, 2)} \xB7 load ${fmt(l.load_loss_w / 1e3, 2)} kW` }), /* @__PURE__ */ React.createElement(Tile, { label: "LV fault current", value: fmt(sc.lv_fault_ka_rms, 1), unit: "kA", tone: !r.passed ? "warn" : void 0, sub: `peak ${fmt(sc.lv_fault_peak_ka, 1)} kA \xB7 ${i.source_mva ? `source ${fmt(i.source_mva, 0)} MVA` : "infinite source"}` })), /* @__PURE__ */ React.createElement(Section, { title: "Checks", aside: /* @__PURE__ */ React.createElement(Pill, { tone: r.passed ? "ok" : "crit" }, r.passed ? "Pass" : "Fail") }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Check"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Value"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Limit"), /* @__PURE__ */ React.createElement("th", null, "Result"), /* @__PURE__ */ React.createElement("th", null, "Clause"))), /* @__PURE__ */ React.createElement("tbody", null, r.checks.map((c) => /* @__PURE__ */ React.createElement("tr", { key: c.name, title: c.note }, /* @__PURE__ */ React.createElement("td", { className: "xf-wrap" }, c.name, /* @__PURE__ */ React.createElement("div", { className: "xf-note" }, c.note)), /* @__PURE__ */ React.createElement("td", { className: "r" }, std(c.value), " ", /* @__PURE__ */ React.createElement("em", { className: "xf-unit" }, c.unit)), /* @__PURE__ */ React.createElement("td", { className: "r" }, std(c.limit), " ", /* @__PURE__ */ React.createElement("em", { className: "xf-unit" }, c.unit)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement(Pill, { tone: c.passed ? "ok" : "crit" }, c.passed ? "Pass" : "Fail")), /* @__PURE__ */ React.createElement("td", { className: "xf-wrap xf-clause" }, c.clause))))))), /* @__PURE__ */ React.createElement(Section, { title: "Core and coil", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "drawn to scale, dimensions in mm") }, /* @__PURE__ */ React.createElement(CoreCoil, { d, i })), /* @__PURE__ */ React.createElement("div", { className: "xf-kv-row" }, /* @__PURE__ */ React.createElement(Section, { title: "Core and windings" }, /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Volts per turn"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.volts_per_turn, 3), " V"), /* @__PURE__ */ React.createElement("dt", null, "Turns LV / HV"), /* @__PURE__ */ React.createElement("dd", null, d.turns_lv, " / ", d.turns_hv), /* @__PURE__ */ React.createElement("dt", null, "Peak flux density"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.b_max_t, 3), " T"), /* @__PURE__ */ React.createElement("dt", null, "Core net area"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.core_area_net_cm2, 1), " cm\xB2"), /* @__PURE__ */ React.createElement("dt", null, "Core diameter"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.core_diameter_mm, 1), " mm"), /* @__PURE__ */ React.createElement("dt", null, "Window h \xD7 w"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.window_h_mm, 0), " \xD7 ", fmt(d.window_w_mm, 0), " mm"), /* @__PURE__ */ React.createElement("dt", null, "Winding height"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.winding_height_mm, 0), " mm"), /* @__PURE__ */ React.createElement("dt", null, "LV / HV conductor"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.lv_conductor_mm2, 1), " / ", fmt(d.hv_conductor_mm2, 2), " mm\xB2"), /* @__PURE__ */ React.createElement("dt", null, "LV / HV radial build"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.lv_radial_mm, 1), " / ", fmt(d.hv_radial_mm, 1), " mm"), /* @__PURE__ */ React.createElement("dt", null, "LV-HV duct"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.duct_mm, 1), " mm"), /* @__PURE__ */ React.createElement("dt", null, "Core mass"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.core_mass_kg, 0), " kg"), /* @__PURE__ */ React.createElement("dt", null, "Window factor Kw"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.kw, 3)))), /* @__PURE__ */ React.createElement(Section, { title: "Losses and performance" }, /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "No-load loss"), /* @__PURE__ */ React.createElement("dd", null, fmt(l.no_load_w, 0), " W"), /* @__PURE__ */ React.createElement("dt", null, "Load loss @ ", fmt(l.reference_temp_c, 0), " \xB0C"), /* @__PURE__ */ React.createElement("dd", null, fmt(l.load_loss_w, 0), " W"), /* @__PURE__ */ React.createElement("dt", null, "R LV / HV (per phase)"), /* @__PURE__ */ React.createElement("dd", null, fmt(l.r_lv_mohm, 3), " m\u03A9 / ", fmt(l.r_hv_ohm, 3), " \u03A9"), Object.entries(p.efficiency_pct).map(([k, v]) => /* @__PURE__ */ React.createElement(React.Fragment, { key: k }, /* @__PURE__ */ React.createElement("dt", null, "Efficiency @ ", k, " load"), /* @__PURE__ */ React.createElement("dd", null, fmt(v, 3), " %"))), /* @__PURE__ */ React.createElement("dt", null, "Max-efficiency load"), /* @__PURE__ */ React.createElement("dd", null, fmt(p.max_efficiency_load_pct, 1), " %"), /* @__PURE__ */ React.createElement("dt", null, "Regulation @ pf ", fmt(i.power_factor, 2)), /* @__PURE__ */ React.createElement("dd", null, fmt(p.regulation_pct, 2), " %"), /* @__PURE__ */ React.createElement("dt", null, "Rogowski factor Kr"), /* @__PURE__ */ React.createElement("dd", null, fmt(z.rogowski_kr, 3)))), /* @__PURE__ */ React.createElement(Section, { title: "Short circuit" }, /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "LV fault, rms"), /* @__PURE__ */ React.createElement("dd", null, fmt(sc.lv_fault_ka_rms, 2), " kA"), /* @__PURE__ */ React.createElement("dt", null, "LV fault, peak"), /* @__PURE__ */ React.createElement("dd", null, fmt(sc.lv_fault_peak_ka, 2), " kA"), /* @__PURE__ */ React.createElement("dt", null, "Winding temp after ", i.fault_duration_s, " s"), /* @__PURE__ */ React.createElement("dd", null, Number.isFinite(sc.winding_temp_after_fault_c) ? `${fmt(sc.winding_temp_after_fault_c, 0)} \xB0C` : "\u221E"), /* @__PURE__ */ React.createElement("dt", null, "HV mean hoop stress"), /* @__PURE__ */ React.createElement("dd", null, fmt(sc.hv_hoop_stress_mpa, 1), " MPa")))), /* @__PURE__ */ React.createElement(Section, { title: "Notes" }, /* @__PURE__ */ React.createElement("ul", { className: "xf-notes" }, r.notes.map((n, k) => /* @__PURE__ */ React.createElement("li", { key: k }, n)))));
+  }
+  function CoreCoil({ d, i }) {
+    const dc = d.core_diameter_mm, ww = d.window_w_mm, hw = d.window_h_mm, h = d.winding_height_mm;
+    const c1 = i.core_to_lv_mm, blv = d.lv_radial_mm, bhv = d.hv_radial_mm, duct = d.duct_mm;
+    const yoke = dc;
+    const W0 = 3 * dc + 2 * ww, H0 = hw + 2 * yoke;
+    const ext = c1 + blv + duct + bhv;
+    const fs = Math.max(W0, H0) * 0.03;
+    const left = ext + 3 * fs, right = ext + 7.5 * fs, top = 5 * fs, bottom = 8.5 * fs;
+    const vw = W0 + left + right, vh = H0 + top + bottom;
+    const ox = left, oy = top;
+    const cx2 = [0, 1, 2].map((k) => dc / 2 + k * (dc + ww));
+    const wy = yoke + (hw - h) / 2;
+    const sw = fs * 0.07;
+    const windows = [0, 1].map((k) => dc + k * (dc + ww));
+    const core = `M0 0H${W0}V${H0}H0Z` + windows.map((x) => `M${x} ${yoke}h${ww}v${hw}h${-ww}Z`).join("");
+    const wind = (x, w, cls, key) => /* @__PURE__ */ React.createElement("rect", { key, className: cls, x, y: wy, width: w, height: h, strokeWidth: sw });
+    const rects = cx2.flatMap((c, k) => {
+      const e = dc / 2 + c1;
+      return [
+        wind(c - e - blv, blv, "xf-lv", `l${k}a`),
+        wind(c + e, blv, "xf-lv", `l${k}b`),
+        wind(c - e - blv - duct - bhv, bhv, "xf-hv", `h${k}a`),
+        wind(c + e + blv + duct, bhv, "xf-hv", `h${k}b`)
+      ];
+    });
+    const T = { fontSize: fs };
+    const rx = W0 + ext + 1.5 * fs;
+    const by = H0 + 2 * fs;
+    const dimV = (x, y0, y1, label) => /* @__PURE__ */ React.createElement("g", { className: "xf-dim" }, /* @__PURE__ */ React.createElement("path", { d: `M${x} ${y0}V${y1}M${x - fs * 0.4} ${y0}h${fs * 0.8}M${x - fs * 0.4} ${y1}h${fs * 0.8}`, strokeWidth: sw }), /* @__PURE__ */ React.createElement("text", { transform: `translate(${x + fs * 1.15} ${(y0 + y1) / 2}) rotate(-90)`, textAnchor: "middle", style: T }, label));
+    const dimH = (x0, x1, y, label) => /* @__PURE__ */ React.createElement("g", { className: "xf-dim" }, /* @__PURE__ */ React.createElement("path", { d: `M${x0} ${y}H${x1}M${x0} ${y - fs * 0.4}v${fs * 0.8}M${x1} ${y - fs * 0.4}v${fs * 0.8}`, strokeWidth: sw }), /* @__PURE__ */ React.createElement("text", { x: (x0 + x1) / 2, y: y + fs * 1.3, textAnchor: "middle", style: T }, label));
+    const lead = (x0, y0, x1, y1, tx, ty, label, anchor2) => /* @__PURE__ */ React.createElement("g", { className: "xf-lead" }, /* @__PURE__ */ React.createElement("path", { d: `M${x0} ${y0}L${x1} ${y1}`, strokeWidth: sw }), /* @__PURE__ */ React.createElement("circle", { cx: x0, cy: y0, r: fs * 0.22 }), /* @__PURE__ */ React.createElement("text", { x: tx, y: ty, textAnchor: anchor2, style: T }, label));
+    const hvx0 = cx2[0] - dc / 2 - c1 - blv - duct - bhv / 2;
+    const lvx2 = cx2[2] + dc / 2 + c1 + blv / 2;
+    return /* @__PURE__ */ React.createElement("div", { className: "xf-draw" }, /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        className: "xf-svg",
+        viewBox: `0 0 ${vw} ${vh}`,
+        role: "img",
+        "aria-label": `Core and coil, to scale: core diameter ${fmt(dc, 0)} mm, window ${fmt(hw, 0)} by ${fmt(ww, 0)} mm`
+      },
+      /* @__PURE__ */ React.createElement("g", { transform: `translate(${ox} ${oy})` }, /* @__PURE__ */ React.createElement("path", { className: "xf-core", d: core, fillRule: "evenodd", strokeWidth: sw }), cx2.map((c, k) => /* @__PURE__ */ React.createElement("path", { key: k, className: "xf-axis", d: `M${c} ${yoke * 0.35}V${H0 - yoke * 0.35}`, strokeWidth: sw })), rects, lead(hvx0, wy, hvx0 - fs * 1.2, -2.2 * fs, hvx0 - fs * 1.2, -2.8 * fs, "HV winding", "start"), lead(lvx2, wy, lvx2 + fs * 1.2, -2.2 * fs, lvx2 + fs * 1.2, -2.8 * fs, "LV winding", "end"), lead(cx2[1], yoke * 0.5, cx2[1], -0.6 * fs, cx2[1], -1.2 * fs, `Core \xD8${fmt(dc, 0)}`, "middle"), dimV(rx, yoke, yoke + hw, `window ${fmt(hw, 0)}`), dimV(rx + 3.6 * fs, wy, wy + h, `windings ${fmt(h, 0)}`), dimH(0, dc, by, `\xD8 ${fmt(dc, 0)}`), dimH(dc, dc + ww, by, `window ${fmt(ww, 0)}`), dimH(cx2[1] - dc / 2 - c1 - blv - duct - bhv, cx2[1] - dc / 2 - c1, by + 3 * fs, `LV+HV ${fmt(c1 + blv + duct + bhv, 0)}`))
+    ), /* @__PURE__ */ React.createElement("div", { className: "xf-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "xf-sw-core" }), "Core (limb width = circumscribed \xD8)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "xf-sw-lv" }), "LV ", fmt(blv, 1), " mm"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "xf-sw-hv" }), "HV ", fmt(bhv, 1), " mm"), /* @__PURE__ */ React.createElement("span", { className: "text-faint" }, "duct ", fmt(duct, 1), " \xB7 core-LV ", fmt(c1, 1), " mm")));
+  }
+
   // src/ui/workspaces.jsx
   var WORKSPACES = [
     {
@@ -3606,16 +4032,16 @@
       short: "Xfmr",
       title: "Transformer",
       icon: "M8 12a4 4 0 1 0 0-.01M16 12a4 4 0 1 0 0-.01M2 12h2M20 12h2",
-      Component: null,
+      Component: TransformerWorkspace,
       detail: "Preliminary transformer design: core and windings, losses, impedance tuned to a target %Z, efficiency including the DOE test point, fault withstand."
     }
   ];
 
   // src/ui/App.jsx
-  var { useState: useState4 } = React;
+  var { useState: useState5 } = React;
   function App() {
-    const [active, setActive] = useState4(WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key);
-    const [opened, setOpened] = useState4(() => /* @__PURE__ */ new Set([active]));
+    const [active, setActive] = useState5(WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key);
+    const [opened, setOpened] = useState5(() => /* @__PURE__ */ new Set([active]));
     const open = (k) => {
       setActive(k);
       setOpened((s) => new Set(s).add(k));
