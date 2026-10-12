@@ -4858,7 +4858,7 @@
       { id: "C-MCC", kind: "cable", from: "SWGR-LV.bus", to: "MCC-1.bus", size: "500", sets: 2, length_ft: 220 },
       { id: "C-M1", kind: "cable", from: "MCC-1.bus", to: "M1.in", size: "4/0", sets: 1, length_ft: 140 },
       { id: "C-M2", kind: "cable", from: "MCC-1.bus", to: "M2.in", size: "2/0", sets: 1, length_ft: 160 },
-      { id: "C-LOAD", kind: "cable", from: "SWGR-LV.bus", to: "LOAD-1.in", size: "500", sets: 5, length_ft: 300 },
+      { id: "C-LOAD", kind: "cable", from: "SWGR-LV.bus", to: "LOAD-1.in", size: "500", sets: 6, length_ft: 300 },
       { id: "C-CAP", kind: "cable", from: "SWGR-LV.bus", to: "CAP-1.in", size: "250", sets: 2, length_ft: 30 },
       { id: "C-T2", kind: "cable", from: "SWGR-MV.bus", to: "T2.hv", size: "2/0", sets: 1, length_ft: 200, raceway: "pvc", insulation_c: 90 },
       { id: "CB-2", kind: "cablebus", from: "T2.lv", to: "SWGR-5.bus", size: "500", sets: 1, length_ft: 80, insulation_c: 90 },
@@ -5609,8 +5609,208 @@
     return `${CONNECTORS[c.kind].label} ${f.sets}\xD7${f.size} ${f.material}, ${f.length_ft} ft`;
   }
 
+  // src/engine/gear.js
+  var NEC_240_6 = [
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100,
+    110,
+    125,
+    150,
+    175,
+    200,
+    225,
+    250,
+    300,
+    350,
+    400,
+    450,
+    500,
+    600,
+    700,
+    800,
+    1e3,
+    1200,
+    1600,
+    2e3,
+    2500,
+    3e3,
+    4e3,
+    5e3,
+    6e3
+  ];
+  var LV_FRAMES = [800, 1600, 2e3, 3200, 4e3, 5e3];
+  var MV_FRAMES = [1200, 2e3, 3e3];
+  var SECTION_IN = { lv: { w: 22, wMain: 30, h: 90, d: 60, perSection: 3 }, mv: { w: 36, wMain: 36, h: 95, d: 96, perSection: 2 } };
+  var nextStandard = (a) => NEC_240_6.find((r) => r >= a - 1e-9) ?? null;
+  var frameFor = (trip, mv) => (mv ? MV_FRAMES : LV_FRAMES).find((f) => f >= trip) ?? null;
+  function buildLineup(sys, analysis, gearId, opts = {}) {
+    const raw = sys.equipment.find((e) => e.id === gearId);
+    if (!raw) throw new Error(`No equipment "${gearId}"`);
+    const g = { ...EQUIPMENT[raw.type].defaults, ...raw };
+    const mv = g.kv > 1;
+    const geo = mv ? SECTION_IN.mv : SECTION_IN.lv;
+    const cont = opts.continuous ?? 1, factor = opts.rated100 ? 1 : 1.25;
+    const er = analysis?.equipment?.[gearId];
+    const busKey = `${gearId}.${EQUIPMENT[g.type].terminals[0]}`;
+    const circuits = [];
+    for (const c0 of sys.connectors) {
+      if (c0.from !== busKey && c0.to !== busKey) continue;
+      const c = { ...CONNECTORS[c0.kind].defaults, ...c0 };
+      const farEnd = c.from === busKey ? c.to : c.from;
+      const farId = farEnd.split(".")[0];
+      const far = sys.equipment.find((e) => e.id === farId);
+      const res = analysis?.connectors?.[c.id];
+      let incoming;
+      if (res && !res.open && res.dir != null) incoming = c.to === busKey === res.dir > 0;
+      else incoming = far && (far.type === "utility" || far.type === "generator" || far.type === "transformer" && farEnd.endsWith(".lv"));
+      const load_a = res && !res.open ? res.i_a : 0;
+      const amp = res?.ampacity_a ?? null;
+      let trip = nextStandard(Math.max(load_a * (incoming ? 1 : 1 + (factor - 1) * cont), 15));
+      if (incoming) {
+        const src = far?.type === "transformer" ? { ...EQUIPMENT.transformer.defaults, ...far } : null;
+        const fla = src ? src.kva / (Math.sqrt(3) * g.kv) : g.bus_a;
+        trip = nextStandard(Math.min(Math.max(fla, load_a), g.bus_a)) ?? g.bus_a;
+      }
+      const checks = [];
+      if (amp != null && !incoming) {
+        const ok = trip <= 800 ? trip <= nextStandard(amp) : amp >= trip;
+        checks.push({ name: trip <= 800 ? "Conductor protected (240.4(B) next size up)" : "Conductor ampacity \u2265 trip (240.4(C))", ok, value: amp, limit: trip });
+      }
+      if (!incoming) checks.push({ name: `Trip \u2265 ${opts.rated100 ? "100" : "125"} % of load (215.3)`, ok: trip >= load_a * factor * cont - 1e-9, value: trip, limit: load_a * factor * cont });
+      const frame = frameFor(trip, mv);
+      if (frame == null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
+      circuits.push({
+        tag: c.id,
+        kind: incoming ? "main" : "feeder",
+        to: far ? far.name || far.id : farId,
+        toId: farId,
+        conductor: c.kind === "direct" ? "close-coupled" : `${c.sets}\xD73\xD7${c.size} ${c.material}`,
+        load_a,
+        ampacity_a: amp,
+        trip,
+        frame,
+        open: c.closed === false,
+        checks,
+        ok: checks.every((k) => k.ok)
+      });
+    }
+    const mains = circuits.filter((c) => c.kind === "main"), feeders = circuits.filter((c) => c.kind === "feeder");
+    const sections = [];
+    for (const m of mains) sections.push({ main: true, width_in: geo.wMain, cubicles: [{ ...m, pos: 0, size: mv ? 1 : 2 }] });
+    let cur = null;
+    for (const f of feeders.sort((a, b) => b.frame - a.frame)) {
+      const size = !mv && f.frame >= 3200 ? 2 : 1;
+      if (!cur || cur.used + size > geo.perSection) {
+        cur = { main: false, width_in: geo.w, cubicles: [], used: 0 };
+        sections.push(cur);
+      }
+      cur.cubicles.push({ ...f, pos: cur.used, size });
+      cur.used += size;
+    }
+    const want = Math.max(g.sections ?? 1, sections.length);
+    while (sections.length < want) sections.push({ main: false, width_in: geo.w, cubicles: [], used: 0 });
+    for (const s of sections) {
+      const used = s.cubicles.reduce((a, c) => a + c.size, 0);
+      for (let p = used; p < geo.perSection; p++) s.cubicles.push({ kind: "spare", tag: "SPACE", pos: p, size: 1 });
+    }
+    const width_in = sections.reduce((a, s) => a + s.width_in, 0);
+    return {
+      gear: { id: g.id, name: g.name || g.id, kv: g.kv, bus_a: g.bus_a, sc_ka: g.sc_ka, mv, type: g.type },
+      result: er,
+      sections,
+      circuits,
+      geometry: { ...geo, width_in, sections: sections.length },
+      ok: circuits.every((c) => c.ok) && (er?.sc_duty_pct == null || er.sc_duty_pct <= 100) && (er?.loading_pct == null || er.loading_pct <= 100),
+      notes: [
+        "Trip ratings: NEC 240.6(A) standard sizes; feeders at 125 % of load (215.3) unless the device is 100 % rated.",
+        "Frames are typical ANSI C37.13 (LV) / C37.06 (MV) sizes, not a specific manufacturer's catalogue.",
+        "Section widths and heights are typical; confirm against the manufacturer's layout rules."
+      ]
+    };
+  }
+
+  // src/ui/gearLineup.jsx
+  var { useMemo: useMemo5, useEffect: useEffect5 } = React;
+  var CSS3 = `
+.gl-back { position: fixed; inset: 0; background: color-mix(in srgb, #000 64%, transparent); z-index: 50; display: grid; place-items: center; padding: 16px; }
+.gl-modal { width: min(1180px, 100%); max-height: calc(100% - 16px); display: flex; flex-direction: column; overflow: hidden; }
+.gl-body { overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.gl-elev { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.gl-sec { fill: var(--eq-r); stroke: var(--eq-edge); stroke-width: 1.2; }
+.gl-top { fill: var(--eq-l); stroke: var(--eq-edge); stroke-width: 1; }
+.gl-door { fill: var(--door); stroke: var(--eq-edge); stroke-width: 1; }
+.gl-door.is-spare { fill: var(--eq-l); }
+.gl-door.is-fail { stroke: var(--crit); stroke-width: 2; }
+.gl-brk { fill: #222b33; stroke: #11171c; stroke-width: 0.8; }
+.gl-handle { fill: var(--brass); }
+.gl-trip { fill: #0d2a1e; stroke: #1e5a40; stroke-width: 0.6; }
+.gl-t1 { font-family: var(--font-ui); font-size: 3.3px; font-weight: 600; fill: var(--fg); }
+.gl-t2 { font-family: var(--font-data); font-size: 2.6px; fill: var(--muted); }
+.gl-t3 { font-family: var(--font-data); font-size: 2.3px; fill: #7fe0b0; }
+.gl-dim { stroke: var(--faint); stroke-width: 0.35; fill: none; }
+.gl-dimt { font-family: var(--font-data); font-size: 2.8px; fill: var(--muted); }
+.gl-plate { fill: var(--panel-2); stroke: var(--line); stroke-width: 0.5; }
+.gl-meter { fill: #0e151b; stroke: var(--info); stroke-width: 0.5; }
+.gl-base { fill: #1a2128; }
+`;
+  function Elevation({ L }) {
+    const { sections, geometry: G, gear } = L;
+    const H = G.h, top = gear.mv ? 22 : 18, cubH = (H - top - 4) / G.perSection;
+    const pad = 14, W = G.width_in + pad * 2, VH = H + 40;
+    let x = pad;
+    const out = [];
+    sections.forEach((s, si) => {
+      const sx = x;
+      x += s.width_in;
+      out.push(/* @__PURE__ */ React.createElement("rect", { key: "s" + si, x: sx, y: 20, width: s.width_in, height: H, className: "gl-sec" }));
+      out.push(/* @__PURE__ */ React.createElement("rect", { key: "t" + si, x: sx + 1, y: 21, width: s.width_in - 2, height: top - 2, className: "gl-top" }));
+      if (s.main) [0.3, 0.7].forEach((f, k) => out.push(/* @__PURE__ */ React.createElement("g", { key: "m" + si + k }, /* @__PURE__ */ React.createElement("circle", { cx: sx + s.width_in * f, cy: 20 + top / 2, r: 3.4, className: "gl-meter" }), /* @__PURE__ */ React.createElement("path", { d: `M${sx + s.width_in * f},${20 + top / 2} l2,-1.6`, stroke: "var(--info)", strokeWidth: "0.4" }))));
+      out.push(/* @__PURE__ */ React.createElement("text", { key: "sn" + si, x: sx + 1.5, y: 20 + top - 3, className: "gl-t2" }, `S${si + 1}${s.main ? " \xB7 MAIN" : ""}`));
+      s.cubicles.forEach((c, ci) => {
+        const cy = 20 + top + 1 + c.pos * cubH, ch = c.size * cubH - 2, cxp = sx + 1.5, cw = s.width_in - 3;
+        const spare = c.kind === "spare";
+        out.push(/* @__PURE__ */ React.createElement("rect", { key: `d${si}-${ci}`, x: cxp, y: cy, width: cw, height: ch, rx: "0.6", className: cx("gl-door", spare && "is-spare", !spare && !c.ok && "is-fail") }));
+        if (spare) {
+          out.push(/* @__PURE__ */ React.createElement("text", { key: `sp${si}-${ci}`, x: cxp + cw / 2, y: cy + ch / 2 + 1, textAnchor: "middle", className: "gl-t2" }, "SPACE"));
+          return;
+        }
+        const bw = cw * 0.55, bh = Math.min(ch * 0.42, 13), bx = cxp + cw - bw - 1.5, by = cy + ch * 0.4;
+        out.push(/* @__PURE__ */ React.createElement("g", { key: `b${si}-${ci}` }, /* @__PURE__ */ React.createElement("rect", { x: bx, y: by, width: bw, height: bh, rx: "0.5", className: "gl-brk" }), /* @__PURE__ */ React.createElement("rect", { x: bx + bw * 0.08, y: by + bh * 0.18, width: bw * 0.34, height: bh * 0.32, className: "gl-trip" }), /* @__PURE__ */ React.createElement("text", { x: bx + bw * 0.1, y: by + bh * 0.4, className: "gl-t3" }, c.open ? "OPEN" : `${fmt(c.load_a, 0)}A`), /* @__PURE__ */ React.createElement("rect", { x: bx + bw * 0.62, y: by + bh * 0.2, width: bw * 0.28, height: bh * 0.12, rx: "0.3", className: "gl-handle" }), /* @__PURE__ */ React.createElement("circle", { cx: bx + bw * 0.76, cy: by + bh * 0.7, r: "1.1", fill: c.open ? "var(--ok)" : "var(--crit)" })));
+        out.push(/* @__PURE__ */ React.createElement("text", { key: `l1${si}-${ci}`, x: cxp + 1.5, y: cy + 4.5, className: "gl-t1" }, c.tag));
+        out.push(/* @__PURE__ */ React.createElement("text", { key: `l2${si}-${ci}`, x: cxp + 1.5, y: cy + 8, className: "gl-t2" }, `${c.frame ?? "\u2014"}AF/${c.trip}${gear.mv ? "A PU" : "AT"}`));
+        out.push(/* @__PURE__ */ React.createElement("text", { key: `l3${si}-${ci}`, x: cxp + 1.5, y: cy + 11.5, className: "gl-t2" }, `\u2192 ${c.to}`.slice(0, Math.floor(cw / 1.6))));
+      });
+    });
+    out.push(/* @__PURE__ */ React.createElement("rect", { key: "base", x: pad, y: 20 + H, width: G.width_in, height: "3", className: "gl-base" }));
+    out.push(/* @__PURE__ */ React.createElement("g", { key: "dimw" }, /* @__PURE__ */ React.createElement("path", { d: `M${pad},${H + 30} H${pad + G.width_in} M${pad},${H + 27} v6 M${pad + G.width_in},${H + 27} v6`, className: "gl-dim" }), /* @__PURE__ */ React.createElement("text", { x: pad + G.width_in / 2, y: H + 36.5, textAnchor: "middle", className: "gl-dimt" }, `${G.width_in}" (${(G.width_in / 12).toFixed(1)} ft) \xB7 ${sections.length} sections`)));
+    out.push(/* @__PURE__ */ React.createElement("g", { key: "dimh" }, /* @__PURE__ */ React.createElement("path", { d: `M${pad - 6},20 V${20 + H} M${pad - 8},20 h4 M${pad - 8},${20 + H} h4`, className: "gl-dim" }), /* @__PURE__ */ React.createElement("text", { x: pad - 7, y: 20 + H / 2, className: "gl-dimt", transform: `rotate(-90 ${pad - 7} ${20 + H / 2})`, textAnchor: "middle" }, `${H}"`)));
+    out.push(/* @__PURE__ */ React.createElement("g", { key: "plate" }, /* @__PURE__ */ React.createElement("rect", { x: pad, y: "4", width: Math.min(110, G.width_in), height: "11", rx: "1", className: "gl-plate" }), /* @__PURE__ */ React.createElement("text", { x: pad + 2, y: "9", className: "gl-t1" }, gear.name), /* @__PURE__ */ React.createElement("text", { x: pad + 2, y: "13", className: "gl-t2" }, `${gear.kv < 1 ? Math.round(gear.kv * 1e3) + " V" : gear.kv + " kV"} \xB7 ${gear.bus_a} A bus \xB7 ${gear.sc_ka} kA`)));
+    return /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${VH}`, className: "gl-elev", role: "img", "aria-label": `Front elevation of ${gear.name}` }, out);
+  }
+  function GearLineupModal({ sys, analysis, gearId, onClose }) {
+    const L = useMemo5(() => buildLineup(sys, analysis, gearId), [sys, analysis, gearId]);
+    useEffect5(() => {
+      const k = (e) => e.key === "Escape" && onClose();
+      window.addEventListener("keydown", k);
+      return () => window.removeEventListener("keydown", k);
+    }, [onClose]);
+    const r = L.result;
+    return /* @__PURE__ */ React.createElement("div", { className: "gl-back", onPointerDown: (e) => e.target === e.currentTarget && onClose() }, /* @__PURE__ */ React.createElement("style", null, CSS3), /* @__PURE__ */ React.createElement("div", { className: "gl-modal panel", role: "dialog", "aria-label": "Switchgear lineup" }, /* @__PURE__ */ React.createElement("header", { className: "flex items-start justify-between gap-3 p-4 border-b border-line" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "label" }, "Lineup \xB7 front elevation"), /* @__PURE__ */ React.createElement("div", { className: "text-xl" }, L.gear.name, " ", /* @__PURE__ */ React.createElement("span", { className: "text-muted font-mono text-[14px]" }, L.gear.id))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Pill, { tone: L.ok ? "ok" : "crit" }, L.ok ? "All checks pass" : "Check failures"), /* @__PURE__ */ React.createElement("button", { className: "row-x", onClick: onClose, "aria-label": "Close" }, /* @__PURE__ */ React.createElement(Icon, { name: "x" })))), /* @__PURE__ */ React.createElement("div", { className: "gl-body" }, r && !r.deenergized && /* @__PURE__ */ React.createElement("div", { className: "tiles" }, /* @__PURE__ */ React.createElement(Tile, { label: "Bus loading", value: fmt(r.loading_pct, 0), unit: "%", sub: `${fmt(r.bus_i_a, 0)} A of ${L.gear.bus_a} A`, tone: r.loading_pct > 100 ? "crit" : r.loading_pct > 80 ? "warn" : "ok" }), /* @__PURE__ */ React.createElement(Tile, { label: "Fault duty", value: fmt(r.sc_duty_pct, 0), unit: "%", sub: `I\u2033k ${fmt(r.ik_ka, 1)} kA of ${L.gear.sc_ka} kA`, tone: r.sc_duty_pct > 100 ? "crit" : r.sc_duty_pct > 90 ? "warn" : "ok" }), /* @__PURE__ */ React.createElement(Tile, { label: "Voltage", value: r.v_pu.toFixed(4), unit: "pu", sub: `${fmt(r.v_kv * (r.v_kv < 1 ? 1e3 : 1), r.v_kv < 1 ? 0 : 3)} ${r.v_kv < 1 ? "V" : "kV"}` }), /* @__PURE__ */ React.createElement(Tile, { label: "Footprint", value: `${L.geometry.width_in}"`, sub: `${L.geometry.sections} sections \xB7 ${L.geometry.h}" H \xD7 ${L.geometry.d}" D` })), /* @__PURE__ */ React.createElement(Elevation, { L }), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Circuit"), /* @__PURE__ */ React.createElement("th", null, "Role"), /* @__PURE__ */ React.createElement("th", null, "To"), /* @__PURE__ */ React.createElement("th", null, "Conductors"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Load", /* @__PURE__ */ React.createElement("em", null, "A")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Ampacity", /* @__PURE__ */ React.createElement("em", null, "A")), /* @__PURE__ */ React.createElement("th", { className: "r" }, L.gear.mv ? "Pickup" : "Trip", /* @__PURE__ */ React.createElement("em", null, "A")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Frame", /* @__PURE__ */ React.createElement("em", null, "A")), /* @__PURE__ */ React.createElement("th", null, "Checks"))), /* @__PURE__ */ React.createElement("tbody", null, L.circuits.map((c) => /* @__PURE__ */ React.createElement("tr", { key: c.tag }, /* @__PURE__ */ React.createElement("td", { className: "font-mono" }, c.tag), /* @__PURE__ */ React.createElement("td", null, c.kind === "main" ? /* @__PURE__ */ React.createElement(Pill, { tone: "accent" }, "Main") : /* @__PURE__ */ React.createElement(Pill, null, "Feeder"), c.open && /* @__PURE__ */ React.createElement(Pill, { tone: "ok" }, "Open")), /* @__PURE__ */ React.createElement("td", { style: { fontFamily: "var(--font-ui)" } }, c.to), /* @__PURE__ */ React.createElement("td", null, c.conductor), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(c.load_a, 0)), /* @__PURE__ */ React.createElement("td", { className: "r" }, c.ampacity_a != null ? fmt(c.ampacity_a, 0) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "r" }, c.trip), /* @__PURE__ */ React.createElement("td", { className: "r" }, c.frame ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { whiteSpace: "normal", fontFamily: "var(--font-ui)", fontSize: 12 } }, c.checks.length === 0 ? /* @__PURE__ */ React.createElement("span", { className: "text-faint" }, "\u2014") : c.checks.map((k, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: k.ok ? "text-ok" : "text-crit" }, k.ok ? "\u2713" : "\u2717", " ", k.name)))))))), /* @__PURE__ */ React.createElement("ul", { className: "text-faint text-[12px] flex flex-col gap-1" }, L.notes.map((n, i) => /* @__PURE__ */ React.createElement("li", { key: i }, n))))));
+  }
+
   // src/ui/system.jsx
-  var { useState: useState7, useMemo: useMemo5, useEffect: useEffect5, useRef: useRef4, useCallback: useCallback2 } = React;
+  var { useState: useState7, useMemo: useMemo6, useEffect: useEffect6, useRef: useRef4, useCallback: useCallback2 } = React;
   var U = 34;
   var C30 = Math.cos(Math.PI / 6);
   var S30 = 0.5;
@@ -5853,18 +6053,18 @@
     const [view, setView] = useState7({ x: -600, y: -100, w: 1400 });
     const drag = useRef4(null);
     const [pending2, setPending] = useState7(null);
-    useEffect5(() => {
+    useEffect6(() => {
       const el = wrapRef.current;
       const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 1e3, h: el.clientHeight || 640 }));
       ro.observe(el);
       return () => ro.disconnect();
     }, []);
-    useEffect5(() => {
+    useEffect6(() => {
       if (tool !== "connect") setPending(null);
     }, [tool]);
     const vh = view.w * (size.h / size.w);
-    const eqMap = useMemo5(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
-    const { slots, routes } = useMemo5(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
+    const eqMap = useMemo6(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
+    const { slots, routes } = useMemo6(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
     const fit = useCallback2(() => {
       const pts = [];
       for (const e of Object.values(eqMap)) {
@@ -5879,7 +6079,7 @@
       if ((y1 - y0) / w > asp) w = (y1 - y0) / asp;
       setView({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - w * asp / 2, w });
     }, [eqMap, size]);
-    useEffect5(() => {
+    useEffect6(() => {
       fit();
     }, [fitSignal, Math.round(size.w / 60), Math.round(size.h / 60)]);
     const toSvg = (ev) => {
@@ -5889,7 +6089,7 @@
       const p = pt.matrixTransform(svg.getScreenCTM().inverse());
       return [p.x, p.y];
     };
-    useEffect5(() => {
+    useEffect6(() => {
       const svg = svgRef.current;
       const onWheel = (ev) => {
         ev.preventDefault();
@@ -6010,11 +6210,11 @@
     load: [["kw", "Demand", "kW"], ["pf", "Power factor", ""]],
     capacitor: [["kvar", "Rating", "kvar"]]
   };
-  function EqInspector({ e, r, update, remove, rename, scShown }) {
+  function EqInspector({ e, r, update, remove, rename, scShown, openLineup }) {
     const full = { ...EQUIPMENT[e.type].defaults, ...e };
     const [confirm, setConfirm] = useState7(false);
-    useEffect5(() => setConfirm(false), [e.id]);
-    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "label" }, EQUIPMENT[e.type].label), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono truncate" }, e.id)), /* @__PURE__ */ React.createElement(Pill, { tone: statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : statusOf(e, r) === "off" ? "muted" : r ? "ok" : "muted" }, r ? r.deenergized ? "De-energized" : statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK" : "No result")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Tag" }, /* @__PURE__ */ React.createElement("input", { id: "eq-id", className: "num-input", defaultValue: e.id, key: e.id, onBlur: (ev) => rename(e.id, ev.target.value.trim()), onKeyDown: (ev) => ev.key === "Enter" && ev.currentTarget.blur() })), /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { id: "eq-name", className: "num-input", value: e.name ?? "", onChange: (ev) => update(e.id, { name: ev.target.value }) })), EQ_FIELDS[e.type].map(([k, l, u]) => /* @__PURE__ */ React.createElement(Field, { key: k, label: l, unit: u }, /* @__PURE__ */ React.createElement(NumField, { id: `eq-${k}`, value: e[k], placeholder: String(full[k]), onCommit: (v) => update(e.id, { [k]: v }) }))), e.type === "motor" && /* @__PURE__ */ React.createElement(Field, { label: "Fault contribution" }, /* @__PURE__ */ React.createElement("select", { id: "eq-contrib", className: "num-input", value: full.contributes ? "yes" : "no", onChange: (ev) => update(e.id, { contributes: ev.target.value === "yes" }) }, /* @__PURE__ */ React.createElement("option", { value: "yes" }, "Included"), /* @__PURE__ */ React.createElement("option", { value: "no" }, "Excluded")))), r?.deenergized && /* @__PURE__ */ React.createElement("div", { className: "notice notice-info" }, "No supply reaches ", e.id, ". Close the feeder breaker or tie upstream to energize it."), r && !r.deenergized && /* @__PURE__ */ React.createElement("div", { className: "res-block" }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Load flow", scShown && " \xB7 short circuit"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Voltage"), /* @__PURE__ */ React.createElement("dd", { style: { color: r.vflag === "ok" ? "var(--ok)" : r.vflag === "low" ? "var(--low)" : "var(--high)" } }, r.v_pu.toFixed(4), " pu \xB7 ", fmtKv(r.v_kv)), /* @__PURE__ */ React.createElement("dt", null, "Angle"), /* @__PURE__ */ React.createElement("dd", null, r.angle.toFixed(2), "\xB0"), r.bus_i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Bus current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.bus_i_a, 0), " A (", fmt(r.loading_pct, 1), " %)")), r.s_kva != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Through"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.s_kva, 0), " kVA (", fmt(r.loading_pct, 1), " %)")), r.i_hv_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "HV / LV current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_hv_a, 1), " / ", fmt(r.i_lv_a, 0), " A")), r.loss_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Losses"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.loss_kw, 2), " kW")), r.p_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "P"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_kw, 1), " kW")), r.q_kvar != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Q"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.q_kvar, 1), " kvar")), r.i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_a, 1), " A")), r.ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "I\u2033k (3\u03C6)"), /* @__PURE__ */ React.createElement("dd", { className: r.sc_duty_pct > 100 ? "text-crit" : "" }, fmt(r.ik_ka, 2), " kA", r.sc_duty_pct != null && ` \xB7 ${fmt(r.sc_duty_pct, 0)} % of ${full.sc_ka} kA`)), r.ip_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Peak ip"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.ip_ka, 2), " kA \xB7 X/R ", fmt(r.xr_fault, 1))), r.lv_ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "LV terminal I\u2033k"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.lv_ik_ka, 2), " kA")), r.contribution_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Motor contribution"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.contribution_ka, 2), " kA")))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, !confirm ? /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => setConfirm(true) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger-solid", onClick: () => remove(e.id) }, "Delete ", e.id, " and its connections"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setConfirm(false) }, "Cancel"))));
+    useEffect6(() => setConfirm(false), [e.id]);
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "label" }, EQUIPMENT[e.type].label), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono truncate" }, e.id)), /* @__PURE__ */ React.createElement(Pill, { tone: statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : statusOf(e, r) === "off" ? "muted" : r ? "ok" : "muted" }, r ? r.deenergized ? "De-energized" : statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK" : "No result")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Tag" }, /* @__PURE__ */ React.createElement("input", { id: "eq-id", className: "num-input", defaultValue: e.id, key: e.id, onBlur: (ev) => rename(e.id, ev.target.value.trim()), onKeyDown: (ev) => ev.key === "Enter" && ev.currentTarget.blur() })), /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { id: "eq-name", className: "num-input", value: e.name ?? "", onChange: (ev) => update(e.id, { name: ev.target.value }) })), EQ_FIELDS[e.type].map(([k, l, u]) => /* @__PURE__ */ React.createElement(Field, { key: k, label: l, unit: u }, /* @__PURE__ */ React.createElement(NumField, { id: `eq-${k}`, value: e[k], placeholder: String(full[k]), onCommit: (v) => update(e.id, { [k]: v }) }))), e.type === "motor" && /* @__PURE__ */ React.createElement(Field, { label: "Fault contribution" }, /* @__PURE__ */ React.createElement("select", { id: "eq-contrib", className: "num-input", value: full.contributes ? "yes" : "no", onChange: (ev) => update(e.id, { contributes: ev.target.value === "yes" }) }, /* @__PURE__ */ React.createElement("option", { value: "yes" }, "Included"), /* @__PURE__ */ React.createElement("option", { value: "no" }, "Excluded")))), r?.deenergized && /* @__PURE__ */ React.createElement("div", { className: "notice notice-info" }, "No supply reaches ", e.id, ". Close the feeder breaker or tie upstream to energize it."), r && !r.deenergized && /* @__PURE__ */ React.createElement("div", { className: "res-block" }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Load flow", scShown && " \xB7 short circuit"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Voltage"), /* @__PURE__ */ React.createElement("dd", { style: { color: r.vflag === "ok" ? "var(--ok)" : r.vflag === "low" ? "var(--low)" : "var(--high)" } }, r.v_pu.toFixed(4), " pu \xB7 ", fmtKv(r.v_kv)), /* @__PURE__ */ React.createElement("dt", null, "Angle"), /* @__PURE__ */ React.createElement("dd", null, r.angle.toFixed(2), "\xB0"), r.bus_i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Bus current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.bus_i_a, 0), " A (", fmt(r.loading_pct, 1), " %)")), r.s_kva != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Through"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.s_kva, 0), " kVA (", fmt(r.loading_pct, 1), " %)")), r.i_hv_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "HV / LV current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_hv_a, 1), " / ", fmt(r.i_lv_a, 0), " A")), r.loss_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Losses"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.loss_kw, 2), " kW")), r.p_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "P"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_kw, 1), " kW")), r.q_kvar != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Q"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.q_kvar, 1), " kvar")), r.i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_a, 1), " A")), r.ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "I\u2033k (3\u03C6)"), /* @__PURE__ */ React.createElement("dd", { className: r.sc_duty_pct > 100 ? "text-crit" : "" }, fmt(r.ik_ka, 2), " kA", r.sc_duty_pct != null && ` \xB7 ${fmt(r.sc_duty_pct, 0)} % of ${full.sc_ka} kA`)), r.ip_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Peak ip"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.ip_ka, 2), " kA \xB7 X/R ", fmt(r.xr_fault, 1))), r.lv_ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "LV terminal I\u2033k"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.lv_ik_ka, 2), " kA")), r.contribution_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Motor contribution"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.contribution_ka, 2), " kA")))), NODE_KINDS.has(e.type) && openLineup && /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => openLineup(e.id) }, "Lineup elevation & breaker schedule"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, !confirm ? /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => setConfirm(true) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger-solid", onClick: () => remove(e.id) }, "Delete ", e.id, " and its connections"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setConfirm(false) }, "Cancel"))));
   }
   function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
     const full = { ...CONNECTORS[c.kind].defaults, ...c };
@@ -6052,8 +6252,9 @@
     const [motors, setMotors] = useState7(true);
     const [fitSignal, setFitSignal] = useState7(0);
     const [addOpen, setAddOpen] = useState7(false);
+    const [lineupFor, setLineupFor] = useState7(() => typeof location !== "undefined" && location.hash === "#system-lineup" ? "SWGR-LV" : null);
     const [mode, setMode] = useState7(() => typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso");
-    const analysis = useMemo5(() => analyseSystem(sys, { motors }), [sys, motors]);
+    const analysis = useMemo6(() => analyseSystem(sys, { motors }), [sys, motors]);
     const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => e.id === id ? clean({ ...e, ...patch }) : e) }));
     const updateCon = (id, patch) => setSys((s) => ({ ...s, connectors: s.connectors.map((c) => c.id === id ? clean({ ...c, ...patch }) : c) }));
     const move = (id, gx, gy) => updateEq(id, { gx, gy });
@@ -6125,7 +6326,7 @@
       bus.emit("loadflow:open", { data: c.lfCase, name: `${sys.name} (buses)`, layout });
       goTo("loadflow");
     };
-    useEffect5(() => {
+    useEffect6(() => {
       const onKey = (ev) => {
         if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
         if (!wsVisible()) return;
@@ -6158,7 +6359,7 @@
     }, title: "Orbitable 3D model" }, "3D"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "sld", onClick: () => {
       setMode("sld");
       setTool("select");
-    }, title: "Auto-generated single-line diagram" }, "One-line")), /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select") }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", disabled: mode !== "iso", onClick: () => setTool("connect") }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setAddOpen(!addOpen) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add equipment"), addOpen && /* @__PURE__ */ React.createElement("div", { className: "menu" }, ADDABLE.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => addEq(k) }, l)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap ml-auto" }, /* @__PURE__ */ React.createElement(Btn, { active: showTags, onClick: () => setShowTags(!showTags) }, "Tags"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate) }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"))), mode === "sld" ? /* @__PURE__ */ React.createElement(SystemSld, { sys, analysis, selection, setSelection, showTags }) : mode === "3d" ? /* @__PURE__ */ React.createElement(Site3D, { sys, analysis, selection, setSelection, animate, showTags }) : /* @__PURE__ */ React.createElement(SiteView, { sys, analysis, selection, setSelection, tool, onMove: move, onConnect: connect, showTags, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, selEq ? /* @__PURE__ */ React.createElement(EqInspector, { e: selEq, r: analysis.ok ? analysis.equipment[selEq.id] : null, update: updateEq, remove: removeEq, rename: renameEq, scShown: !!analysis.sc }) : selCon ? /* @__PURE__ */ React.createElement(
+    }, title: "Auto-generated single-line diagram" }, "One-line")), /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select") }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", disabled: mode !== "iso", onClick: () => setTool("connect") }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setAddOpen(!addOpen) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add equipment"), addOpen && /* @__PURE__ */ React.createElement("div", { className: "menu" }, ADDABLE.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => addEq(k) }, l)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap ml-auto" }, /* @__PURE__ */ React.createElement(Btn, { active: showTags, onClick: () => setShowTags(!showTags) }, "Tags"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate) }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"))), mode === "sld" ? /* @__PURE__ */ React.createElement(SystemSld, { sys, analysis, selection, setSelection, showTags }) : mode === "3d" ? /* @__PURE__ */ React.createElement(Site3D, { sys, analysis, selection, setSelection, animate, showTags }) : /* @__PURE__ */ React.createElement(SiteView, { sys, analysis, selection, setSelection, tool, onMove: move, onConnect: connect, showTags, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, selEq ? /* @__PURE__ */ React.createElement(EqInspector, { e: selEq, r: analysis.ok ? analysis.equipment[selEq.id] : null, update: updateEq, remove: removeEq, rename: renameEq, scShown: !!analysis.sc, openLineup: setLineupFor }) : selCon ? /* @__PURE__ */ React.createElement(
       ConInspector,
       {
         c: selCon,
@@ -6174,7 +6375,7 @@
     ) : /* @__PURE__ */ React.createElement(SystemSummary, { sys, analysis }))) : /* @__PURE__ */ React.createElement(Schedule, { sys, analysis, select: (s) => {
       setSelection(s);
       setView("site");
-    } })));
+    } })), lineupFor && sys.equipment.some((e) => e.id === lineupFor) && /* @__PURE__ */ React.createElement(GearLineupModal, { sys, analysis, gearId: lineupFor, onClose: () => setLineupFor(null) }));
   }
   var clean = (o) => {
     const out = {};
@@ -6486,7 +6687,7 @@
   }
 
   // src/ui/transformer.jsx
-  var { useState: useState8, useMemo: useMemo6 } = React;
+  var { useState: useState8, useMemo: useMemo7 } = React;
   var EXAMPLE2 = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
   function solve2(inp, tune) {
     try {
@@ -6499,7 +6700,7 @@
   function TransformerWorkspace() {
     const [inp, setInp] = useState8(() => transformerInput(EXAMPLE2));
     const [tune, setTune] = useState8(true);
-    const { result: r, error } = useMemo6(() => solve2(inp, tune), [inp, tune]);
+    const { result: r, error } = useMemo7(() => solve2(inp, tune), [inp, tune]);
     const set = (k, optional) => (v) => setInp((s) => v === void 0 && !optional ? s : { ...s, [k]: v === void 0 ? null : v });
     const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `xf-${k}`, value: inp[k] === null ? void 0 : inp[k], placeholder: o.ph, disabled: o.disabled, onCommit: set(k, o.optional) }));
     const pick = (k, label, opts) => /* @__PURE__ */ React.createElement(Field, { label }, /* @__PURE__ */ React.createElement("select", { id: `xf-${k}`, className: "num-input", value: inp[k], onChange: (e) => setInp((s) => ({ ...s, [k]: e.target.value })) }, opts.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))));

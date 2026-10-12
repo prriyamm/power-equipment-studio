@@ -10,6 +10,7 @@ import { bus } from "./bus.js";
 import { dims, siteRoutes } from "./systemGeometry.js";
 import { Site3D } from "./system3d.jsx";
 import { SystemSld } from "./systemSld.jsx";
+import { GearLineupModal } from "./gearLineup.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -494,7 +495,7 @@ const EQ_FIELDS = {
   capacitor: [["kvar", "Rating", "kvar"]],
 };
 
-function EqInspector({ e, r, update, remove, rename, scShown }) {
+function EqInspector({ e, r, update, remove, rename, scShown, openLineup }) {
   const full = { ...EQUIPMENT[e.type].defaults, ...e };
   const [confirm, setConfirm] = useState(false);
   useEffect(() => setConfirm(false), [e.id]);
@@ -533,6 +534,7 @@ function EqInspector({ e, r, update, remove, rename, scShown }) {
           </dl>
         </div>
       )}
+      {NODE_KINDS.has(e.type) && openLineup && <Btn kind="primary-soft" onClick={() => openLineup(e.id)}>Lineup elevation & breaker schedule</Btn>}
       <div className="flex gap-2">
         {!confirm ? <Btn kind="danger" onClick={() => setConfirm(true)}><Icon name="trash" size={14} />Delete</Btn>
           : <><Btn kind="danger-solid" onClick={() => remove(e.id)}>Delete {e.id} and its connections</Btn><Btn onClick={() => setConfirm(false)}>Cancel</Btn></>}
@@ -678,6 +680,7 @@ export function SystemWorkspace({ goTo }) {
   const [motors, setMotors] = useState(true);
   const [fitSignal, setFitSignal] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  const [lineupFor, setLineupFor] = useState(() => (typeof location !== "undefined" && location.hash === "#system-lineup" ? "SWGR-LV" : null));
   const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso"));
   const analysis = useMemo(() => analyseSystem(sys, { motors }), [sys, motors]);
 
@@ -795,7 +798,7 @@ export function SystemWorkspace({ goTo }) {
               <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
-              {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} />
+              {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} />
                 : selCon ? <ConInspector c={selCon} r={analysis.ok ? analysis.connectors[selCon.id] : null} update={updateCon} remove={removeCon}
                     kvAt={analysis.ok ? analysis.equipment[selCon.from.split(".")[0]]?.kv : null} goCableBus={(c) => { bus.emit("cablebus:open", { connector: { ...CONNECTORS[c.kind].defaults, ...c }, current_a: analysis.connectors[c.id]?.i_a, kv: analysis.equipment[c.to.split(".")[0]]?.kv }); goTo("cablebus"); }} />
                 : <SystemSummary sys={sys} analysis={analysis} />}
@@ -803,6 +806,7 @@ export function SystemWorkspace({ goTo }) {
           </div>
         ) : <Schedule sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
       </main>
+      {lineupFor && sys.equipment.some((e) => e.id === lineupFor) && <GearLineupModal sys={sys} analysis={analysis} gearId={lineupFor} onClose={() => setLineupFor(null)} />}
     </div>
   );
 }
