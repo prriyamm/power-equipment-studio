@@ -9,12 +9,25 @@ export function pyRepr(x) {
   return String(x);
 }
 
-/** Python round(x, n): round-half-to-even on exact ties. */
+/** Python round(x, n): correctly rounded on the exact binary value, half-to-even on exact ties only
+ * (so round(3.45, 1) is 3.5 because the double 3.45 is slightly above the tie). */
 export function pyRound(x, n = 0) {
-  const p = 10 ** n;
-  const s = x * p;
-  const fl = Math.floor(s);
-  if (s - fl === 0.5 && s / p === x) return (fl % 2 === 0 ? fl : fl + 1) / p;
+  if (n < 0 || !Number.isFinite(x)) {
+    const p = 10 ** n;
+    const s = x * p;
+    const fl = Math.floor(s);
+    if (s - fl === 0.5 && s / p === x) return (fl % 2 === 0 ? fl : fl + 1) / p;
+    return Number(x.toFixed(Math.max(n, 0)));
+  }
+  const digits = Math.abs(x).toFixed(Math.min(100, n + 40));
+  const frac = digits.split(".")[1];
+  if (frac[n] === "5" && /^0*$/.test(frac.slice(n + 1))) {
+    // exact tie: toFixed rounds it away from zero; Python picks the even neighbour
+    const down = Number(digits.slice(0, digits.length - (frac.length - n)).replace(/\.$/, ""));
+    const last = Number(digits.replace(".", "")[digits.replace(".", "").length - frac.length + n - 1]);
+    const r = last % 2 === 0 ? down : Number(Math.abs(x).toFixed(n));
+    return x < 0 ? -r : r;
+  }
   return Number(x.toFixed(n));
 }
 
