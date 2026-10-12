@@ -13,7 +13,8 @@ const PH_CSS = { A: "#e05a4f", B: "#e8c35a", C: "#5aa0e0" };
 const LOAD_DOM = 120; // loading colour scale runs 0 to 120 %
 
 const CSS = `
-.cb3-wrap { position: relative; height: 600px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.cb3-box { position: relative; height: 600px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.cb3-wrap { position: relative; height: 100%; overflow: hidden; }
 .cb3-wrap canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .cb3-wrap canvas:active { cursor: grabbing; }
 .cb3-lbl { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 0; padding: 2px 6px 2px 7px; background: var(--tag-bg); border: 1px solid var(--line); border-left: 3px solid var(--faint); border-radius: 4px; white-space: nowrap; pointer-events: none; }
@@ -24,6 +25,9 @@ const CSS = `
 .cb3-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
 .cb3-seg button { padding: 3px 10px; font-size: 11.5px; color: var(--muted); background: transparent; border: 0; cursor: pointer; }
 .cb3-seg button + button { border-left: 1px solid var(--line); }
+@media (max-width: 640px) { .cb3-seg button { min-height: 40px; padding: 6px 12px; font-size: 12.5px; } }
+.cb3-cap { color: var(--faint); font-size: 10.5px; }
+@media (max-width: 640px) { .cb3-lbl span, .cb3-ticks, .cb3-cap { font-size: 11px; } }
 .cb3-seg button[aria-pressed="true"] { background: var(--accent-soft, rgba(216,178,90,0.2)); color: var(--fg); }
 .cb3-legend { position: absolute; right: 12px; top: 10px; width: 230px; padding: 8px 10px; background: var(--tag-bg); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; font-size: 11.5px; color: var(--muted); }
 .cb3-legend .t { color: var(--fg); font-weight: 600; }
@@ -34,6 +38,13 @@ const CSS = `
 .cb3-phs i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 5px; vertical-align: -1px; }
 .cb3-hud { position: absolute; left: 10px; bottom: 8px; font-size: 11.5px; color: var(--faint); pointer-events: none; }
 .cb3-fail { display: grid; place-items: center; min-height: 200px; padding: 16px; text-align: center; color: var(--muted); }
+/* phone: overlays stack under the canvas instead of covering the model */
+@media (max-width: 640px) {
+  .cb3-box { height: auto; }
+  .cb3-wrap { height: 420px; }
+  .cb3-ui, .cb3-legend, .cb3-hud { position: static; width: auto; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 8px 12px; }
+  .cb3-ui { flex-wrap: wrap; }
+}
 `;
 
 function build(grp, viewer, inp, res, mode) {
@@ -159,9 +170,9 @@ export function CableBus3D({ input, result, fallback }) {
   const rows = result.conductors;
   const maxLoad = Math.max(...rows.map((r) => r.loading_pct ?? 0));
   return (
-    <div ref={wrapRef} className="cb3-wrap">
+    <div className="cb3-box">
       <style>{CSS}</style>
-      <canvas ref={canvasRef} />
+      <div ref={wrapRef} className="cb3-wrap"><canvas ref={canvasRef} /></div>
       <div className="cb3-ui">
         <span>Colour</span>
         <div className="cb3-seg" role="group" aria-label="Cable colour mode">
@@ -185,7 +196,7 @@ export function CableBus3D({ input, result, fallback }) {
             <div>highest cable {fmt(maxLoad, 0)} % · marker at 100 %</div>
           </>
         )}
-        <div style={{ color: "var(--faint)", fontSize: 10.5 }}>{info ? `${fmt(info.W, 0)} x ${fmt(info.H, 0)} mm ventilated Al enclosure, ${fmt(info.L / 1000, 2)} m shown` : ""}</div>
+        <div className="cb3-cap">{info ? `${fmt(info.W, 0)} x ${fmt(info.H, 0)} mm ventilated Al enclosure, ${fmt(info.L / 1000, 2)} m shown` : ""}</div>
       </div>
       <div className="cb3-hud">Drag to orbit · right-drag or shift-drag to pan · scroll to zoom · cover cut away, GPO-3 blocks at the design spacing</div>
     </div>

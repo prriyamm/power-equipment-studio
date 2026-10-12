@@ -145,7 +145,7 @@ export function FeederWorkspace() {
       <header className="topbar">
         <div className="ws-title">Feeder &amp; cable</div>
         <span className="text-muted text-[12.5px]">Conductor sizing, voltage drop, withstand and lugs</span>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           {r && <Pill tone={r.recommended ? "ok" : "crit"}>{r.recommended ? "Conductor found" : "No size passes"}</Pill>}
           {r && r.data_status !== "VERIFIED" && <Pill tone="warn" title={r.notes.find((n) => n.startsWith("WARNING")) || ""}>Data {r.data_status}</Pill>}
           {r && <ReportButton filename="feeder-calc" getReport={() => feederReport(ui)} />}
@@ -512,4 +512,5 @@ const CSS = `
   .fd-chart .fd-dot-t { fill: var(--fg); }
   @media (max-width: 899px) { .fd-grid { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 520px) { .fd-grid { padding: 10px 16px; } .fd-fields { gap: 8px; } }
+  @media (max-width: 899px) { .fd-chart text { font-size: 12.5px; } }
 `;

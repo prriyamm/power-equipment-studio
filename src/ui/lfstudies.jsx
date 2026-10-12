@@ -16,6 +16,11 @@ const CSS = `
 .lfs-toggle input { accent-color: var(--accent); }
 .lfs-two { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 1000px) { .lfs-two { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) {
+  .lfs-sort { min-height: 40px; min-width: 40px; padding: 0 2px; }
+  .lfs-toggle { min-height: 40px; }
+  .lfs-toggle input { width: 18px; height: 18px; }
+}
 `;
 
 function QLimits({ scenario, result, stale, setEnforceQ }) {
@@ -109,7 +114,7 @@ function IkChart({ buses, unit }) {
   const y = (v) => T + (H - T - B) * (1 - v / hi);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * hi);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart lfs-bars" role="img" aria-label="Initial symmetrical short-circuit current per bus">
+    <div className="chart-scroll" style={{ "--chart-min": "480px" }}><svg viewBox={`0 0 ${W} ${H}`} className="chart lfs-bars" role="img" aria-label="Initial symmetrical short-circuit current per bus">
       {ticks.map((t, i) => (<g key={i}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="gridline" /><text x={L - 6} y={y(t) + 3.5} textAnchor="end" className="tick">{t.toFixed(t >= 10 ? 0 : 1)}</text></g>))}
       {buses.map((b, i) => {
         const v = vals[i], x = L + band * i + band * 0.14, w = band * 0.72;
@@ -119,7 +124,7 @@ function IkChart({ buses, unit }) {
         </g>);
       })}
       <text x={L} y={10} className="tick">I″k, {unit}</text>
-    </svg>
+    </svg></div>
   );
 }
 

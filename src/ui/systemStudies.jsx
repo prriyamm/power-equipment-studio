@@ -22,6 +22,10 @@ const CSS = `
 .ss-heat td.ss-tag { font-family: var(--font-data); padding-right:8px; white-space:nowrap; color: var(--muted); text-align:left; }
 .ss-heat td.ss-cell { height:18px; min-width:16px; text-align:center; font-size:9.5px; color:#0a0f14; font-variant-numeric: tabular-nums; border-radius:2px; }
 .ss-legend { display:flex; align-items:center; gap:8px; font-size:11px; color: var(--faint); margin-top:6px; }
+@media (max-width: 640px) {
+  .ss-svg text { font-size: 11.5px; }
+  .ss-heat td.ss-cell { font-size: 11px; min-width: 24px; height: 22px; }
+}
 .ss-legend i { display:inline-block; width:140px; height:8px; border-radius:2px; background: linear-gradient(90deg, var(--ok), var(--high), var(--crit)); }
 `;
 
