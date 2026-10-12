@@ -12,6 +12,7 @@ import { Site3D } from "./system3d.jsx";
 import { SystemSld } from "./systemSld.jsx";
 import { GearLineupModal } from "./gearLineup.jsx";
 import { useHistory, ProjectMenu } from "./systemProject.jsx";
+import { ArcFlashSection } from "./systemArcFlash.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -622,7 +623,7 @@ function SystemSummary({ sys, analysis }) {
 }
 
 /* ============================================================== SCHEDULE */
-function Schedule({ sys, analysis, select }) {
+function Schedule({ sys, analysis, select, updateEq }) {
   const res = analysis?.equipment || {}, cres = analysis?.connectors || {};
   return (
     <div className="flex flex-col gap-4 p-4 overflow-auto">
@@ -664,6 +665,7 @@ function Schedule({ sys, analysis, select }) {
           </table></div>
         </Section>
       )}
+      <ArcFlashSection sys={sys} analysis={analysis} updateEq={updateEq} />
     </div>
   );
 }
@@ -806,7 +808,7 @@ export function SystemWorkspace({ goTo }) {
                 : <SystemSummary sys={sys} analysis={analysis} />}
             </aside>
           </div>
-        ) : <Schedule sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
+        ) : <Schedule updateEq={updateEq} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
       </main>
       {lineupFor && sys.equipment.some((e) => e.id === lineupFor) && <GearLineupModal sys={sys} analysis={analysis} gearId={lineupFor} onClose={() => setLineupFor(null)} />}
     </div>
