@@ -348,7 +348,7 @@ export const EXAMPLE_SYSTEM = {
     { id: "C-MCC", kind: "cable", from: "SWGR-LV.bus", to: "MCC-1.bus", size: "500", sets: 2, length_ft: 220 },
     { id: "C-M1", kind: "cable", from: "MCC-1.bus", to: "M1.in", size: "4/0", sets: 1, length_ft: 140 },
     { id: "C-M2", kind: "cable", from: "MCC-1.bus", to: "M2.in", size: "2/0", sets: 1, length_ft: 160 },
-    { id: "C-LOAD", kind: "cable", from: "SWGR-LV.bus", to: "LOAD-1.in", size: "500", sets: 5, length_ft: 300 },
+    { id: "C-LOAD", kind: "cable", from: "SWGR-LV.bus", to: "LOAD-1.in", size: "500", sets: 6, length_ft: 300 },
     { id: "C-CAP", kind: "cable", from: "SWGR-LV.bus", to: "CAP-1.in", size: "250", sets: 2, length_ft: 30 },
     { id: "C-T2", kind: "cable", from: "SWGR-MV.bus", to: "T2.hv", size: "2/0", sets: 1, length_ft: 200, raceway: "pvc", insulation_c: 90 },
     { id: "CB-2", kind: "cablebus", from: "T2.lv", to: "SWGR-5.bus", size: "500", sets: 1, length_ft: 80, insulation_c: 90 },
