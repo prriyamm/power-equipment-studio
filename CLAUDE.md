@@ -10,7 +10,13 @@
 - Data tables: copy JSON as-is including `_meta` status. Never upgrade a status.
 - Never hard-code a product rating; ratings are inputs.
 - Workflow: branch `feat/<topic>`, `npm run check` must pass, open a PR against `main`, keep it focused.
-  Rebuild and commit `dist/index.html` in the PR so `main` always holds the publishable artifact.
+  Do NOT commit `dist/index.html` in feature PRs (parallel PRs conflict on it); the maintainer rebuilds `dist/`
+  on `main` after each merge and publishes it to the artifact.
+- Workspace UI files keep their own CSS: put a `const CSS = \`...\`` string in the workspace file and render
+  `<style>{CSS}</style>` inside the component, prefixing classes with the workspace name (e.g. `.cb-…`).
+  Only touch `src/head.html` for new shared design tokens.
+- Cross-workspace hand-off uses `src/ui/bus.js` (`bus.on(topic, fn)` / `bus.emit(topic, msg)`).
+- Deep link for screenshots: `dist/index.html#<workspace-key>` opens that workspace.
 - No private material: nothing from Notion, customers, pricing, or personal paths in tracked files.
 - UI: design tokens live in `src/head.html` `:root`. Reuse primitives from `src/ui/common.jsx`
   (Btn, Pill, Section, Field, NumField, Tile, Icon). Tables use `.grid-table`, panels `.panel`.
