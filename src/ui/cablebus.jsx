@@ -10,6 +10,9 @@ import { CableBus3D } from "./cablebus3d.jsx";
 import { cablebusSvg } from "../engine/pecalc/drawing.js";
 import { solveSharing } from "../engine/pecalc/impedance.js";
 import { bRmsUt, LIMITS_UT } from "../engine/pecalc/field.js";
+import { kvRows, checkRows } from "../engine/report.js";
+import { tableInfo } from "../engine/pecalc/ampacity.js";
+import { ReportButton } from "./reportButton.jsx";
 
 const CSS = `
 .cb-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
@@ -104,6 +107,29 @@ function solve(f) {
   } catch (e) {
     return { error: e.message };
   }
+}
+
+/* Calculation package for the Check tab (see engine/report.js). */
+function cableBusReport(f) {
+  const { inp, res } = solve(f);
+  if (!res) return null;
+  const i = res.input, info = tableInfo(i.code, "free_air");
+  return {
+    title: "Cable bus check", module: "cablebus", subtitle: `${i.voltage_v} V, ${i.current_a} A, ${i.conductors_per_phase} x ${i.size} ${i.material} per phase`,
+    inputs: kvRows(i, { voltage_v: "V", current_a: "A", length_m: "m", ambient_c: "C", fault_ka: "kA", max_vd_pct: "%", x_over_r: "" }),
+    results: [
+      { label: "Phase pattern", value: res.pattern }, { label: "Worst conductor loading", value: res.max_loading_pct, unit: "%" },
+      { label: "Voltage drop", value: res.vd_pct, unit: "%" }, { label: "Conductor loss", value: res.conductor_loss_w, unit: "W" },
+      { label: "Shield loss", value: res.shield_loss_w, unit: "W" }, { label: "Enclosure loss", value: res.enclosure_loss_w, unit: "W" },
+      { label: "Fault force", value: res.fault_force_lbf_per_ft, unit: "lbf/ft" }, { label: "Support load", value: res.support_load_lbf, unit: "lbf" },
+    ],
+    checks: checkRows(res.checks),
+    tables: [{ title: "Conductor currents", columns: ["Phase", "Tier", "x (mm)", "Current (A)", "% of equal share", "Ampacity (A)", "Loading %"],
+      rows: res.conductors.map((c) => [c.phase, c.tier, c.x_mm, c.current_a, c.share_pct, c.ampacity_a, c.loading_pct]) }],
+    figures: i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res) }] : [],
+    notes: res.notes,
+    dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
+  };
 }
 
 /* ------------------------------------------------------------ small charts */
@@ -652,6 +678,7 @@ export function CableBusWorkspace() {
         <span className="text-muted text-[12.5px]">{tab === "check" ? "Analyse a given design" : "Enumerate and rank options"}</span>
         <div className="flex items-center gap-2 ml-auto">
           {tab === "check" && res && <Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
+          {tab === "check" && res && <ReportButton filename="cable-bus-calc" getReport={() => cableBusReport(f)} />}
           {tab === "check" && <Btn onClick={() => { setF(EXAMPLE); setFromSystem(null); }} title="Restore the 15 kV 2000 A example">Reset to example</Btn>}
         </div>
       </header>

@@ -2,6 +2,8 @@
 const { useState, useMemo } = React;
 import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
 import { design, design_for_impedance, transformerInput } from "../engine/pecalc/transformer.js";
+import { kvRows, checkRows } from "../engine/report.js";
+import { ReportButton } from "./reportButton.jsx";
 
 /* Starting state: the 1500 kVA, 13.8 kV delta / 480Y V liquid-filled example, 5.75 % Z. */
 const EXAMPLE = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
@@ -13,6 +15,20 @@ function solve(inp, tune) {
   } catch (e) {
     return { error: e.message };
   }
+}
+
+/* Calculation package (see engine/report.js). */
+function transformerReport(r) {
+  const i = r.input;
+  return {
+    title: "Transformer preliminary design", module: "transformer", subtitle: `${i.kva} kVA, ${i.hv_v} V / ${i.lv_v} V`,
+    inputs: kvRows(i, { kva: "kVA", hv_v: "V", lv_v: "V", target_z_pct: "%", source_mva: "MVA", j_lv_a_mm2: "A/mm2", j_hv_a_mm2: "A/mm2" }),
+    results: [r.design, r.losses, r.impedance, r.performance, r.short_circuit].flatMap((d) => kvRows(d)),
+    checks: checkRows(r.checks),
+    notes: r.notes,
+    // Empirical design constants and tolerances are marked [UNVERIFIED] in the engine.
+    dataStatus: [{ table: "Empirical design constants, core-loss curve and tolerances", status: "UNVERIFIED", source: "Entered from memory (see [UNVERIFIED] in transformer.js); confirm against C57 standards and manufacturer data." }],
+  };
 }
 
 export function TransformerWorkspace() {
@@ -42,6 +58,7 @@ export function TransformerWorkspace() {
         <span className="text-muted text-[12.5px]">Preliminary core-type design · 3-phase</span>
         <div className="flex items-center gap-2 ml-auto">
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
+          {r && <ReportButton filename="transformer-calc" getReport={() => transformerReport(r)} />}
           <Btn onClick={() => { setInp(transformerInput(EXAMPLE)); setTune(true); }} title="Restore the 1500 kVA example inputs">Reset to example</Btn>
         </div>
       </header>
