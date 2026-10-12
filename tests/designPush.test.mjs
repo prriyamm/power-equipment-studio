@@ -191,16 +191,39 @@ test("switchgear: works for MCCs and from a real analyseBus result; fault kA giv
   const plan = planPush(sys0(), { kind: "eq", id: "MCC-1" }, { ...d, fault: { value: 50000, unit: "A" } });
   assert.equal(plan.ok, true, plan.errors.join());
   assert.equal(plan.patch.sc_ka, 50);
-  assert.equal(row(plan, "bus_a").changed, false);
+  assert.equal(plan.patch.bus_a, Math.min(800, res.rated_current_at_limit_a));
+});
+
+test("switchgear: the bars' rise-limited rating governs when it is lower than the design current", () => {
+  const plan = planPush(sys0(), { kind: "eq", id: "SWGR-LV" }, bus({ rated_current: { value: 4200, unit: "A" } }));
+  assert.equal(plan.ok, true, plan.errors.join());
+  assert.deepEqual(row(plan, "bus_a"), { field: "bus_a", label: "Bus rating", unit: "A", old: 4000, new: 4200, changed: true });
+  assert.deepEqual(plan.notes, ["Bus rating limited to 4200 A by temperature rise (design current 5000 A)."]);
+  assert.doesNotMatch(plan.warnings.join(), /rise/);
+});
+
+test("switchgear: the design current governs when the bars carry more", () => {
+  const plan = planPush(sys0(), { kind: "eq", id: "SWGR-LV" }, bus({ rated_current: { value: 5.2, unit: "kA" } }));
+  assert.equal(plan.patch.bus_a, 5000);
+  assert.deepEqual(plan.notes, []);
+  assert.deepEqual(plan.warnings, []);
+});
+
+test("switchgear: with no rise result the design current is sent with a warning", () => {
+  const plan = planPush(sys0(), { kind: "eq", id: "SWGR-LV" }, bus({ rated_current: null }));
+  assert.equal(plan.ok, true, plan.errors.join());
+  assert.equal(plan.patch.bus_a, 5000);
+  assert.match(plan.warnings.join(), /no temperature-rise rating to compare against, so the design current \(5000 A\) is sent/);
+  assert.deepEqual(plan.notes, []);
 });
 
 test("switchgear: warnings and rejections", () => {
   const s = sys0(), T = { kind: "eq", id: "SWGR-LV" };
-  const p1 = planPush(s, T, bus({ fault: null, rated_current: { value: 4200, unit: "A" } }));
+  const p1 = planPush(s, T, bus({ fault: null }));
   assert.equal(p1.ok, true);
   assert.equal("sc_ka" in p1.patch, false);
   assert.match(p1.warnings.join(" "), /no fault level/);
-  assert.match(p1.warnings.join(" "), /4200 A at the temperature-rise limit, below the 5000 A/);
+  assert.match(planPush(s, T, bus({ rated_current: { value: 4200, unit: "V" } })).errors.join(), /not a current unit/);
   assert.match(planPush(s, { kind: "eq", id: "SWGR-5" }, bus()).errors.join(), /rated 600 V but SWGR-5 runs at 4\.16 kV/);
   assert.match(planPush(s, { kind: "eq", id: "T1" }, bus()).errors.join(), /Switchgear bus designs go to a switchgear \/ motor control center \/ panelboard; T1 is a transformer/);
   assert.match(planPush(s, T, bus({ current: { value: 5, unit: "kV" } })).errors.join(), /not a current unit/);
@@ -222,6 +245,8 @@ test("transformer: writes kVA, voltages (V → kV), %Z and X/R from the achieved
   assert.equal(plan.patch.z_pct, res.impedance.z_pct);
   assert.equal(plan.patch.xr, res.impedance.x_over_r);
   assert.equal(row(plan, "hv_kv").changed, false);
+  assert.deepEqual(plan.notes, ["Connection and cooling are not changed by this push."]);
+  assert.ok(!("conn" in plan.patch) && !("cooling" in plan.patch));
   assert.deepEqual(row(plan, "kva"), { field: "kva", label: "Rating", unit: "kVA", old: 2500, new: 3000, changed: true });
   const next = applyPush(s, plan);
   assert.ok(analyseSystem(next).equipment["SWGR-LV"].ik_ka !== analyseSystem(s).equipment["SWGR-LV"].ik_ka);

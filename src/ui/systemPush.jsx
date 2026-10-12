@@ -89,6 +89,7 @@ export function PushToSystem({ module, design, designError, link, setLink, goTo 
                     ))}</tbody>
                   </table></div>
                 )}
+                {plan.ok && plan.notes.map((n, i) => <div key={"n" + i} className="notice notice-info">{n}</div>)}
                 {plan.warnings.map((w, i) => <div key={i} className="notice notice-warn">{w}</div>)}
                 {plan.ok && (plan.changed === 0
                   ? <p className="text-muted text-[12.5px]">{link.id} already matches this design.</p>

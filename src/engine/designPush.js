@@ -121,7 +121,7 @@ function failedChecks(design, warnings) {
 }
 
 const MAPPERS = {
-  feeder(d, el, ctx, errors, warnings) {
+  feeder(d, el, ctx, errors, warnings, notes) {
     if (d.phases !== 3) errors.push(`System runs are three-phase; this feeder is ${d.phases}-phase.`);
     checkVoltage(convert(d.voltage, "voltage", "Feeder voltage"), ctx.kv, el.raw.id, errors, warnings);
     const size = checkSize(d.size, errors, warnings, d.material);
@@ -139,7 +139,7 @@ const MAPPERS = {
     if (amp != null) patch.ampacity_a = round(amp, 1);
     return patch;
   },
-  cablebus(d, el, ctx, errors, warnings) {
+  cablebus(d, el, ctx, errors, warnings, notes) {
     checkVoltage(convert(d.voltage, "voltage", "Cable bus voltage"), ctx.kv, el.raw.id, errors, warnings);
     const size = checkSize(d.size, errors, warnings, d.material);
     if (!["Cu", "Al"].includes(d.material)) errors.push(`Unknown conductor material "${d.material}".`);
@@ -153,17 +153,22 @@ const MAPPERS = {
     failedChecks(d, warnings);
     return { size, sets: d.sets, material: d.material, insulation_c: ins, length_ft: round(len, 3), ampacity_a: round(rating / Math.max(d.sets, 1), 1) };
   },
-  switchgear(d, el, ctx, errors, warnings) {
+  switchgear(d, el, ctx, errors, warnings, notes) {
     checkVoltage(convert(d.voltage, "voltage", "Bus rated voltage"), ctx.kv, el.raw.id, errors, warnings, { rated: true });
     const busA = convert(d.current, "current", "Bus rating");
     if (!(busA > 0)) errors.push("Bus rating must be positive.");
-    const patch = { bus_a: round(busA, 1) };
+    // The System bus rating is the lower of the design current and what the bars carry at the
+    // temperature-rise limit: a bus rated above its thermal capability would understate loading.
+    let rating = busA;
+    if (d.rated_current == null) warnings.push(`The bus design has no temperature-rise rating to compare against, so the design current (${round(busA, 0)} A) is sent as the bus rating.`);
+    else {
+      const ra = convert(d.rated_current, "current", "Rating at the rise limit");
+      if (!(ra > 0)) errors.push("Rating at the rise limit must be positive.");
+      else if (ra < busA) { rating = ra; notes.push(`Bus rating limited to ${round(ra, 0)} A by temperature rise (design current ${round(busA, 0)} A).`); }
+    }
+    const patch = { bus_a: round(rating, 1) };
     if (d.fault == null) warnings.push("The bus design has no fault level, so the short-circuit rating is left as it is.");
     else { const ka = convert(d.fault, "fault", "Short-circuit withstand"); if (!(ka > 0)) errors.push("Short-circuit withstand must be positive."); patch.sc_ka = round(ka, 3); }
-    if (d.rated_current != null) {
-      const ra = convert(d.rated_current, "current", "Rating at the rise limit");
-      if (ra < busA) warnings.push(`The bars carry ${round(ra, 0)} A at the temperature-rise limit, below the ${round(busA, 0)} A bus rating.`);
-    }
     if (d.bars_per_phase != null) {
       if (!(Number.isInteger(d.bars_per_phase) && d.bars_per_phase >= 1)) errors.push(`Bars per phase must be a whole number ≥ 1 (got ${d.bars_per_phase}).`);
       Object.assign(patch, {
@@ -179,7 +184,7 @@ const MAPPERS = {
     failedChecks(d, warnings);
     return patch;
   },
-  transformer(d, el, ctx, errors, warnings) {
+  transformer(d, el, ctx, errors, warnings, notes) {
     const kva = convert(d.power, "power", "Transformer rating");
     const hv = convert(d.hv, "voltage", "HV voltage"), lv = convert(d.lv, "voltage", "LV voltage");
     const z = convert(d.z, "percent", "Impedance"), xr = convert(d.xr, "ratio", "X/R");
@@ -188,6 +193,9 @@ const MAPPERS = {
     if (!(z > 0 && z < 100)) errors.push(`Impedance must be between 0 and 100 %Z (got ${z}).`);
     if (!(xr > 0)) errors.push("X/R must be positive.");
     failedChecks(d, warnings);
+    // Connection and cooling stay as they are in the System: the workspace's delta/wye and liquid/dry do not
+    // determine the System's vector group (which carries a phase shift, e.g. Dyn1) or its cooling class (ONAN, ONAF, …).
+    notes.push("Connection and cooling are not changed by this push.");
     return { kva: round(kva, 3), hv_kv: round(hv, 6), lv_kv: round(lv, 6), z_pct: round(z, 3), xr: round(xr, 3) };
   },
 };
@@ -196,13 +204,13 @@ const MAPPERS = {
 /**
  * Maps a design onto a System element. Returns
  *   { ok, module, target: {kind, id, type}, patch, diff: [{field, label, unit, old, new, changed}],
- *     changed, warnings, errors, stale }
+ *     changed, warnings, notes, errors, stale }   (notes: informational lines for the preview)
  * ok is false (and patch null) when the element is missing, of the wrong type, the units or voltage
  * do not match, or applying the patch would add an error to the System model.
  */
 export function planPush(sys, target, design) {
-  const errors = [], warnings = [];
-  const fail = (msg) => ({ ok: false, module: design?.module, target: target ? { ...target } : null, patch: null, diff: [], changed: 0, warnings, errors: [...errors, ...(msg ? [msg] : [])], stale: [] });
+  const errors = [], warnings = [], notes = [];
+  const fail = (msg) => ({ ok: false, module: design?.module, target: target ? { ...target } : null, patch: null, diff: [], changed: 0, warnings, notes, errors: [...errors, ...(msg ? [msg] : [])], stale: [] });
   const m = PUSH_MODULES[design?.module];
   if (!m) return fail(`Unknown design module "${design?.module}".`);
   if (!sys) return fail("No System model is open.");
@@ -216,7 +224,7 @@ export function planPush(sys, target, design) {
   const kvs = systemKv(sys);
   const ctx = { kv: el.kind === "con" ? kvs.con[el.raw.id] : kvs.eq[el.raw.id] };
   let patch;
-  try { patch = MAPPERS[design.module](design, el, ctx, errors, warnings); }
+  try { patch = MAPPERS[design.module](design, el, ctx, errors, warnings, notes); }
   catch (e) { return fail(e.message); }
   if (errors.length) return fail();
 
@@ -232,7 +240,7 @@ export function planPush(sys, target, design) {
     return { field, label, unit, old: old === undefined ? null : old, new: nv, changed: !same(old, nv) };
   });
   const changed = diff.filter((r) => r.changed).length;
-  return { ok: true, module: design.module, target: { kind: el.kind, id: el.raw.id, type: el.type }, patch, diff, changed, warnings, errors: [], stale: changed ? [...STALE_STUDIES] : [] };
+  return { ok: true, module: design.module, target: { kind: el.kind, id: el.raw.id, type: el.type }, patch, diff, changed, warnings, notes, errors: [], stale: changed ? [...STALE_STUDIES] : [] };
 }
 
 function applyPatch(sys, kind, id, patch) {
