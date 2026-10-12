@@ -1,0 +1,1807 @@
+<title>Power Equipment Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    corePlugins: { preflight: true },
+    theme: { extend: {
+      colors: { fg: "var(--fg)", muted: "var(--muted)", faint: "var(--faint)", line: "var(--line)", panel: "var(--panel)",
+        accent: "var(--accent)", ok: "var(--ok)", warn: "var(--high)", crit: "var(--crit)", info: "var(--info)", low: "var(--low)", high: "var(--high)" },
+      fontFamily: { sans: ["IBM Plex Sans", "system-ui", "sans-serif"], mono: ["IBM Plex Mono", "ui-monospace", "Menlo", "monospace"] },
+    } },
+  };
+</script>
+<style>
+  /* Layout: control-room workspace. Fixed top bar + tab rail, the diagram tab fills the viewport
+     (canvas left, inspector right, stacks under 900px); other tabs scroll. Single dark theme by choice. */
+  :root {
+    --bg: #0a0f14;        /* control-room ground, slight blue bias */
+    --panel: #0f161d;
+    --panel-2: #141d26;
+    --line: #1f2b36;
+    --grid: #121c25;
+    --grid-major: #192632;
+    --fg: #d6dfe6;
+    --muted: #8a9aa7;
+    --faint: #5d6d7a;
+    --accent: #d8b25a;    /* brass busbar */
+    --accent-ink: #1c1606;
+    --wire: #93a8b8;
+    --bar: #c3ced7;
+    --ok: #4cc38a;
+    --low: #7b93ff;       /* under-voltage */
+    --high: #ff8b4a;      /* over-voltage / warning */
+    --crit: #ff5f5f;
+    --info: #63b6d6;
+    --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px; }
+  #root { height: 100%; }
+  .app { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+  ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  code { font-family: var(--font-data); font-size: 0.92em; color: var(--fg); background: var(--panel-2); padding: 0 4px; border-radius: 3px; }
+  kbd { font-family: var(--font-data); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; padding: 0 4px; border-radius: 3px; color: var(--fg); }
+
+  /* top bar */
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: 0.01em; font-size: 15px; }
+  .brand em { font-style: normal; font-family: var(--font-data); font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 400; }
+  .scn-chips { display: flex; gap: 6px; overflow-x: auto; min-width: 0; flex: 1 1 200px; scrollbar-width: none; }
+  .chip { flex: none; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: transparent; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .chip:hover { color: var(--fg); border-color: var(--faint); }
+  .chip.is-active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 500; }
+  .chip-add { display: inline-flex; align-items: center; padding: 4px 8px; }
+  .live-toggle { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+  .live-toggle input { accent-color: var(--accent); }
+
+  .tabs { display: flex; align-items: center; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; overflow-y: hidden; }
+  .tab { position: relative; padding: 10px 14px; font-size: 13.5px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+  .tab:hover { color: var(--fg); }
+  .tab.is-active { color: var(--fg); border-bottom-color: var(--accent); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .dot-crit { background: var(--crit); } .dot-warn { background: var(--high); }
+
+  .main { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .main.is-diagram { overflow: hidden; display: flex; }
+  @media (max-width: 899px) { .main.is-diagram { overflow: auto; display: block; } }
+
+  /* buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); color: var(--fg); background: var(--panel-2); white-space: nowrap; transition: background .12s, border-color .12s; }
+  .btn:hover:not(:disabled) { border-color: var(--faint); background: color-mix(in srgb, var(--panel-2) 70%, var(--line)); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.is-active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel-2)); }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, white); border-color: var(--accent); }
+  .btn-primary-soft { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .btn-danger { color: var(--crit); }
+  .btn-danger:hover:not(:disabled) { border-color: var(--crit); }
+  .btn-danger-solid { background: var(--crit); border-color: var(--crit); color: #1b0606; font-weight: 600; }
+  .seg { display: inline-flex; gap: 0; }
+  .seg .btn { border-radius: 0; margin-left: -1px; }
+  .seg .btn:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg .btn:last-child { border-radius: 0 6px 6px 0; }
+  .seg .btn.is-active { position: relative; z-index: 1; }
+  .link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; font-weight: 500; white-space: nowrap; border: 1px solid transparent; letter-spacing: 0.01em; }
+  .pill-muted { color: var(--muted); border-color: var(--line); }
+  .pill-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+  .pill-warn, .pill-high { color: var(--high); background: color-mix(in srgb, var(--high) 14%, transparent); }
+  .pill-crit { color: var(--crit); background: color-mix(in srgb, var(--crit) 14%, transparent); }
+  .pill-low { color: var(--low); background: color-mix(in srgb, var(--low) 15%, transparent); }
+  .pill-info { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
+  .pill-accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 500; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+
+  /* inputs */
+  .num-input { width: 100%; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; font-family: var(--font-data); font-size: 12.5px; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .num-input::placeholder { color: var(--faint); }
+  .num-input:hover:not(:disabled) { border-color: var(--faint); }
+  .num-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .num-input:disabled { opacity: 0.45; }
+  .num-input.is-bad { border-color: var(--crit); background: color-mix(in srgb, var(--crit) 8%, var(--bg)); }
+  select.num-input { font-family: var(--font-data); padding-right: 4px; }
+  .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .field-label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
+  .field-label em { font-style: normal; font-family: var(--font-data); color: var(--faint); font-size: 11px; }
+  .field-hint { font-size: 11px; color: var(--faint); }
+
+  /* diagram */
+  .diagram-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; padding: 12px 16px; min-height: 0; width: 100%; }
+  @media (max-width: 899px) { .diagram-grid { grid-template-columns: minmax(0, 1fr); } }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+  .canvas-wrap { position: relative; flex: 1; min-height: 360px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
+  @media (max-width: 899px) { .canvas-wrap { flex: none; height: 62vh; } }
+  .canvas { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; cursor: grab; }
+  .canvas:active { cursor: grabbing; }
+  .tool-bus .canvas { cursor: copy; }
+  .tool-connect .canvas { cursor: crosshair; }
+  .bus { cursor: move; }
+  .tool-connect .bus { cursor: pointer; }
+  .hit { fill: transparent; stroke: transparent; }
+  .branch .hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+  .branch:hover > path:nth-child(3) { filter: brightness(1.3); }
+  .sel-halo { fill: none; stroke: var(--accent); stroke-width: 9; opacity: 0.28; stroke-linejoin: round; }
+  .sel-box { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  .bus.is-pending rect:nth-of-type(2) { stroke: var(--accent); stroke-width: 2; }
+  .sym path, .sym circle { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+  .sym .sym-fill { fill: var(--muted); }
+  .xf { fill: var(--bg); stroke: var(--wire); stroke-width: 1.4; }
+  .bus-label { font-family: var(--font-data); font-size: 12px; fill: var(--fg); font-weight: 500; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+  .bus-kind { fill: var(--faint); font-size: 9.5px; letter-spacing: 0.06em; }
+  .bus-res { font-family: var(--font-data); font-size: 11px; paint-order: stroke; stroke: var(--bg); stroke-width: 3.5px; }
+  .bus-res .dim { fill: var(--muted); }
+  .flow-label { font-family: var(--font-data); font-size: 10.5px; fill: var(--fg); paint-order: stroke; stroke: var(--bg); stroke-width: 3.5px; }
+  .flow { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 2 12; stroke-linecap: round; animation: flow 1.6s linear infinite; pointer-events: none; opacity: 0.9; }
+  @keyframes flow { to { stroke-dashoffset: -28; } }
+  @media (prefers-reduced-motion: reduce) { .flow { animation: none; } }
+  .rubber { stroke: var(--accent); stroke-dasharray: 5 5; stroke-width: 1.5; fill: none; pointer-events: none; }
+  .canvas-hud { position: absolute; top: 10px; display: flex; gap: 6px; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .canvas-hud.left { left: 12px; right: 120px; }
+  .canvas-hud.left span { background: color-mix(in srgb, var(--bg) 80%, transparent); padding: 3px 8px; border-radius: 5px; }
+  .canvas-hud.right { right: 10px; pointer-events: auto; }
+  .hud-btn { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; color: var(--fg); font-size: 16px; line-height: 1; }
+  .hud-btn:hover { border-color: var(--faint); }
+  .legend { position: absolute; left: 12px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 12px; font-family: var(--font-data); font-size: 11px; color: var(--muted); background: color-mix(in srgb, var(--bg) 85%, transparent); padding: 4px 8px; border-radius: 5px; }
+  .legend i { display: inline-block; width: 14px; height: 4px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
+  .inspector { padding: 16px; overflow: auto; min-height: 0; }
+  .res-block { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .res-block.is-stale { opacity: 0.55; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { font-family: var(--font-data); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* tables */
+  .table-wrap { overflow-x: auto; max-width: 100%; }
+  .grid-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+  .grid-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: var(--panel); }
+  .grid-table th em { font-style: normal; font-family: var(--font-data); color: var(--faint); font-size: 10.5px; margin-left: 4px; }
+  .grid-table td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); font-family: var(--font-data); font-size: 12.5px; white-space: nowrap; }
+  .grid-table .r { text-align: right; }
+  .grid-table tfoot td { border-top: 1px solid var(--line); border-bottom: none; color: var(--fg); font-weight: 500; }
+  .grid-table tr.clickable { cursor: pointer; }
+  .grid-table tbody tr:hover td { background: color-mix(in srgb, var(--panel-2) 80%, transparent); }
+  .grid-table.edit td { padding: 3px 3px; }
+  .grid-table.edit td .num-input { min-width: 66px; }
+  .grid-table.compare td:first-child { font-family: var(--font-ui); }
+  .row-x { color: var(--faint); padding: 4px; border-radius: 4px; display: grid; place-items: center; }
+  .row-x:hover { color: var(--crit); background: color-mix(in srgb, var(--crit) 12%, transparent); }
+  .vchip { display: inline-block; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+  .v-ok { color: var(--ok); } .v-low { color: var(--low); background: color-mix(in srgb, var(--low) 15%, transparent); } .v-high { color: var(--high); background: color-mix(in srgb, var(--high) 15%, transparent); }
+  .issue-list { display: flex; flex-direction: column; gap: 3px; font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+
+  /* results */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; border-top: 2px solid var(--line); }
+  .tile-ok { border-top-color: var(--ok); } .tile-warn { border-top-color: var(--high); } .tile-crit { border-top-color: var(--crit); }
+  .tile-value { font-family: var(--font-data); font-size: 21px; font-weight: 500; margin-top: 4px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .tile-ok .tile-value { color: var(--ok); } .tile-crit .tile-value { color: var(--crit); }
+  .tile-unit { font-size: 12px; color: var(--muted); margin-left: 5px; font-weight: 400; }
+  .tile-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .charts-row { display: grid; grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 1000px) { .charts-row { grid-template-columns: minmax(0, 1fr); } }
+  .chart { width: 100%; height: auto; display: block; }
+  .chart .tick { font-family: var(--font-data); font-size: 10.5px; fill: var(--faint); }
+  .chart .tick.accent { fill: var(--accent); }
+  .chart .gridline { stroke: var(--line); stroke-width: 1; }
+  .chart .limit { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.8; }
+  .chart .band { fill: color-mix(in srgb, var(--ok) 7%, transparent); }
+  .chart .line { fill: none; stroke: var(--info); stroke-width: 2; }
+  .chart .area { fill: color-mix(in srgb, var(--info) 10%, transparent); }
+  .chart .pt { fill: var(--info); } .chart .pt-end { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }
+  .loss-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 54px 44px; gap: 8px; align-items: center; font-size: 12.5px; }
+  .loss-track { height: 8px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+  .loss-bar { height: 100%; background: var(--accent); border-radius: 2px; }
+  .studies { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+  .study { border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+  .study.is-planned { border-style: dashed; }
+  .study b { font-weight: 500; font-size: 13.5px; }
+  .notice { border-radius: 7px; padding: 10px 14px; font-size: 13.5px; border: 1px solid; line-height: 1.5; }
+  .notice-crit { border-color: color-mix(in srgb, var(--crit) 45%, transparent); background: color-mix(in srgb, var(--crit) 9%, transparent); }
+  .notice-warn { border-color: color-mix(in srgb, var(--high) 45%, transparent); background: color-mix(in srgb, var(--high) 9%, transparent); }
+  .notice-info { border-color: color-mix(in srgb, var(--info) 40%, transparent); background: color-mix(in srgb, var(--info) 8%, transparent); }
+
+  /* cases */
+  .cases-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+  @media (max-width: 420px) { .cases-grid { grid-template-columns: minmax(0, 1fr); } }
+  .lib-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); }
+  .drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; color: var(--muted); font-size: 13px; }
+  .drop.is-drag { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .code-area { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-family: var(--font-data); font-size: 11.5px; line-height: 1.55; color: var(--fg); white-space: pre; resize: vertical; }
+  textarea.code-area { white-space: pre-wrap; }
+  textarea.code-area:focus { outline: none; border-color: var(--accent); }
+  .scn-row { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 7px; border: 1px solid transparent; flex-wrap: wrap; }
+  .scn-row.is-active { border-color: var(--line); background: var(--bg); }
+  .change-list { font-family: var(--font-data); font-size: 12px; display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow: auto; color: var(--fg); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+
+  /* verify modal + toast */
+  .modal-back { position: fixed; inset: 0; background: color-mix(in srgb, #000 62%, transparent); display: grid; place-items: center; padding: 16px; z-index: 50; }
+  .modal { width: min(920px, 100%); max-height: calc(100% - 16px); display: flex; flex-direction: column; overflow: hidden; }
+  .verdict { font-family: var(--font-data); font-size: 30px; font-weight: 500; letter-spacing: 0.04em; margin-top: 2px; }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--panel-2); border: 1px solid var(--line); padding: 8px 14px; border-radius: 7px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .toast-crit { border-color: var(--crit); }
+
+  /* shell */
+  .shell { height: 100%; display: flex; min-height: 0; }
+  .rail { flex: none; width: 68px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 6px; border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
+  .rail-brand { display: grid; place-items: center; height: 40px; margin-bottom: 6px; }
+  .rail-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px; border-radius: 7px; color: var(--muted); font-size: 10.5px; letter-spacing: 0.02em; }
+  .rail-btn:hover { color: var(--fg); background: var(--panel-2); }
+  .rail-btn.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+  .rail-btn.is-planned { opacity: 0.55; }
+  .shell-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .ws-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .ws-host[hidden] { display: none !important; }
+  .ws { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+  .ws-title { font-weight: 600; font-size: 15px; letter-spacing: 0.01em; }
+  @media (max-width: 640px) {
+    .shell { flex-direction: column-reverse; }
+    .rail { width: auto; flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: none; border-top: 1px solid var(--line); padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px)); }
+    .rail-brand { display: none; }
+    .rail-btn { flex: 1 0 60px; }
+  }
+  .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
+  @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
+</style>
+<div id="root"><div class="boot">Loading Power Equipment Studio…</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>
+(() => {
+  // src/engine/loadflow.js
+  var DEG = Math.PI / 180;
+  var BUS_FIELDS = [
+    "id",
+    "type",
+    "v",
+    "angle",
+    "p_gen",
+    "q_gen",
+    "p_load",
+    "q_load",
+    "shunt_g",
+    "shunt_b",
+    "q_min",
+    "q_max"
+  ];
+  var BRANCH_FIELDS = ["from", "to", "r", "x", "b", "tap", "shift", "rate_a"];
+  var INT_FIELDS = /* @__PURE__ */ new Set(["id", "from", "to"]);
+  function pyFloat(x) {
+    if (!isFinite(x)) return x > 0 ? "Infinity" : x < 0 ? "-Infinity" : "NaN";
+    if (x === 0) return Object.is(x, -0) ? "-0.0" : "0.0";
+    const sign = x < 0 ? "-" : "";
+    const [mant, e] = Math.abs(x).toExponential().split("e");
+    const exp = parseInt(e, 10);
+    const digits = mant.replace(".", "");
+    if (exp < -4 || exp >= 16) {
+      const m = digits[0] + (digits.length > 1 ? "." + digits.slice(1) : "");
+      return sign + m + "e" + (exp < 0 ? "-" : "+") + String(Math.abs(exp)).padStart(2, "0");
+    }
+    if (exp >= 0) {
+      if (digits.length > exp + 1) return sign + digits.slice(0, exp + 1) + "." + digits.slice(exp + 1);
+      return sign + digits + "0".repeat(exp + 1 - digits.length) + ".0";
+    }
+    return sign + "0." + "0".repeat(-exp - 1) + digits;
+  }
+  function pyValue(key, v) {
+    if (typeof v === "number") return INT_FIELDS.has(key) && Number.isInteger(v) ? String(v) : pyFloat(v);
+    if (typeof v === "string" || typeof v === "boolean" || v === null) return JSON.stringify(v).replace(/^true$/, "true");
+    if (Array.isArray(v)) return "[" + v.map((x) => pyValue("", x)).join(", ") + "]";
+    return "{" + Object.keys(v).map((k) => JSON.stringify(k) + ": " + pyValue(k, v[k])).join(", ") + "}";
+  }
+  function pyObject(obj, order) {
+    const keys = order.filter((k) => k in obj).concat(Object.keys(obj).filter((k) => !order.includes(k)));
+    return "{" + keys.map((k) => JSON.stringify(k) + ": " + pyValue(k, obj[k])).join(", ") + "}";
+  }
+  function serializeCase(data) {
+    const top = Object.keys(data).filter((k) => !["base_mva", "buses", "branches"].includes(k));
+    let s = '{"base_mva": ' + pyFloat(Number(data.base_mva ?? 100)) + ",\n";
+    for (const k of top) s += " " + JSON.stringify(k) + ": " + pyValue(k, data[k]) + ",\n";
+    s += ' "buses": [\n' + (data.buses || []).map((b) => "  " + pyObject(b, BUS_FIELDS)).join(",\n") + "\n ],\n";
+    s += ' "branches": [\n' + (data.branches || []).map((b) => "  " + pyObject(b, BRANCH_FIELDS)).join(",\n") + "\n ]}\n";
+    return s;
+  }
+  function serializeResult(res) {
+    const ind = (n) => " ".repeat(n);
+    const val = (k, v, d) => {
+      if (Array.isArray(v)) return "[\n" + v.map((x) => ind(d + 2) + val("", x, d + 2)).join(",\n") + "\n" + ind(d) + "]";
+      if (v && typeof v === "object")
+        return "{\n" + Object.keys(v).map((kk) => ind(d + 2) + JSON.stringify(kk) + ": " + val(kk, v[kk], d + 2)).join(",\n") + "\n" + ind(d) + "}";
+      if (typeof v === "number") return (k === "iterations" || INT_FIELDS.has(k)) && Number.isInteger(v) ? String(v) : pyFloat(v);
+      return JSON.stringify(v);
+    };
+    return val("", toCliResult(res), 0);
+  }
+  function num(v) {
+    return typeof v === "number" && isFinite(v);
+  }
+  function validateCase(data) {
+    const issues = [];
+    const add = (level, kind, index, field, msg) => issues.push({ level, kind, index, field, msg });
+    if (!data || typeof data !== "object") {
+      add("error", "case", -1, null, "Case is not a JSON object.");
+      return issues;
+    }
+    if (!num(Number(data.base_mva ?? 100)) || Number(data.base_mva ?? 100) <= 0) add("error", "case", -1, "base_mva", "base_mva must be a positive number.");
+    const buses = Array.isArray(data.buses) ? data.buses : [];
+    const branches = Array.isArray(data.branches) ? data.branches : [];
+    if (!buses.length) add("error", "case", -1, "buses", "The case has no buses.");
+    const ids = /* @__PURE__ */ new Map();
+    let slack = 0;
+    buses.forEach((b, i) => {
+      if (!Number.isInteger(b.id)) add("error", "bus", i, "id", "Bus id must be an integer.");
+      else if (ids.has(b.id)) add("error", "bus", i, "id", `Duplicate bus id ${b.id}.`);
+      else ids.set(b.id, i);
+      const t = String(b.type ?? "PQ").toUpperCase();
+      if (!["SLACK", "PV", "PQ"].includes(t)) add("error", "bus", i, "type", `Unknown bus type "${b.type}".`);
+      if (t === "SLACK") slack++;
+      for (const f of BUS_FIELDS.slice(2)) if (f in b && !num(b[f])) add("error", "bus", i, f, `${f} must be a number.`);
+      if ("v" in b && num(b.v) && (b.v <= 0.5 || b.v > 1.5)) add("warn", "bus", i, "v", `Voltage setpoint ${b.v} pu is outside 0.5\u20131.5.`);
+      if (num(b.q_min) && num(b.q_max) && b.q_min > b.q_max) add("error", "bus", i, "q_min", "q_min is above q_max.");
+    });
+    if (buses.length && slack === 0) add("error", "case", -1, "type", "No slack bus. Set exactly one bus to type slack.");
+    if (slack > 1) add("error", "case", -1, "type", `${slack} slack buses. This solver supports exactly one.`);
+    branches.forEach((br, i) => {
+      if (!ids.has(br.from)) add("error", "branch", i, "from", `From-bus ${br.from} does not exist.`);
+      if (!ids.has(br.to)) add("error", "branch", i, "to", `To-bus ${br.to} does not exist.`);
+      if (br.from === br.to) add("error", "branch", i, "to", "Branch connects a bus to itself.");
+      for (const f of BRANCH_FIELDS.slice(2)) if (f in br && !num(br[f])) add("error", "branch", i, f, `${f} must be a number.`);
+      if (num(br.r ?? 0) && num(br.x ?? 0) && (br.r ?? 0) === 0 && (br.x ?? 0) === 0) add("error", "branch", i, "x", "r and x are both zero.");
+      if ("tap" in br && num(br.tap) && br.tap <= 0) add("error", "branch", i, "tap", "Tap must be positive.");
+      if (num(br.r) && br.r < 0) add("warn", "branch", i, "r", "Negative resistance.");
+    });
+    if (buses.length && !issues.some((x) => x.level === "error")) {
+      const adj = new Map(buses.map((b) => [b.id, []]));
+      branches.forEach((br) => {
+        adj.get(br.from).push(br.to);
+        adj.get(br.to).push(br.from);
+      });
+      const seen = /* @__PURE__ */ new Set([buses[0].id]);
+      const st = [buses[0].id];
+      while (st.length) for (const n of adj.get(st.pop())) if (!seen.has(n)) {
+        seen.add(n);
+        st.push(n);
+      }
+      if (seen.size < buses.length) {
+        const iso = buses.filter((b) => !seen.has(b.id)).map((b) => b.id);
+        add("error", "case", -1, null, `Network is split into islands. Not connected to bus ${buses[0].id}: ${iso.join(", ")}.`);
+      }
+    }
+    return issues;
+  }
+  function loadNetwork(data) {
+    const base = Number(data.base_mva ?? 100);
+    const idToIdx = /* @__PURE__ */ new Map();
+    const buses = data.buses.map((b, i) => {
+      const t = String(b.type ?? "PQ").toUpperCase();
+      idToIdx.set(b.id, i);
+      return {
+        idx: i,
+        id: b.id,
+        kind: t === "SLACK" ? "slack" : t,
+        vSpec: b.v ?? 1,
+        aSpec: (b.angle ?? 0) * DEG,
+        pSpec: ((b.p_gen ?? 0) - (b.p_load ?? 0)) / base,
+        qSpec: ((b.q_gen ?? 0) - (b.q_load ?? 0)) / base,
+        gs: b.shunt_g ?? 0,
+        bs: b.shunt_b ?? 0,
+        // bus shunt — do NOT drop (IEEE-14 bus 9)
+        pLoad: b.p_load ?? 0,
+        qLoad: b.q_load ?? 0,
+        qMin: b.q_min,
+        qMax: b.q_max
+      };
+    });
+    const branches = (data.branches || []).map((br, k) => {
+      const r = br.r ?? 0, x = br.x ?? 0, d = r * r + x * x;
+      const tap = br.tap ?? 1, sh = (br.shift ?? 0) * DEG;
+      return {
+        k,
+        f: idToIdx.get(br.from),
+        t: idToIdx.get(br.to),
+        from: br.from,
+        to: br.to,
+        yr: r / d,
+        yi: -x / d,
+        b: br.b ?? 0,
+        tr: tap * Math.cos(sh),
+        ti: tap * Math.sin(sh),
+        rate: br.rate_a
+      };
+    });
+    return { base, buses, branches, idToIdx };
+  }
+  var cmul = (a, b) => [a[0] * b[0] - a[1] * b[1], a[0] * b[1] + a[1] * b[0]];
+  var cdiv = (a, b) => {
+    const d = b[0] * b[0] + b[1] * b[1];
+    return [(a[0] * b[0] + a[1] * b[1]) / d, (a[1] * b[0] - a[0] * b[1]) / d];
+  };
+  var conj = (a) => [a[0], -a[1]];
+  function branchPrims(br) {
+    const y = [br.yr, br.yi], tau = [br.tr, br.ti];
+    const t2 = br.tr * br.tr + br.ti * br.ti;
+    const yff = [y[0] / t2, y[1] / t2 + br.b / 2];
+    const yft = cdiv([-y[0], -y[1]], conj(tau));
+    const ytf = cdiv([-y[0], -y[1]], tau);
+    const ytt = [y[0], y[1] + br.b / 2];
+    return { yff, yft, ytf, ytt };
+  }
+  function buildYbus(net) {
+    const n = net.buses.length;
+    const G = Array.from({ length: n }, () => new Float64Array(n));
+    const B = Array.from({ length: n }, () => new Float64Array(n));
+    net.buses.forEach((b, i) => {
+      G[i][i] += b.gs;
+      B[i][i] += b.bs;
+    });
+    for (const br of net.branches) {
+      const p = branchPrims(br);
+      G[br.f][br.f] += p.yff[0];
+      B[br.f][br.f] += p.yff[1];
+      G[br.f][br.t] += p.yft[0];
+      B[br.f][br.t] += p.yft[1];
+      G[br.t][br.f] += p.ytf[0];
+      B[br.t][br.f] += p.ytf[1];
+      G[br.t][br.t] += p.ytt[0];
+      B[br.t][br.t] += p.ytt[1];
+    }
+    return { G, B, n };
+  }
+  function solveLinear(A, b) {
+    const n = b.length;
+    for (let c = 0; c < n; c++) {
+      let p = c, best = Math.abs(A[c][c]);
+      for (let r = c + 1; r < n; r++) {
+        const v = Math.abs(A[r][c]);
+        if (v > best) {
+          best = v;
+          p = r;
+        }
+      }
+      if (best < 1e-14) throw new Error("Jacobian is singular. Check for isolated buses or zero-impedance loops.");
+      if (p !== c) {
+        const t = A[p];
+        A[p] = A[c];
+        A[c] = t;
+        const tb = b[p];
+        b[p] = b[c];
+        b[c] = tb;
+      }
+      const piv = A[c][c], rc = A[c];
+      for (let r = c + 1; r < n; r++) {
+        const f = A[r][c] / piv;
+        if (f === 0) continue;
+        const rr = A[r];
+        for (let k = c; k < n; k++) rr[k] -= f * rc[k];
+        b[r] -= f * b[c];
+      }
+    }
+    const x = new Float64Array(n);
+    for (let r = n - 1; r >= 0; r--) {
+      let s = b[r];
+      const rr = A[r];
+      for (let k = r + 1; k < n; k++) s -= rr[k] * x[k];
+      x[r] = s / rr[r];
+    }
+    return x;
+  }
+  function injections(Y, vm, va) {
+    const n = vm.length, P = new Float64Array(n), Q = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      let p = 0, q = 0;
+      for (let k = 0; k < n; k++) {
+        const g = Y.G[i][k], bb = Y.B[i][k];
+        if (g === 0 && bb === 0) continue;
+        const d = va[i] - va[k], c = Math.cos(d), s = Math.sin(d);
+        p += vm[k] * (g * c + bb * s);
+        q += vm[k] * (g * s - bb * c);
+      }
+      P[i] = vm[i] * p;
+      Q[i] = vm[i] * q;
+    }
+    return { P, Q };
+  }
+  function solveNR(net, Y, opts = {}) {
+    const tol = opts.tol ?? 1e-8, maxIter = opts.maxIter ?? 50;
+    const n = net.buses.length;
+    const vm = Float64Array.from(net.buses, (b) => b.vSpec);
+    const va = Float64Array.from(net.buses, (b) => b.aSpec);
+    const ang = net.buses.filter((b) => b.kind !== "slack").map((b) => b.idx);
+    const pq = net.buses.filter((b) => b.kind === "PQ").map((b) => b.idx);
+    const na = ang.length, nq = pq.length, N = na + nq;
+    const history = [];
+    const { G, B } = Y;
+    let it = 0, maxMis = Infinity;
+    for (it = 0; it <= maxIter; it++) {
+      const { P, Q } = injections(Y, vm, va);
+      const mis = new Float64Array(N);
+      maxMis = 0;
+      for (let a = 0; a < na; a++) {
+        const i = ang[a];
+        mis[a] = net.buses[i].pSpec - P[i];
+        maxMis = Math.max(maxMis, Math.abs(mis[a]));
+      }
+      for (let a = 0; a < nq; a++) {
+        const i = pq[a];
+        mis[na + a] = net.buses[i].qSpec - Q[i];
+        maxMis = Math.max(maxMis, Math.abs(mis[na + a]));
+      }
+      history.push(maxMis);
+      if (maxMis < tol) return { vm, va, iterations: it, maxMismatch: maxMis, converged: true, history };
+      if (it === maxIter || !isFinite(maxMis)) break;
+      const J = Array.from({ length: N }, () => new Float64Array(N));
+      const colA = new Map(ang.map((i, a) => [i, a]));
+      const colQ = new Map(pq.map((i, a) => [i, na + a]));
+      const fill = (row, i, isQ) => {
+        for (let k = 0; k < n; k++) {
+          const g = G[i][k], bb = B[i][k];
+          if (k !== i && g === 0 && bb === 0) continue;
+          const ca = colA.get(k), cv = colQ.get(k);
+          if (k === i) {
+            if (!isQ) {
+              if (ca !== void 0) row[ca] = -Q[i] - B[i][i] * vm[i] * vm[i];
+              if (cv !== void 0) row[cv] = P[i] / vm[i] + G[i][i] * vm[i];
+            } else {
+              if (ca !== void 0) row[ca] = P[i] - G[i][i] * vm[i] * vm[i];
+              if (cv !== void 0) row[cv] = Q[i] / vm[i] - B[i][i] * vm[i];
+            }
+          } else {
+            const d = va[i] - va[k], c = Math.cos(d), s = Math.sin(d);
+            if (!isQ) {
+              if (ca !== void 0) row[ca] = vm[i] * vm[k] * (g * s - bb * c);
+              if (cv !== void 0) row[cv] = vm[i] * (g * c + bb * s);
+            } else {
+              if (ca !== void 0) row[ca] = -vm[i] * vm[k] * (g * c + bb * s);
+              if (cv !== void 0) row[cv] = vm[i] * (g * s - bb * c);
+            }
+          }
+        }
+      };
+      for (let a = 0; a < na; a++) fill(J[a], ang[a], false);
+      for (let a = 0; a < nq; a++) fill(J[na + a], pq[a], true);
+      const dx = solveLinear(J, mis);
+      for (let a = 0; a < na; a++) va[ang[a]] += dx[a];
+      for (let a = 0; a < nq; a++) vm[pq[a]] += dx[na + a];
+    }
+    return { vm, va, iterations: Math.min(it, maxIter), maxMismatch: maxMis, converged: false, history };
+  }
+  function runLoadFlow(data, opts = {}) {
+    const issues = validateCase(data);
+    const errors = issues.filter((x) => x.level === "error");
+    if (errors.length) return { ok: false, converged: false, issues, message: errors[0].msg };
+    const t0 = (typeof performance !== "undefined" ? performance : Date).now();
+    const net = loadNetwork(data);
+    const Y = buildYbus(net);
+    let sol;
+    try {
+      sol = solveNR(net, Y, opts);
+    } catch (e) {
+      return { ok: false, converged: false, issues, message: e.message };
+    }
+    const { vm, va } = sol;
+    const { P, Q } = injections(Y, vm, va);
+    const base = net.base;
+    const V = Array.from(vm, (m, i) => [m * Math.cos(va[i]), m * Math.sin(va[i])]);
+    const buses = net.buses.map((b, i) => {
+      const p = P[i] * base, q = Q[i] * base;
+      const pg = p + b.pLoad, qg = q + b.qLoad;
+      const vflag = vm[i] < (opts.vMin ?? 0.95) ? "low" : vm[i] > (opts.vMax ?? 1.05) ? "high" : "ok";
+      const qflag = b.kind !== "PQ" && (num(b.qMax) && qg > b.qMax + 1e-6 ? "qmax" : num(b.qMin) && qg < b.qMin - 1e-6 ? "qmin" : null);
+      return {
+        id: b.id,
+        type: b.kind,
+        v: vm[i],
+        angle_deg: va[i] / DEG,
+        p_mw: p,
+        q_mvar: q,
+        p_gen_mw: pg,
+        q_gen_mvar: qg,
+        p_load_mw: b.pLoad,
+        q_load_mvar: b.qLoad,
+        vflag,
+        qflag
+      };
+    });
+    let tl = [0, 0];
+    const branches = net.branches.map((br) => {
+      const pr = branchPrims(br);
+      const vf = V[br.f], vt = V[br.t];
+      const If = [cmul(pr.yff, vf)[0] + cmul(pr.yft, vt)[0], cmul(pr.yff, vf)[1] + cmul(pr.yft, vt)[1]];
+      const It = [cmul(pr.ytf, vf)[0] + cmul(pr.ytt, vt)[0], cmul(pr.ytf, vf)[1] + cmul(pr.ytt, vt)[1]];
+      const Sf = cmul(vf, conj(If)), St = cmul(vt, conj(It));
+      const loss = [Sf[0] + St[0], Sf[1] + St[1]];
+      tl = [tl[0] + loss[0], tl[1] + loss[1]];
+      const sfm = Math.hypot(Sf[0], Sf[1]) * base, stm = Math.hypot(St[0], St[1]) * base;
+      const loading = num(br.rate) && br.rate > 0 ? Math.max(sfm, stm) / br.rate * 100 : null;
+      return {
+        from: br.from,
+        to: br.to,
+        p_from_mw: Sf[0] * base,
+        q_from_mvar: Sf[1] * base,
+        p_to_mw: St[0] * base,
+        q_to_mvar: St[1] * base,
+        p_loss_mw: loss[0] * base,
+        q_loss_mvar: loss[1] * base,
+        i_from_pu: Math.hypot(If[0], If[1]),
+        s_from_mva: sfm,
+        s_to_mva: stm,
+        loading_pct: loading,
+        index: br.k
+      };
+    });
+    const sumP = P.reduce((a, x) => a + x, 0);
+    return {
+      ok: sol.converged,
+      converged: sol.converged,
+      issues,
+      message: sol.converged ? `Converged in ${sol.iterations} iterations` : `No convergence in ${opts.maxIter ?? 50} iterations (max mismatch ${sol.maxMismatch.toExponential(2)} pu)`,
+      base_mva: base,
+      iterations: sol.iterations,
+      max_mismatch_pu: sol.maxMismatch,
+      history: sol.history,
+      total_p_loss_mw: tl[0] * base,
+      total_q_loss_mvar: tl[1] * base,
+      total_gen_mw: buses.reduce((a, b) => a + b.p_gen_mw, 0),
+      total_load_mw: buses.reduce((a, b) => a + b.p_load_mw, 0),
+      total_gen_mvar: buses.reduce((a, b) => a + b.q_gen_mvar, 0),
+      total_load_mvar: buses.reduce((a, b) => a + b.q_load_mvar, 0),
+      balance_residual_pu: Math.abs(sumP - tl[0]),
+      buses,
+      branches,
+      solve_ms: (typeof performance !== "undefined" ? performance : Date).now() - t0
+    };
+  }
+  function toCliResult(r) {
+    return {
+      base_mva: r.base_mva,
+      iterations: r.iterations,
+      max_mismatch_pu: r.max_mismatch_pu,
+      total_p_loss_mw: r.total_p_loss_mw,
+      total_q_loss_mvar: r.total_q_loss_mvar,
+      buses: r.buses.map((b) => ({ id: b.id, v: b.v, angle_deg: b.angle_deg, p_mw: b.p_mw, q_mvar: b.q_mvar })),
+      branches: r.branches.map((b) => ({
+        from: b.from,
+        to: b.to,
+        p_from_mw: b.p_from_mw,
+        q_from_mvar: b.q_from_mvar,
+        p_to_mw: b.p_to_mw,
+        q_to_mvar: b.q_to_mvar,
+        p_loss_mw: b.p_loss_mw,
+        q_loss_mvar: b.q_loss_mvar
+      }))
+    };
+  }
+  var CASES = {
+    demo3: {
+      name: "3-bus demo",
+      note: "Slack, one PQ load, one PV generator. Loads instantly.",
+      data: {
+        base_mva: 100,
+        buses: [{ id: 1, type: "slack", v: 1, angle: 0 }, { id: 2, type: "PQ", p_load: 100, q_load: 50 }, { id: 3, type: "PV", v: 1.02, p_gen: 80 }],
+        branches: [{ from: 1, to: 2, r: 0.02, x: 0.06, b: 0.03 }, { from: 1, to: 3, r: 0.01, x: 0.04, b: 0.02 }, { from: 2, to: 3, r: 0.0125, x: 0.03, b: 0.025 }]
+      },
+      layout: { 1: [260, 170], 2: [500, 470], 3: [740, 170] }
+    },
+    ieee14: {
+      name: "IEEE 14-bus",
+      note: "Standard test system. 5 generators, 3 transformers, bus 9 shunt capacitor.",
+      data: {
+        base_mva: 100,
+        buses: [
+          { id: 1, type: "slack", v: 1.06, angle: 0 },
+          { id: 2, type: "PV", v: 1.045, p_gen: 40, p_load: 21.7, q_load: 12.7 },
+          { id: 3, type: "PV", v: 1.01, p_load: 94.2, q_load: 19 },
+          { id: 4, type: "PQ", p_load: 47.8, q_load: -3.9 },
+          { id: 5, type: "PQ", p_load: 7.6, q_load: 1.6 },
+          { id: 6, type: "PV", v: 1.07, p_load: 11.2, q_load: 7.5 },
+          { id: 7, type: "PQ" },
+          { id: 8, type: "PV", v: 1.09 },
+          { id: 9, type: "PQ", p_load: 29.5, q_load: 16.6, shunt_b: 0.19 },
+          { id: 10, type: "PQ", p_load: 9, q_load: 5.8 },
+          { id: 11, type: "PQ", p_load: 3.5, q_load: 1.8 },
+          { id: 12, type: "PQ", p_load: 6.1, q_load: 1.6 },
+          { id: 13, type: "PQ", p_load: 13.5, q_load: 5.8 },
+          { id: 14, type: "PQ", p_load: 14.9, q_load: 5 }
+        ],
+        branches: [
+          { from: 1, to: 2, r: 0.01938, x: 0.05917, b: 0.0528 },
+          { from: 1, to: 5, r: 0.05403, x: 0.22304, b: 0.0492 },
+          { from: 2, to: 3, r: 0.04699, x: 0.19797, b: 0.0438 },
+          { from: 2, to: 4, r: 0.05811, x: 0.17632, b: 0.034 },
+          { from: 2, to: 5, r: 0.05695, x: 0.17388, b: 0.0346 },
+          { from: 3, to: 4, r: 0.06701, x: 0.17103, b: 0.0128 },
+          { from: 4, to: 5, r: 0.01335, x: 0.04211, b: 0 },
+          { from: 4, to: 7, r: 0, x: 0.20912, tap: 0.978 },
+          { from: 4, to: 9, r: 0, x: 0.55618, tap: 0.969 },
+          { from: 5, to: 6, r: 0, x: 0.25202, tap: 0.932 },
+          { from: 6, to: 11, r: 0.09498, x: 0.1989, b: 0 },
+          { from: 6, to: 12, r: 0.12291, x: 0.25581, b: 0 },
+          { from: 6, to: 13, r: 0.06615, x: 0.13027, b: 0 },
+          { from: 7, to: 8, r: 0, x: 0.17615, b: 0 },
+          { from: 7, to: 9, r: 0, x: 0.11001, b: 0 },
+          { from: 9, to: 10, r: 0.03181, x: 0.0845, b: 0 },
+          { from: 9, to: 14, r: 0.12711, x: 0.27038, b: 0 },
+          { from: 10, to: 11, r: 0.08205, x: 0.19207, b: 0 },
+          { from: 12, to: 13, r: 0.22092, x: 0.19988, b: 0 },
+          { from: 13, to: 14, r: 0.17093, x: 0.34802, b: 0 }
+        ]
+      },
+      layout: {
+        1: [110, 470],
+        2: [270, 600],
+        3: [620, 610],
+        4: [600, 440],
+        5: [330, 400],
+        6: [330, 250],
+        7: [760, 360],
+        8: [920, 360],
+        9: [740, 230],
+        10: [600, 150],
+        11: [450, 170],
+        12: [150, 120],
+        13: [340, 70],
+        14: [800, 80]
+      }
+    }
+  };
+  var IEEE14_REF = {
+    v: [1.06, 1.045, 1.01, 1.017671, 1.019514, 1.07, 1.06152, 1.09, 1.055932, 1.050985, 1.056907, 1.055189, 1.050382, 1.03553],
+    angle: [0, -4.982589, -12.7251, -10.312901, -8.773854, -14.220946, -13.359627, -13.359627, -14.938521, -15.097288, -14.790622, -15.075584, -15.156276, -16.033644],
+    loss: 13.393,
+    tol: 1e-4
+  };
+  function verifySolver() {
+    const r = runLoadFlow(CASES.ieee14.data);
+    const rows = r.buses.map((b, i) => {
+      const dv = b.v - IEEE14_REF.v[i], da = b.angle_deg - IEEE14_REF.angle[i];
+      return {
+        id: b.id,
+        vRef: IEEE14_REF.v[i],
+        v: b.v,
+        dv,
+        aRef: IEEE14_REF.angle[i],
+        a: b.angle_deg,
+        da,
+        pass: Math.abs(dv) <= IEEE14_REF.tol && Math.abs(da) <= IEEE14_REF.tol
+      };
+    });
+    const dLoss = r.total_p_loss_mw - IEEE14_REF.loss;
+    const noShunt = JSON.parse(JSON.stringify(CASES.ieee14.data));
+    delete noShunt.buses[8].shunt_b;
+    const r2 = runLoadFlow(noShunt);
+    const shuntShift = Math.max(...r2.buses.map((b, i) => Math.abs(b.v - r.buses[i].v)));
+    const maxDv = Math.max(...rows.map((x) => Math.abs(x.dv))), maxDa = Math.max(...rows.map((x) => Math.abs(x.da)));
+    return {
+      pass: r.converged && rows.every((x) => x.pass) && Math.abs(dLoss) < 5e-4,
+      rows,
+      iterations: r.iterations,
+      mismatch: r.max_mismatch_pu,
+      loss: r.total_p_loss_mw,
+      lossRef: IEEE14_REF.loss,
+      dLoss,
+      maxDv,
+      maxDa,
+      balance: r.balance_residual_pu,
+      shuntShift,
+      ms: r.solve_ms,
+      tol: IEEE14_REF.tol
+    };
+  }
+  function autoLayout(data, W = 1e3, H = 680) {
+    const ids = data.buses.map((b) => b.id), n = ids.length;
+    const pos = ids.map((_, i) => [W / 2 + 0.35 * W * Math.cos(2 * Math.PI * i / n), H / 2 + 0.35 * H * Math.sin(2 * Math.PI * i / n)]);
+    const idx = new Map(ids.map((id, i) => [id, i]));
+    const edges = (data.branches || []).map((b) => [idx.get(b.from), idx.get(b.to)]).filter((e) => e[0] !== void 0 && e[1] !== void 0);
+    const k = Math.sqrt(W * H / Math.max(n, 1)) * 0.7;
+    let temp = W / 8;
+    for (let it = 0; it < 400; it++) {
+      const d = pos.map(() => [0, 0]);
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        let dx = pos[i][0] - pos[j][0], dy = (pos[i][1] - pos[j][1]) * 1.6;
+        const dist = Math.max(Math.hypot(dx, dy), 1), f = k * k / dist;
+        dx /= dist;
+        dy /= dist;
+        d[i][0] += dx * f;
+        d[i][1] += dy * f;
+        d[j][0] -= dx * f;
+        d[j][1] -= dy * f;
+      }
+      for (const [a, b] of edges) {
+        let dx = pos[a][0] - pos[b][0], dy = pos[a][1] - pos[b][1];
+        const dist = Math.max(Math.hypot(dx, dy), 1), f = dist * dist / k;
+        dx /= dist;
+        dy /= dist;
+        d[a][0] -= dx * f;
+        d[a][1] -= dy * f;
+        d[b][0] += dx * f;
+        d[b][1] += dy * f;
+      }
+      for (let i = 0; i < n; i++) {
+        const m = Math.max(Math.hypot(d[i][0], d[i][1]), 1e-9), s = Math.min(m, temp) / m;
+        pos[i][0] += d[i][0] * s;
+        pos[i][1] += d[i][1] * s;
+      }
+      temp *= 0.985;
+    }
+    const xs = pos.map((p) => p[0]), ys = pos.map((p) => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const sx = (W - 200) / Math.max(x1 - x0, 1), sy = (H - 160) / Math.max(y1 - y0, 1);
+    const out = {};
+    ids.forEach((id, i) => {
+      out[id] = [Math.round(100 + (pos[i][0] - x0) * sx), Math.round(80 + (pos[i][1] - y0) * sy)];
+    });
+    return out;
+  }
+  var STUDIES = [
+    { key: "loadflow", phase: 1, name: "Load flow", detail: "Polar Newton-Raphson, 1e-8 pu", run: runLoadFlow },
+    { key: "qlimits", phase: 2, name: "Q-limit enforcement", detail: "PV\u2192PQ switching when q_min/q_max is hit", run: null },
+    { key: "contingency", phase: 2, name: "N\u22121 screening", detail: "Outage each branch, rank by overloads and voltage violations", run: null },
+    { key: "shortcircuit", phase: 2, name: "Short circuit", detail: "IEC 60909-style Thevenin fault currents per bus", run: null },
+    { key: "timeseries", phase: 3, name: "Time series", detail: "Load-duration and profile runs", run: null },
+    { key: "report", phase: 3, name: "Report", detail: "PDF study report export", run: null }
+  ];
+
+  // src/ui/common.jsx
+  var { useState, useEffect } = React;
+  var uid = 0;
+  var newId = () => "s" + ++uid + Date.now().toString(36);
+  var clone = (x) => typeof structuredClone === "function" ? structuredClone(x) : JSON.parse(JSON.stringify(x));
+  var fmt = (x, d = 3) => x === void 0 || x === null || !isFinite(x) ? "\u2014" : (Math.abs(x) < 0.5 * 10 ** -d ? 0 : x).toFixed(d);
+  var sgn = (x, d = 2) => x === void 0 || x === null || !isFinite(x) ? "\u2014" : (x > 0 ? "+" : x < 0 ? "\u2212" : "") + Math.abs(x).toFixed(d);
+  var cx = (...a) => a.filter(Boolean).join(" ");
+  var V_MIN = 0.95;
+  var V_MAX = 1.05;
+  var vflagOf = (v) => v < V_MIN ? "low" : v > V_MAX ? "high" : "ok";
+  var FLAG_COLOR = { low: "var(--low)", high: "var(--high)", ok: "var(--ok)" };
+  var busType = (b) => {
+    const t = String(b.type ?? "PQ").toUpperCase();
+    return t === "SLACK" ? "slack" : t;
+  };
+  var isXfmr = (br) => "tap" in br || "shift" in br;
+  function makeScenario(name, data, layout) {
+    return { id: newId(), name, data: clone(data), layout: clone(layout || autoLayout(data)), result: null, solvedData: null };
+  }
+  function freeSpot(layout) {
+    const pts = Object.values(layout);
+    for (let r = 0; r < 12; r++) for (let c = 0; c < 9; c++) {
+      const p = [140 + c * 100, 90 + r * 80];
+      if (pts.every((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) > 90)) return p;
+    }
+    return [500, 340];
+  }
+  function NumField({ value, onCommit, placeholder, invalid, disabled, className, id, step }) {
+    const [text, setText] = useState(value === void 0 ? "" : String(value));
+    const [focus, setFocus] = useState(false);
+    useEffect(() => {
+      if (!focus) setText(value === void 0 ? "" : String(value));
+    }, [value, focus]);
+    const parsed = text.trim() === "" ? void 0 : Number(text);
+    const bad = text.trim() !== "" && !isFinite(parsed);
+    const commit = () => {
+      if (!bad && parsed !== value) onCommit(parsed);
+    };
+    return /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        id,
+        inputMode: "decimal",
+        disabled,
+        value: text,
+        placeholder,
+        title: invalid || (bad ? "Enter a number" : void 0),
+        onFocus: () => setFocus(true),
+        onBlur: () => {
+          setFocus(false);
+          commit();
+        },
+        onChange: (e) => setText(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") {
+            commit();
+            e.currentTarget.blur();
+          }
+          if (e.key === "Escape") {
+            setText(value === void 0 ? "" : String(value));
+            e.currentTarget.blur();
+          }
+        },
+        className: cx("num-input", (bad || invalid) && "is-bad", className),
+        step
+      }
+    );
+  }
+  function Btn({ children, onClick, kind = "ghost", className, disabled, title, type = "button", active }) {
+    return /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type,
+        title,
+        disabled,
+        onClick,
+        className: cx("btn", `btn-${kind}`, active && "is-active", className)
+      },
+      children
+    );
+  }
+  function Pill({ tone = "muted", children, title }) {
+    return /* @__PURE__ */ React.createElement("span", { title, className: cx("pill", `pill-${tone}`) }, children);
+  }
+  function Section({ title, aside, children, className }) {
+    return /* @__PURE__ */ React.createElement("section", { className: cx("panel", className) }, /* @__PURE__ */ React.createElement("header", { className: "flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2" }, /* @__PURE__ */ React.createElement("h3", { className: "label" }, title), aside), /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 min-w-0" }, children));
+  }
+  function Icon({ name, size = 16 }) {
+    const p = {
+      select: "M4 3l7 17 2.5-7L20 10.5z",
+      bus: "M3 12h18M7 8v8M17 8v8",
+      connect: "M5 18L19 6M5 18a2 2 0 1 0 0-.01M19 6a2 2 0 1 0 0-.01",
+      trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13",
+      layout: "M4 4h6v6H4zM14 14h6v6h-6zM10 7h4v10",
+      fit: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+      bolt: "M13 2L4 14h7l-1 8 9-12h-7z",
+      check: "M4 12l5 5L20 6",
+      copy: "M8 8h12v12H8zM4 16V4h12",
+      save: "M12 3v12M6 10l6 6 6-6M4 21h16",
+      plus: "M12 5v14M5 12h14",
+      dup: "M8 8h12v12H8zM4 4h12v2M4 4v12h2",
+      x: "M6 6l12 12M18 6L6 18",
+      play: "M7 4l13 8-13 8z"
+    }[name];
+    return /* @__PURE__ */ React.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: p }));
+  }
+  function Field({ label, unit, children, hint }) {
+    return /* @__PURE__ */ React.createElement("label", { className: "field" }, /* @__PURE__ */ React.createElement("span", { className: "field-label" }, label, unit && /* @__PURE__ */ React.createElement("em", null, unit)), children, hint && /* @__PURE__ */ React.createElement("span", { className: "field-hint" }, hint));
+  }
+  function Tile({ label, value, unit, sub, tone }) {
+    return /* @__PURE__ */ React.createElement("div", { className: cx("tile", tone && `tile-${tone}`) }, /* @__PURE__ */ React.createElement("div", { className: "label" }, label), /* @__PURE__ */ React.createElement("div", { className: "tile-value" }, value, unit && /* @__PURE__ */ React.createElement("span", { className: "tile-unit" }, unit)), sub && /* @__PURE__ */ React.createElement("div", { className: "tile-sub" }, sub));
+  }
+
+  // src/ui/loadflow.jsx
+  var { useState: useState2, useMemo, useEffect: useEffect2, useRef, useCallback } = React;
+  function useGeometry(data, layout) {
+    return useMemo(() => {
+      const pos = {};
+      let fallback = 0;
+      data.buses.forEach((b) => {
+        pos[b.id] = layout[b.id] || [120 + 110 * fallback++, 650];
+      });
+      const inc = {};
+      data.buses.forEach((b) => inc[b.id] = []);
+      data.branches.forEach((br, k) => {
+        if (inc[br.from] && inc[br.to]) {
+          inc[br.from].push({ k, other: br.to });
+          inc[br.to].push({ k, other: br.from });
+        }
+      });
+      const hw = {}, port = {};
+      data.buses.forEach((b) => {
+        const list = inc[b.id];
+        hw[b.id] = Math.max(44, 13 * list.length + 26);
+        const [x] = pos[b.id];
+        list.sort((a, c) => pos[a.other][0] - pos[c.other][0] || a.k - c.k);
+        list.forEach((e, j) => {
+          const span = 1.2 * hw[b.id];
+          port[e.k + ":" + b.id] = x - span / 2 + span * (j + 0.5) / list.length;
+        });
+      });
+      const branches = data.branches.map((br, k) => {
+        if (!pos[br.from] || !pos[br.to]) return null;
+        const [ax, ay] = pos[br.from], [bx, by] = pos[br.to];
+        const x1 = port[k + ":" + br.from], x2 = port[k + ":" + br.to];
+        let d1 = by < ay ? -1 : 1, d2 = ay < by ? -1 : 1;
+        if (Math.abs(ay - by) < 40) {
+          d1 = -1;
+          d2 = -1;
+        }
+        const s = 18;
+        const pts = [[x1, ay], [x1, ay + d1 * s], [x2, by + d2 * s], [x2, by]];
+        const mid = [(pts[1][0] + pts[2][0]) / 2, (pts[1][1] + pts[2][1]) / 2];
+        const ang = Math.atan2(pts[2][1] - pts[1][1], pts[2][0] - pts[1][0]);
+        return { k, pts, mid, ang, path: "M" + pts.map((p) => p.join(",")).join("L") };
+      });
+      return { pos, hw, branches };
+    }, [data, layout]);
+  }
+  function GenSymbol({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sym" }, /* @__PURE__ */ React.createElement("path", { d: `M${x},${y} V${y - 14}` }), /* @__PURE__ */ React.createElement("circle", { cx: x, cy: y - 25, r: "11" }), /* @__PURE__ */ React.createElement("path", { d: `M${x - 6},${y - 25} q3,-6 6,0 t6,0` }));
+  }
+  function LoadSymbol({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sym" }, /* @__PURE__ */ React.createElement("path", { d: `M${x},${y} V${y + 20}` }), /* @__PURE__ */ React.createElement("path", { d: `M${x - 5},${y + 15} L${x},${y + 23} L${x + 5},${y + 15} Z`, className: "sym-fill" }));
+  }
+  function ShuntSymbol({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sym" }, /* @__PURE__ */ React.createElement("path", { d: `M${x},${y} V${y + 13} M${x - 8},${y + 13} H${x + 8} M${x - 8},${y + 18} H${x + 8} M${x},${y + 18} V${y + 24}` }), /* @__PURE__ */ React.createElement("path", { d: `M${x - 5},${y + 24} H${x + 5} M${x - 3},${y + 27} H${x + 3}` }));
+  }
+  function Diagram({ scenario, result, stale, selection, setSelection, tool, setTool, onMoveBus, onAddBus, onAddBranch, animate, fitSignal }) {
+    const { data, layout } = scenario;
+    const geo = useGeometry(data, layout);
+    const svgRef = useRef(null), wrapRef = useRef(null);
+    const [size, setSize] = useState2({ w: 900, h: 600 });
+    const [view, setView] = useState2({ x: 0, y: 0, w: 1e3 });
+    const drag = useRef(null);
+    const [pending, setPending] = useState2(null);
+    const [hoverPt, setHoverPt] = useState2(null);
+    useEffect2(() => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 900, h: el.clientHeight || 600 }));
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, []);
+    const vh = view.w * (size.h / size.w);
+    const fit = useCallback(() => {
+      const pts = Object.values(geo.pos);
+      if (!pts.length) return;
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+      const x0 = Math.min(...xs) - 120, x1 = Math.max(...xs) + 120, y0 = Math.min(...ys) - 90, y1 = Math.max(...ys) + 90;
+      const asp = size.h / size.w;
+      let w = x1 - x0, h = y1 - y0;
+      if (h / w > asp) w = h / asp;
+      setView({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - w * asp / 2, w });
+    }, [geo.pos, size]);
+    useEffect2(() => {
+      fit();
+    }, [fitSignal, scenario.id, size.w > 0 && size.h > 0 ? Math.round(size.w / 50) + ":" + Math.round(size.h / 50) : 0]);
+    const toWorld = (e) => {
+      const svg = svgRef.current, pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      return [p.x, p.y];
+    };
+    useEffect2(() => {
+      const svg = svgRef.current;
+      if (!svg) return;
+      const onWheel = (e) => {
+        e.preventDefault();
+        const [wx, wy] = toWorld(e);
+        const f = Math.exp(e.deltaY * 15e-4);
+        setView((v) => {
+          const w = Math.min(4e3, Math.max(250, v.w * f)), r = w / v.w;
+          return { x: wx - (wx - v.x) * r, y: wy - (wy - v.y) * r, w };
+        });
+      };
+      svg.addEventListener("wheel", onWheel, { passive: false });
+      return () => svg.removeEventListener("wheel", onWheel);
+    }, []);
+    useEffect2(() => {
+      if (tool !== "connect") setPending(null);
+    }, [tool]);
+    const onBusDown = (e, id) => {
+      e.stopPropagation();
+      if (tool === "connect") {
+        if (pending == null) setPending(id);
+        else if (pending !== id) {
+          onAddBranch(pending, id);
+          setPending(null);
+        }
+        return;
+      }
+      setSelection({ kind: "bus", id });
+      const [wx, wy] = toWorld(e);
+      drag.current = { mode: "bus", id, sx: wx, sy: wy, ox: geo.pos[id][0], oy: geo.pos[id][1], moved: false };
+      svgRef.current.setPointerCapture(e.pointerId);
+    };
+    const onBgDown = (e) => {
+      if (tool === "bus") {
+        const [wx, wy] = toWorld(e);
+        onAddBus([Math.round(wx / 10) * 10, Math.round(wy / 10) * 10]);
+        return;
+      }
+      drag.current = { mode: "pan", sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y, moved: false };
+      svgRef.current.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e) => {
+      if (tool === "connect" && pending != null) setHoverPt(toWorld(e));
+      const d = drag.current;
+      if (!d) return;
+      if (d.mode === "bus") {
+        const [wx, wy] = toWorld(e);
+        const nx = Math.round((d.ox + wx - d.sx) / 10) * 10, ny = Math.round((d.oy + wy - d.sy) / 10) * 10;
+        if (Math.abs(wx - d.sx) + Math.abs(wy - d.sy) > 3) d.moved = true;
+        if (d.moved) onMoveBus(d.id, [nx, ny]);
+      } else {
+        const s = view.w / size.w;
+        if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 3) d.moved = true;
+        setView((v) => ({ ...v, x: d.ox - (e.clientX - d.sx) * s, y: d.oy - (e.clientY - d.sy) * s }));
+      }
+    };
+    const onUp = () => {
+      const d = drag.current;
+      drag.current = null;
+      if (d && d.mode === "pan" && !d.moved && tool === "select") setSelection(null);
+    };
+    const rb = result && result.buses ? Object.fromEntries(result.buses.map((b) => [b.id, b])) : {};
+    const rbr = result && result.branches ? result.branches : [];
+    const maxP = Math.max(1, ...rbr.map((b) => Math.abs(b.p_from_mw)));
+    const zoomBy = (f) => setView((v) => {
+      const w = Math.min(4e3, Math.max(250, v.w * f));
+      const cxp = v.x + v.w / 2, cyp = v.y + v.w * size.h / size.w / 2;
+      return { x: cxp - w / 2, y: cyp - w * size.h / size.w / 2, w };
+    });
+    return /* @__PURE__ */ React.createElement("div", { ref: wrapRef, className: cx("canvas-wrap", `tool-${tool}`) }, /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        ref: svgRef,
+        className: "canvas",
+        viewBox: `${view.x} ${view.y} ${view.w} ${vh}`,
+        onPointerDown: onBgDown,
+        onPointerMove: onMove,
+        onPointerUp: onUp,
+        onPointerCancel: onUp,
+        role: "img",
+        "aria-label": "One-line diagram"
+      },
+      /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("pattern", { id: "g-minor", width: "20", height: "20", patternUnits: "userSpaceOnUse" }, /* @__PURE__ */ React.createElement("path", { d: "M20 0H0V20", fill: "none", stroke: "var(--grid)", strokeWidth: "0.6" })), /* @__PURE__ */ React.createElement("pattern", { id: "g-major", width: "100", height: "100", patternUnits: "userSpaceOnUse" }, /* @__PURE__ */ React.createElement("rect", { width: "100", height: "100", fill: "url(#g-minor)" }), /* @__PURE__ */ React.createElement("path", { d: "M100 0H0V100", fill: "none", stroke: "var(--grid-major)", strokeWidth: "0.9" }))),
+      /* @__PURE__ */ React.createElement("rect", { x: view.x - 10, y: view.y - 10, width: view.w + 20, height: vh + 20, fill: "url(#g-major)" }),
+      geo.branches.map((g, k) => {
+        if (!g) return null;
+        const br = data.branches[k], r = rbr[k];
+        const sel = selection?.kind === "branch" && selection.k === k;
+        const p = r ? r.p_from_mw : 0;
+        const load = r && r.loading_pct != null ? r.loading_pct : null;
+        const color = load != null ? load > 100 ? "var(--crit)" : load > 80 ? "var(--high)" : "var(--wire)" : "var(--wire)";
+        const w = r ? 1.6 + 3 * Math.min(1, Math.abs(p) / maxP) : 1.6;
+        const rev = p < 0;
+        const flowPath = rev ? "M" + [...g.pts].reverse().map((q) => q.join(",")).join("L") : g.path;
+        const lab = r ? `${fmt(Math.abs(p), 1)} MW` : null;
+        const fa = rev ? g.ang + Math.PI : g.ang;
+        return /* @__PURE__ */ React.createElement("g", { key: k, className: "branch", onPointerDown: (e) => {
+          e.stopPropagation();
+          if (tool === "select") setSelection({ kind: "branch", k });
+        } }, /* @__PURE__ */ React.createElement("path", { d: g.path, className: "hit" }), sel && /* @__PURE__ */ React.createElement("path", { d: g.path, className: "sel-halo" }), /* @__PURE__ */ React.createElement("path", { d: g.path, fill: "none", stroke: color, strokeWidth: w, strokeLinejoin: "round", opacity: stale ? 0.55 : 1 }), r && animate && !stale && Math.abs(p) > 0.05 && /* @__PURE__ */ React.createElement("path", { d: flowPath, className: "flow", style: { animationDuration: `${Math.max(0.5, 2.6 - 2 * Math.abs(p) / maxP)}s` } }), isXfmr(br) && /* @__PURE__ */ React.createElement("g", { transform: `translate(${g.mid[0]},${g.mid[1]}) rotate(${g.ang * 180 / Math.PI})` }, /* @__PURE__ */ React.createElement("circle", { cx: "-5", cy: "0", r: "7.5", className: "xf" }), /* @__PURE__ */ React.createElement("circle", { cx: "5", cy: "0", r: "7.5", className: "xf" })), r && !stale && /* @__PURE__ */ React.createElement("g", { transform: `translate(${g.mid[0]},${g.mid[1]})` }, /* @__PURE__ */ React.createElement("g", { transform: `rotate(${fa * 180 / Math.PI}) translate(${isXfmr(br) ? 20 : 0},0)` }, /* @__PURE__ */ React.createElement("path", { d: "M-5,-4.5 L5,0 L-5,4.5 Z", fill: color })), /* @__PURE__ */ React.createElement("text", { x: "0", y: isXfmr(br) ? -14 : -9, className: "flow-label", textAnchor: "middle" }, lab)));
+      }),
+      tool === "connect" && pending != null && hoverPt && geo.pos[pending] && /* @__PURE__ */ React.createElement("path", { d: `M${geo.pos[pending][0]},${geo.pos[pending][1]} L${hoverPt[0]},${hoverPt[1]}`, className: "rubber" }),
+      data.buses.map((b) => {
+        const [x, y] = geo.pos[b.id], hw = geo.hw[b.id], t = busType(b), r = rb[b.id];
+        const sel = selection?.kind === "bus" && selection.id === b.id;
+        const barColor = r && !stale ? FLAG_COLOR[r.vflag] : "var(--bar)";
+        const hasGen = t !== "PQ" || (b.p_gen ?? 0) !== 0 || (b.q_gen ?? 0) !== 0;
+        const hasLoad = (b.p_load ?? 0) !== 0 || (b.q_load ?? 0) !== 0;
+        const hasShunt = (b.shunt_b ?? 0) !== 0 || (b.shunt_g ?? 0) !== 0;
+        return /* @__PURE__ */ React.createElement("g", { key: b.id, className: cx("bus", pending === b.id && "is-pending"), onPointerDown: (e) => onBusDown(e, b.id) }, /* @__PURE__ */ React.createElement("rect", { x: x - hw - 6, y: y - 40, width: 2 * hw + 12, height: 80, className: "hit" }), hasGen && /* @__PURE__ */ React.createElement(GenSymbol, { x: x - hw * 0.86, y }), hasLoad && /* @__PURE__ */ React.createElement(LoadSymbol, { x: x + hw * 0.86, y }), hasShunt && /* @__PURE__ */ React.createElement(ShuntSymbol, { x: x - hw * 0.86, y }), sel && /* @__PURE__ */ React.createElement("rect", { x: x - hw - 4, y: y - 7, width: 2 * hw + 8, height: 14, rx: "3", className: "sel-box" }), /* @__PURE__ */ React.createElement("rect", { x: x - hw, y: y - 3.5, width: 2 * hw, height: 7, rx: "1.5", fill: barColor }), /* @__PURE__ */ React.createElement("text", { x: x + hw + 8, y: y + 4.5, className: "bus-label" }, /* @__PURE__ */ React.createElement("tspan", { className: "bus-kind" }, t === "slack" ? "SL" : t, " "), b.id), r && !stale && /* @__PURE__ */ React.createElement("text", { x: x - hw - 8, y: y - 1, textAnchor: "end", className: "bus-res" }, /* @__PURE__ */ React.createElement("tspan", { fill: FLAG_COLOR[r.vflag] }, r.v.toFixed(4)), /* @__PURE__ */ React.createElement("tspan", { x: x - hw - 8, dy: "12", className: "dim" }, r.angle_deg.toFixed(2), "\xB0")));
+      })
+    ), /* @__PURE__ */ React.createElement("div", { className: "canvas-hud left" }, tool === "bus" && /* @__PURE__ */ React.createElement("span", null, "Click the canvas to place a bus. ", /* @__PURE__ */ React.createElement("kbd", null, "Esc"), " to stop."), tool === "connect" && /* @__PURE__ */ React.createElement("span", null, pending == null ? "Click the from-bus." : `From bus ${pending}. Click the to-bus.`, " ", /* @__PURE__ */ React.createElement("kbd", null, "Esc"), " to stop."), tool === "select" && /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "Drag buses to move. Drag the grid to pan, scroll to zoom.")), /* @__PURE__ */ React.createElement("div", { className: "canvas-hud right" }, /* @__PURE__ */ React.createElement("button", { className: "hud-btn", onClick: () => zoomBy(1 / 1.25), "aria-label": "Zoom in" }, "+"), /* @__PURE__ */ React.createElement("button", { className: "hud-btn", onClick: () => zoomBy(1.25), "aria-label": "Zoom out" }, "\u2212"), /* @__PURE__ */ React.createElement("button", { className: "hud-btn", onClick: fit, "aria-label": "Fit to view" }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }))), /* @__PURE__ */ React.createElement("div", { className: "legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { style: { background: "var(--low)" } }), "< 0.95"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { style: { background: "var(--ok)" } }), "0.95\u20131.05"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { style: { background: "var(--high)" } }), "> 1.05 pu")));
+  }
+  function BusInspector({ bus, index, data, result, stale, issues, update, renameBus, deleteBus }) {
+    const t = busType(bus);
+    const r = result?.buses?.find((x) => x.id === bus.id);
+    const [confirm, setConfirm] = useState2(false);
+    useEffect2(() => setConfirm(false), [bus.id]);
+    const iss = (f) => issues.find((x) => x.kind === "bus" && x.index === index && x.field === f)?.msg;
+    const set = (f) => (v) => update((d) => {
+      const b = d.buses[index];
+      if (v === void 0) delete b[f];
+      else b[f] = v;
+    });
+    const nConn = data.branches.filter((br) => br.from === bus.id || br.to === bus.id).length;
+    const F = (f, label, unit, ph, dis, hint) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint }, /* @__PURE__ */ React.createElement(NumField, { id: `bus-${f}`, value: bus[f], onCommit: set(f), placeholder: ph, invalid: iss(f), disabled: dis }));
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "label" }, "Bus"), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono" }, bus.id)), /* @__PURE__ */ React.createElement(Pill, { tone: t === "slack" ? "accent" : t === "PV" ? "info" : "muted" }, t === "slack" ? "Slack" : t)), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Bus id" }, /* @__PURE__ */ React.createElement(NumField, { id: "bus-id", value: bus.id, onCommit: (v) => renameBus(bus.id, v), invalid: iss("id") })), /* @__PURE__ */ React.createElement(Field, { label: "Type" }, /* @__PURE__ */ React.createElement("select", { id: "bus-type", className: "num-input", value: t, onChange: (e) => update((d) => {
+      d.buses[index].type = e.target.value;
+    }) }, /* @__PURE__ */ React.createElement("option", { value: "slack" }, "slack"), /* @__PURE__ */ React.createElement("option", { value: "PV" }, "PV"), /* @__PURE__ */ React.createElement("option", { value: "PQ" }, "PQ"))), F("v", t === "PQ" ? "V start" : "V set", "pu", "1.0", false, t === "PQ" ? "Initial guess only" : null), F("angle", t === "slack" ? "Angle" : "Angle start", "deg", "0.0"), F("p_gen", "P gen", "MW", "0", t === "slack", t === "slack" ? "Slack balances P" : null), F("q_gen", "Q gen", "Mvar", "0", t !== "PQ", t !== "PQ" ? "Solved by V control" : null), F("p_load", "P load", "MW", "0"), F("q_load", "Q load", "Mvar", "0"), F("shunt_g", "Shunt G", "pu", "0"), F("shunt_b", "Shunt B", "pu", "0", false, "+ capacitive"), t !== "PQ" && F("q_min", "Q min", "Mvar", "none"), t !== "PQ" && F("q_max", "Q max", "Mvar", "none")), r && /* @__PURE__ */ React.createElement("div", { className: cx("res-block", stale && "is-stale") }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Result", stale && " \xB7 stale"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "V"), /* @__PURE__ */ React.createElement("dd", { style: { color: FLAG_COLOR[r.vflag] } }, r.v.toFixed(5), " pu"), /* @__PURE__ */ React.createElement("dt", null, "Angle"), /* @__PURE__ */ React.createElement("dd", null, r.angle_deg.toFixed(4), "\xB0"), /* @__PURE__ */ React.createElement("dt", null, "P inj"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_mw, 2), " MW"), /* @__PURE__ */ React.createElement("dt", null, "Q inj"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.q_mvar, 2), " Mvar"), /* @__PURE__ */ React.createElement("dt", null, "P gen"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_gen_mw, 2), " MW"), /* @__PURE__ */ React.createElement("dt", null, "Q gen"), /* @__PURE__ */ React.createElement("dd", { className: r.qflag ? "text-crit" : "" }, fmt(r.q_gen_mvar, 2), " Mvar", r.qflag && ` (${r.qflag === "qmax" ? "above Q max" : "below Q min"})`))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 items-center" }, !confirm ? /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => setConfirm(true) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete bus") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger-solid", onClick: () => deleteBus(bus.id) }, "Delete bus", nConn ? ` and ${nConn} branch${nConn > 1 ? "es" : ""}` : ""), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setConfirm(false) }, "Cancel"))));
+  }
+  function BranchInspector({ br, k, data, result, stale, issues, update, deleteBranch }) {
+    const r = result?.branches?.[k];
+    const iss = (f) => issues.find((x) => x.kind === "branch" && x.index === k && x.field === f)?.msg;
+    const set = (f) => (v) => update((d) => {
+      const b = d.branches[k];
+      if (v === void 0) delete b[f];
+      else b[f] = v;
+    });
+    const ids = data.buses.map((b) => b.id);
+    const F = (f, label, unit, ph, hint) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint }, /* @__PURE__ */ React.createElement(NumField, { id: `br-${f}`, value: br[f], onCommit: set(f), placeholder: ph, invalid: iss(f) }));
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "label" }, isXfmr(br) ? "Transformer" : "Line"), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono" }, br.from, " \u2192 ", br.to)), /* @__PURE__ */ React.createElement(Pill, { tone: isXfmr(br) ? "info" : "muted" }, "#", k + 1)), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "From bus" }, /* @__PURE__ */ React.createElement("select", { id: "br-from", className: "num-input", value: br.from, onChange: (e) => update((d) => {
+      d.branches[k].from = Number(e.target.value);
+    }) }, ids.map((i) => /* @__PURE__ */ React.createElement("option", { key: i, value: i }, i)))), /* @__PURE__ */ React.createElement(Field, { label: "To bus" }, /* @__PURE__ */ React.createElement("select", { id: "br-to", className: "num-input", value: br.to, onChange: (e) => update((d) => {
+      d.branches[k].to = Number(e.target.value);
+    }) }, ids.map((i) => /* @__PURE__ */ React.createElement("option", { key: i, value: i }, i)))), F("r", "R", "pu", "0"), F("x", "X", "pu", "0"), F("b", "B total", "pu", "0", "Split b/2 per end"), F("tap", "Tap", "pu", "1.0", "From-side ratio"), F("shift", "Shift", "deg", "0"), F("rate_a", "Rating", "MVA", "none")), r && /* @__PURE__ */ React.createElement("div", { className: cx("res-block", stale && "is-stale") }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Result", stale && " \xB7 stale"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "From end"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_from_mw, 2), " MW, ", fmt(r.q_from_mvar, 2), " Mvar"), /* @__PURE__ */ React.createElement("dt", null, "To end"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_to_mw, 2), " MW, ", fmt(r.q_to_mvar, 2), " Mvar"), /* @__PURE__ */ React.createElement("dt", null, "Loss"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_loss_mw, 3), " MW, ", fmt(r.q_loss_mvar, 3), " Mvar"), /* @__PURE__ */ React.createElement("dt", null, "|I| from"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_from_pu, 4), " pu"), /* @__PURE__ */ React.createElement("dt", null, "Loading"), /* @__PURE__ */ React.createElement("dd", { className: r.loading_pct > 100 ? "text-crit" : "" }, r.loading_pct == null ? "No rating set" : fmt(r.loading_pct, 1) + " %"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => deleteBranch(k) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete branch")));
+  }
+  function CaseSummary({ scenario, result, issues }) {
+    const d = scenario.data;
+    const nX = d.branches.filter(isXfmr).length;
+    const err = issues.filter((x) => x.level === "error");
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "label" }, "Network"), /* @__PURE__ */ React.createElement("div", { className: "text-lg" }, scenario.name)), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Base"), /* @__PURE__ */ React.createElement("dd", null, d.base_mva, " MVA"), /* @__PURE__ */ React.createElement("dt", null, "Buses"), /* @__PURE__ */ React.createElement("dd", null, d.buses.length, " (", d.buses.filter((b) => busType(b) === "PV").length, " PV, ", d.buses.filter((b) => busType(b) === "PQ").length, " PQ)"), /* @__PURE__ */ React.createElement("dt", null, "Branches"), /* @__PURE__ */ React.createElement("dd", null, d.branches.length - nX, " lines, ", nX, " transformers"), /* @__PURE__ */ React.createElement("dt", null, "Load"), /* @__PURE__ */ React.createElement("dd", null, fmt(d.buses.reduce((a, b) => a + (b.p_load ?? 0), 0), 1), " MW"), result?.converged && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Losses"), /* @__PURE__ */ React.createElement("dd", null, fmt(result.total_p_loss_mw, 3), " MW"))), err.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, err.length, " error", err.length > 1 ? "s" : "", ": ", err[0].msg), /* @__PURE__ */ React.createElement("p", { className: "text-muted text-[13px] leading-relaxed" }, "Select a bus or branch to edit it. Use the toolbar to place buses and draw connections. Every edit re-solves when Live solve is on."));
+  }
+  function DiagramTab(p) {
+    const { scenario, result, stale, selection, setSelection, tool, setTool, issues, update } = p;
+    const [fitSignal, setFitSignal] = useState2(0);
+    const [animate, setAnimate] = useState2(true);
+    const sel = selection;
+    const busIdx = sel?.kind === "bus" ? scenario.data.buses.findIndex((b) => b.id === sel.id) : -1;
+    const brOk = sel?.kind === "branch" && scenario.data.branches[sel.k];
+    return /* @__PURE__ */ React.createElement("div", { className: "diagram-grid" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-w-0 min-h-0 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "toolbar" }, /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select"), title: "Select and move (V)" }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "bus", onClick: () => setTool("bus"), title: "Place bus (B)" }, /* @__PURE__ */ React.createElement(Icon, { name: "bus", size: 14 }), "Add bus"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", onClick: () => setTool("connect"), title: "Connect two buses (C)" }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap" }, /* @__PURE__ */ React.createElement(Btn, { onClick: () => {
+      p.relayout();
+      setFitSignal((x) => x + 1);
+    }, title: "Force-directed auto-layout" }, /* @__PURE__ */ React.createElement(Icon, { name: "layout", size: 14 }), "Auto-layout"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate), title: "Animate power flow direction" }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { kind: "danger", disabled: !sel, onClick: p.deleteSelection, title: "Delete selection (Del)" }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete"))), /* @__PURE__ */ React.createElement(Diagram, { ...p, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, busIdx >= 0 ? /* @__PURE__ */ React.createElement(BusInspector, { bus: scenario.data.buses[busIdx], index: busIdx, data: scenario.data, result, stale, issues, update, renameBus: p.renameBus, deleteBus: p.deleteBus }) : brOk ? /* @__PURE__ */ React.createElement(BranchInspector, { br: scenario.data.branches[sel.k], k: sel.k, data: scenario.data, result, stale, issues, update, deleteBranch: p.deleteBranch }) : /* @__PURE__ */ React.createElement(CaseSummary, { scenario, result, issues })));
+  }
+  var BUS_COLS = [
+    ["id", "Bus", ""],
+    ["type", "Type", ""],
+    ["v", "V", "pu"],
+    ["angle", "Angle", "deg"],
+    ["p_gen", "P gen", "MW"],
+    ["q_gen", "Q gen", "Mvar"],
+    ["p_load", "P load", "MW"],
+    ["q_load", "Q load", "Mvar"],
+    ["shunt_g", "G sh", "pu"],
+    ["shunt_b", "B sh", "pu"],
+    ["q_min", "Q min", "Mvar"],
+    ["q_max", "Q max", "Mvar"]
+  ];
+  var BR_COLS = [["from", "From", ""], ["to", "To", ""], ["r", "R", "pu"], ["x", "X", "pu"], ["b", "B", "pu"], ["tap", "Tap", "pu"], ["shift", "Shift", "deg"], ["rate_a", "Rating", "MVA"]];
+  var DEFAULT_PH = { v: "1.0", angle: "0", tap: "1.0", shift: "0", q_min: "\u2014", q_max: "\u2014", rate_a: "\u2014" };
+  function DataTab({ scenario, issues, update, renameBus, addBus, addBranchRow, deleteBus, deleteBranch, setSelection, setTab }) {
+    const d = scenario.data;
+    const issueAt = (kind, i, f) => issues.find((x) => x.kind === kind && x.index === i && x.field === f)?.msg;
+    const errs = issues.filter((x) => x.level === "error"), warns = issues.filter((x) => x.level === "warn");
+    const ids = d.buses.map((b) => b.id);
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, errs.length === 0 && warns.length === 0 && /* @__PURE__ */ React.createElement(Pill, { tone: "ok" }, "Case valid"), errs.length > 0 && /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, errs.length, " error", errs.length > 1 && "s"), warns.length > 0 && /* @__PURE__ */ React.createElement(Pill, { tone: "warn" }, warns.length, " warning", warns.length > 1 && "s"), /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[13px]" }, "Blank cells use the default shown in grey and are left out of the exported JSON."), /* @__PURE__ */ React.createElement("label", { className: "ml-auto flex items-center gap-2 text-[13px]" }, /* @__PURE__ */ React.createElement("span", { className: "text-muted" }, "Base MVA"), /* @__PURE__ */ React.createElement(NumField, { id: "base-mva", className: "w-24", value: d.base_mva, onCommit: (v) => update((x) => {
+      x.base_mva = v ?? 100;
+    }) }))), (errs.length > 0 || warns.length > 0) && /* @__PURE__ */ React.createElement("ul", { className: "issue-list" }, [...errs, ...warns].map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i, className: x.level === "error" ? "text-crit" : "text-warn" }, /* @__PURE__ */ React.createElement("b", null, x.kind === "case" ? "Case" : x.kind === "bus" ? `Bus row ${x.index + 1}` : `Branch row ${x.index + 1}`), x.field ? ` \xB7 ${x.field}` : "", ": ", x.msg))), /* @__PURE__ */ React.createElement(Section, { title: `Buses \xB7 ${d.buses.length}`, aside: /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: addBus }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add bus") }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table edit" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, BUS_COLS.map(([k, l, u]) => /* @__PURE__ */ React.createElement("th", { key: k }, l, u && /* @__PURE__ */ React.createElement("em", null, u))), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, d.buses.map((b, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, BUS_COLS.map(([k]) => /* @__PURE__ */ React.createElement("td", { key: k }, k === "type" ? /* @__PURE__ */ React.createElement("select", { className: "num-input", value: busType(b), onChange: (e) => update((x) => {
+      x.buses[i].type = e.target.value;
+    }), "aria-label": `Bus ${b.id} type` }, /* @__PURE__ */ React.createElement("option", { value: "slack" }, "slack"), /* @__PURE__ */ React.createElement("option", { value: "PV" }, "PV"), /* @__PURE__ */ React.createElement("option", { value: "PQ" }, "PQ")) : k === "id" ? /* @__PURE__ */ React.createElement(NumField, { value: b.id, onCommit: (v) => renameBus(b.id, v), invalid: issueAt("bus", i, "id"), className: "w-14" }) : /* @__PURE__ */ React.createElement(
+      NumField,
+      {
+        value: b[k],
+        placeholder: DEFAULT_PH[k] ?? "0",
+        invalid: issueAt("bus", i, k),
+        onCommit: (v) => update((x) => {
+          if (v === void 0) delete x.buses[i][k];
+          else x.buses[i][k] = v;
+        })
+      }
+    ))), /* @__PURE__ */ React.createElement("td", { className: "w-8" }, /* @__PURE__ */ React.createElement("button", { className: "row-x", onClick: () => deleteBus(b.id), "aria-label": `Delete bus ${b.id}` }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 14 }))))))))), /* @__PURE__ */ React.createElement(Section, { title: `Branches \xB7 ${d.branches.length}`, aside: /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: addBranchRow, disabled: d.buses.length < 2 }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add branch") }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table edit" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), BR_COLS.map(([k, l, u]) => /* @__PURE__ */ React.createElement("th", { key: k }, l, u && /* @__PURE__ */ React.createElement("em", null, u))), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, d.branches.map((br, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { className: "text-faint font-mono" }, i + 1), BR_COLS.map(([k]) => /* @__PURE__ */ React.createElement("td", { key: k }, k === "from" || k === "to" ? /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        className: cx("num-input", issueAt("branch", i, k) && "is-bad"),
+        value: ids.includes(br[k]) ? br[k] : "",
+        title: issueAt("branch", i, k),
+        onChange: (e) => update((x) => {
+          x.branches[i][k] = Number(e.target.value);
+        }),
+        "aria-label": `Branch ${i + 1} ${k}`
+      },
+      !ids.includes(br[k]) && /* @__PURE__ */ React.createElement("option", { value: "" }, String(br[k]), "?"),
+      ids.map((id) => /* @__PURE__ */ React.createElement("option", { key: id, value: id }, id))
+    ) : /* @__PURE__ */ React.createElement(
+      NumField,
+      {
+        value: br[k],
+        placeholder: DEFAULT_PH[k] ?? "0",
+        invalid: issueAt("branch", i, k),
+        onCommit: (v) => update((x) => {
+          if (v === void 0) delete x.branches[i][k];
+          else x.branches[i][k] = v;
+        })
+      }
+    ))), /* @__PURE__ */ React.createElement("td", { className: "w-8" }, /* @__PURE__ */ React.createElement("button", { className: "row-x", onClick: () => deleteBranch(i), "aria-label": `Delete branch ${i + 1}` }, /* @__PURE__ */ React.createElement(Icon, { name: "x", size: 14 }))))))))));
+  }
+  function VoltageChart({ series, height = 220 }) {
+    const W = 760, H = height, L = 44, R = 12, T = 14, B = 28;
+    const all = series.flatMap((s) => s.values.map((v) => v.v));
+    const lo = Math.min(0.9, Math.floor(Math.min(...all) * 40) / 40), hi = Math.max(1.1, Math.ceil(Math.max(...all) * 40) / 40);
+    const ids = series[0].values.map((v) => v.id);
+    const n = ids.length, band = (W - L - R) / n, gw = band * 0.72, bw = gw / series.length;
+    const y = (v) => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+    const ticks = [];
+    for (let t = Math.ceil(lo * 20) / 20; t <= hi + 1e-9; t += 0.05) ticks.push(+t.toFixed(2));
+    const base = y(lo);
+    return /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${H}`, className: "chart", role: "img", "aria-label": "Bus voltage profile" }, /* @__PURE__ */ React.createElement("rect", { x: L, y: y(V_MAX), width: W - L - R, height: y(V_MIN) - y(V_MAX), className: "band" }), ticks.map((t) => /* @__PURE__ */ React.createElement("g", { key: t }, /* @__PURE__ */ React.createElement("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), className: t === V_MIN || t === V_MAX ? "limit" : "gridline" }), /* @__PURE__ */ React.createElement("text", { x: L - 6, y: y(t) + 3.5, textAnchor: "end", className: "tick" }, t.toFixed(2)))), ids.map((id, i) => /* @__PURE__ */ React.createElement("g", { key: id }, series.map((s, j) => {
+      const v = s.values[i]?.v;
+      if (v == null) return null;
+      const x = L + band * i + (band - gw) / 2 + bw * j;
+      const fill = series.length === 1 ? FLAG_COLOR[vflagOf(v)] : s.color;
+      return /* @__PURE__ */ React.createElement("rect", { key: j, x, y: Math.min(y(v), base), width: Math.max(bw - 1.5, 1), height: Math.abs(base - y(v)), fill, rx: "1.5" }, /* @__PURE__ */ React.createElement("title", null, `Bus ${id}${series.length > 1 ? ` (${s.name})` : ""}: ${v.toFixed(4)} pu`));
+    }), /* @__PURE__ */ React.createElement("text", { x: L + band * i + band / 2, y: H - 10, textAnchor: "middle", className: "tick" }, id))), /* @__PURE__ */ React.createElement("text", { x: L, y: H - 0, className: "tick", dy: "-1" }, "bus"));
+  }
+  function ConvergenceChart({ history, tol = 1e-8 }) {
+    const W = 300, H = 220, L = 38, R = 10, T = 14, B = 28;
+    const lg = history.map((m) => Math.log10(Math.max(m, 1e-16)));
+    const top = Math.max(1, Math.ceil(Math.max(...lg))), bot = -16;
+    const n = Math.max(history.length - 1, 1);
+    const x = (i) => L + (W - L - R) * i / n, y = (v) => T + (H - T - B) * (top - v) / (top - bot);
+    const ticks = [];
+    for (let t = top; t >= bot; t -= 4) ticks.push(t);
+    const d = lg.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join("");
+    return /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${H}`, className: "chart", role: "img", "aria-label": "Newton-Raphson convergence" }, ticks.map((t) => /* @__PURE__ */ React.createElement("g", { key: t }, /* @__PURE__ */ React.createElement("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), className: "gridline" }), /* @__PURE__ */ React.createElement("text", { x: L - 5, y: y(t) + 3.5, textAnchor: "end", className: "tick" }, "1e", t))), /* @__PURE__ */ React.createElement("line", { x1: L, x2: W - R, y1: y(Math.log10(tol)), y2: y(Math.log10(tol)), className: "limit" }), /* @__PURE__ */ React.createElement("text", { x: W - R, y: y(Math.log10(tol)) - 4, textAnchor: "end", className: "tick accent" }, "tol 1e-8"), /* @__PURE__ */ React.createElement("path", { d: `${d}L${x(lg.length - 1)},${y(bot)}L${x(0)},${y(bot)}Z`, className: "area" }), /* @__PURE__ */ React.createElement("path", { d, className: "line" }), lg.map((v, i) => /* @__PURE__ */ React.createElement("circle", { key: i, cx: x(i), cy: y(v), r: i === lg.length - 1 ? 3.5 : 2.2, className: i === lg.length - 1 ? "pt-end" : "pt" }, /* @__PURE__ */ React.createElement("title", null, `iter ${i}: ${history[i].toExponential(2)} pu`))), lg.map((_, i) => /* @__PURE__ */ React.createElement("text", { key: "t" + i, x: x(i), y: H - 10, textAnchor: "middle", className: "tick" }, i)));
+  }
+  function ResultsTab({ scenario, result, stale, solve, issues, saveFile, copyText, onSelectBus }) {
+    if (!result) {
+      return /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "panel p-8 text-center flex flex-col items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg" }, "No results yet"), /* @__PURE__ */ React.createElement("p", { className: "text-muted" }, "Solve the active network to see bus voltages, branch flows and losses."), /* @__PURE__ */ React.createElement(Btn, { kind: "primary", onClick: solve }, /* @__PURE__ */ React.createElement(Icon, { name: "bolt", size: 15 }), "Solve load flow")));
+    }
+    if (!result.buses) {
+      return /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Solve failed."), " ", result.message, " ", result.issues?.some((x) => x.level === "error") && "Fix the errors on the Data tab, then solve again."));
+    }
+    const r = result;
+    const vs = r.buses.map((b) => b.v);
+    const nLow = r.buses.filter((b) => b.vflag === "low").length, nHigh = r.buses.filter((b) => b.vflag === "high").length;
+    const nQ = r.buses.filter((b) => b.qflag).length;
+    const nOver = r.branches.filter((b) => b.loading_pct > 100).length;
+    const lossSorted = [...r.branches].sort((a, b) => b.p_loss_mw - a.p_loss_mw);
+    const maxLoss = Math.max(1e-9, lossSorted[0]?.p_loss_mw ?? 0);
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 p-4" }, !r.converged && /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, /* @__PURE__ */ React.createElement("b", null, "Did not converge."), " ", r.message, ". Values below are the last iterate and are not a valid operating point."), stale && /* @__PURE__ */ React.createElement("div", { className: "notice notice-warn" }, "The network changed since this solve. ", /* @__PURE__ */ React.createElement("button", { className: "link", onClick: solve }, "Solve again"), " to refresh."), /* @__PURE__ */ React.createElement("div", { className: "tiles" }, /* @__PURE__ */ React.createElement(Tile, { label: "Status", value: r.converged ? "Converged" : "Diverged", tone: r.converged ? "ok" : "crit", sub: `${r.iterations} iter \xB7 max \u0394S ${r.max_mismatch_pu.toExponential(1)} pu \xB7 ${r.solve_ms.toFixed(1)} ms` }), /* @__PURE__ */ React.createElement(Tile, { label: "Generation", value: fmt(r.total_gen_mw, 1), unit: "MW", sub: `${fmt(r.total_gen_mvar, 1)} Mvar` }), /* @__PURE__ */ React.createElement(Tile, { label: "Load", value: fmt(r.total_load_mw, 1), unit: "MW", sub: `${fmt(r.total_load_mvar, 1)} Mvar` }), /* @__PURE__ */ React.createElement(Tile, { label: "Losses", value: fmt(r.total_p_loss_mw, 3), unit: "MW", sub: `${fmt(100 * r.total_p_loss_mw / Math.max(r.total_load_mw, 1e-9), 2)} % of load \xB7 ${fmt(r.total_q_loss_mvar, 2)} Mvar` }), /* @__PURE__ */ React.createElement(
+      Tile,
+      {
+        label: "Voltage range",
+        value: `${Math.min(...vs).toFixed(3)}\u2013${Math.max(...vs).toFixed(3)}`,
+        unit: "pu",
+        tone: nLow + nHigh ? "warn" : "ok",
+        sub: nLow + nHigh ? `${nLow} below 0.95 \xB7 ${nHigh} above 1.05` : "All buses within 0.95\u20131.05"
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "charts-row" }, /* @__PURE__ */ React.createElement(Section, { title: "Voltage profile", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "Shaded band is 0.95\u20131.05 pu") }, /* @__PURE__ */ React.createElement(VoltageChart, { series: [{ name: scenario.name, values: r.buses }] })), /* @__PURE__ */ React.createElement(Section, { title: "Newton-Raphson convergence" }, /* @__PURE__ */ React.createElement(ConvergenceChart, { history: r.history }))), /* @__PURE__ */ React.createElement(Section, { title: "Bus results", aside: /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 flex-wrap" }, nQ > 0 && /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, nQ, " Q-limit violation", nQ > 1 && "s"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => saveFile(`${slug(scenario.name)}-results.json`, serializeResult(r)) }, /* @__PURE__ */ React.createElement(Icon, { name: "save", size: 14 }), "Results JSON"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => copyText(serializeResult(r), "Results JSON copied") }, /* @__PURE__ */ React.createElement(Icon, { name: "copy", size: 14 }), "Copy")) }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Bus"), /* @__PURE__ */ React.createElement("th", null, "Type"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "V", /* @__PURE__ */ React.createElement("em", null, "pu")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Angle", /* @__PURE__ */ React.createElement("em", null, "deg")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "P inj", /* @__PURE__ */ React.createElement("em", null, "MW")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Q inj", /* @__PURE__ */ React.createElement("em", null, "Mvar")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "P gen", /* @__PURE__ */ React.createElement("em", null, "MW")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Q gen", /* @__PURE__ */ React.createElement("em", null, "Mvar")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "P load", /* @__PURE__ */ React.createElement("em", null, "MW")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Q load", /* @__PURE__ */ React.createElement("em", null, "Mvar")), /* @__PURE__ */ React.createElement("th", null, "Flags"))), /* @__PURE__ */ React.createElement("tbody", null, r.buses.map((b) => /* @__PURE__ */ React.createElement("tr", { key: b.id, className: "clickable", onClick: () => onSelectBus(b.id) }, /* @__PURE__ */ React.createElement("td", { className: "font-mono" }, b.id), /* @__PURE__ */ React.createElement("td", { className: "text-muted" }, b.type), /* @__PURE__ */ React.createElement("td", { className: "r" }, /* @__PURE__ */ React.createElement("span", { className: cx("vchip", `v-${b.vflag}`) }, b.v.toFixed(4))), /* @__PURE__ */ React.createElement("td", { className: "r" }, b.angle_deg.toFixed(3)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.p_mw, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.q_mvar, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, b.type === "PQ" && !b.p_gen_mw ? /* @__PURE__ */ React.createElement("span", { className: "text-faint" }, "\u2014") : fmt(b.p_gen_mw, 2)), /* @__PURE__ */ React.createElement("td", { className: cx("r", b.qflag && "text-crit") }, b.type === "PQ" && Math.abs(b.q_gen_mvar) < 1e-6 ? /* @__PURE__ */ React.createElement("span", { className: "text-faint" }, "\u2014") : fmt(b.q_gen_mvar, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.p_load_mw, 1)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.q_load_mvar, 1)), /* @__PURE__ */ React.createElement("td", null, b.vflag !== "ok" && /* @__PURE__ */ React.createElement(Pill, { tone: b.vflag === "low" ? "low" : "high" }, b.vflag === "low" ? "Under V" : "Over V"), " ", b.qflag && /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, b.qflag === "qmax" ? "Q > max" : "Q < min")))))))), /* @__PURE__ */ React.createElement("div", { className: "charts-row" }, /* @__PURE__ */ React.createElement(Section, { title: "Branch flows", aside: nOver > 0 && /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, nOver, " overloaded") }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Branch"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "P from", /* @__PURE__ */ React.createElement("em", null, "MW")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Q from", /* @__PURE__ */ React.createElement("em", null, "Mvar")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "P to", /* @__PURE__ */ React.createElement("em", null, "MW")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Q to", /* @__PURE__ */ React.createElement("em", null, "Mvar")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "P loss", /* @__PURE__ */ React.createElement("em", null, "MW")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Q loss", /* @__PURE__ */ React.createElement("em", null, "Mvar")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "Loading"))), /* @__PURE__ */ React.createElement("tbody", null, r.branches.map((b, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { className: "font-mono whitespace-nowrap" }, b.from, "\u2192", b.to, isXfmr(scenario.data.branches[i] || {}) && /* @__PURE__ */ React.createElement("span", { className: "text-info" }, " T")), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.p_from_mw, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.q_from_mvar, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.p_to_mw, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.q_to_mvar, 2)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.p_loss_mw, 3)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(b.q_loss_mvar, 3)), /* @__PURE__ */ React.createElement("td", { className: cx("r", b.loading_pct > 100 && "text-crit", b.loading_pct > 80 && b.loading_pct <= 100 && "text-warn") }, b.loading_pct == null ? /* @__PURE__ */ React.createElement("span", { className: "text-faint" }, "\u2014") : fmt(b.loading_pct, 1) + "%")))), /* @__PURE__ */ React.createElement("tfoot", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "Total"), /* @__PURE__ */ React.createElement("td", { colSpan: "4" }), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(r.total_p_loss_mw, 3)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(r.total_q_loss_mvar, 3)), /* @__PURE__ */ React.createElement("td", null)))))), /* @__PURE__ */ React.createElement(Section, { title: "Loss summary" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1.5" }, lossSorted.slice(0, 8).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "loss-row" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono" }, b.from, "\u2192", b.to), /* @__PURE__ */ React.createElement("div", { className: "loss-track" }, /* @__PURE__ */ React.createElement("div", { className: "loss-bar", style: { width: `${Math.max(0, 100 * b.p_loss_mw / maxLoss)}%` } })), /* @__PURE__ */ React.createElement("span", { className: "r font-mono" }, fmt(b.p_loss_mw, 3)), /* @__PURE__ */ React.createElement("span", { className: "r text-faint font-mono" }, fmt(100 * b.p_loss_mw / Math.max(r.total_p_loss_mw, 1e-9), 1), "%")))), /* @__PURE__ */ React.createElement("p", { className: "text-faint text-[12px] mt-3 leading-relaxed" }, "Loss = S", /* @__PURE__ */ React.createElement("sub", null, "from"), " + S", /* @__PURE__ */ React.createElement("sub", null, "to"), " for each branch. Series I\xB2R and I\xB2X, net of line charging. Negative Q loss means the branch supplies more charging than it absorbs."))), /* @__PURE__ */ React.createElement(StudiesStrip, null));
+  }
+  function StudiesStrip() {
+    return /* @__PURE__ */ React.createElement(Section, { title: "Studies", aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "Phase 2 and 3 studies register in LF.STUDIES") }, /* @__PURE__ */ React.createElement("div", { className: "studies" }, STUDIES.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.key, className: cx("study", s.run ? "is-ready" : "is-planned") }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-2" }, /* @__PURE__ */ React.createElement("b", null, s.name), /* @__PURE__ */ React.createElement(Pill, { tone: s.run ? "ok" : "muted" }, s.run ? "Ready" : `Phase ${s.phase}`)), /* @__PURE__ */ React.createElement("div", { className: "text-muted text-[12.5px]" }, s.detail)))));
+  }
+  var slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "case";
+  function diffCases(a, b) {
+    const out = [];
+    if ((a.base_mva ?? 100) !== (b.base_mva ?? 100)) out.push(`Base MVA ${a.base_mva} \u2192 ${b.base_mva}`);
+    const ma = new Map(a.buses.map((x) => [x.id, x])), mb = new Map(b.buses.map((x) => [x.id, x]));
+    for (const [id, x] of ma) {
+      const y = mb.get(id);
+      if (!y) {
+        out.push(`Bus ${id} removed`);
+        continue;
+      }
+      for (const f of /* @__PURE__ */ new Set([...Object.keys(x), ...Object.keys(y)])) if (f !== "id" && x[f] !== y[f]) out.push(`Bus ${id} \xB7 ${f}: ${x[f] ?? "\u2014"} \u2192 ${y[f] ?? "\u2014"}`);
+    }
+    for (const id of mb.keys()) if (!ma.has(id)) out.push(`Bus ${id} added`);
+    const key = (br) => `${br.from}-${br.to}`;
+    const ca = /* @__PURE__ */ new Map(), cb = /* @__PURE__ */ new Map();
+    a.branches.forEach((br) => {
+      const k = key(br);
+      ca.set(k, [...ca.get(k) || [], br]);
+    });
+    b.branches.forEach((br) => {
+      const k = key(br);
+      cb.set(k, [...cb.get(k) || [], br]);
+    });
+    for (const [k, list] of ca) {
+      const other = cb.get(k) || [];
+      list.forEach((x, i) => {
+        const y = other[i];
+        if (!y) {
+          out.push(`Branch ${k.replace("-", "\u2192")} removed`);
+          return;
+        }
+        for (const f of /* @__PURE__ */ new Set([...Object.keys(x), ...Object.keys(y)])) if (x[f] !== y[f]) out.push(`Branch ${k.replace("-", "\u2192")} \xB7 ${f}: ${x[f] ?? "\u2014"} \u2192 ${y[f] ?? "\u2014"}`);
+      });
+    }
+    for (const [k, list] of cb) {
+      const n = (ca.get(k) || []).length;
+      for (let i = n; i < list.length; i++) out.push(`Branch ${k.replace("-", "\u2192")} added`);
+    }
+    return out;
+  }
+  function CasesTab({ scenarios, active, setActive, loadBuiltin, importCase, rename, duplicate, remove, saveFile, copyText, canSave }) {
+    const [paste, setPaste] = useState2("");
+    const [err, setErr] = useState2(null);
+    const [drag, setDrag] = useState2(false);
+    const fileRef = useRef(null);
+    const [a, setA] = useState2(scenarios[0]?.id), [b, setB] = useState2(scenarios[1]?.id ?? scenarios[0]?.id);
+    useEffect2(() => {
+      if (!scenarios.find((s) => s.id === a)) setA(scenarios[0]?.id);
+      if (!scenarios.find((s) => s.id === b)) setB(scenarios[scenarios.length - 1]?.id);
+    }, [scenarios]);
+    const exportText = useMemo(() => serializeCase(active.data), [active.data]);
+    const ingest = (text, name) => {
+      try {
+        const data = JSON.parse(text);
+        if (!data || !Array.isArray(data.buses)) throw new Error('No "buses" array found. Expected the loadflow case format.');
+        if (!Array.isArray(data.branches)) data.branches = [];
+        importCase(data, name);
+        setErr(null);
+        setPaste("");
+      } catch (e) {
+        setErr(e.message);
+      }
+    };
+    const readFile = (f) => {
+      if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => ingest(String(fr.result), f.name.replace(/\.json$/i, ""));
+      fr.readAsText(f);
+    };
+    const sa = scenarios.find((s) => s.id === a), sb = scenarios.find((s) => s.id === b);
+    const ra = useMemo(() => sa && runLoadFlow(sa.data), [sa?.data]);
+    const rb = useMemo(() => sb && runLoadFlow(sb.data), [sb?.data]);
+    const changes = useMemo(() => sa && sb ? diffCases(sa.data, sb.data) : [], [sa?.data, sb?.data]);
+    const both = ra?.buses && rb?.buses;
+    const viol = (r) => r.buses.filter((x) => x.vflag !== "ok").length;
+    const ids = both ? [.../* @__PURE__ */ new Set([...ra.buses.map((x) => x.id), ...rb.buses.map((x) => x.id)])] : [];
+    const mA = both ? Object.fromEntries(ra.buses.map((x) => [x.id, x])) : {}, mB = both ? Object.fromEntries(rb.buses.map((x) => [x.id, x])) : {};
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 p-4" }, /* @__PURE__ */ React.createElement("div", { className: "cases-grid" }, /* @__PURE__ */ React.createElement(Section, { title: "Built-in library" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3" }, Object.entries(CASES).map(([k, c]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "lib-card" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-medium" }, c.name), /* @__PURE__ */ React.createElement("div", { className: "text-muted text-[13px]" }, c.note), /* @__PURE__ */ React.createElement("div", { className: "text-faint text-[12px] font-mono mt-1" }, c.data.buses.length, " buses \xB7 ", c.data.branches.length, " branches \xB7 ", c.data.base_mva, " MVA")), /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => loadBuiltin(k) }, "Open"))))), /* @__PURE__ */ React.createElement(Section, { title: "Import" }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: cx("drop", drag && "is-drag"),
+        onDragOver: (e) => {
+          e.preventDefault();
+          setDrag(true);
+        },
+        onDragLeave: () => setDrag(false),
+        onDrop: (e) => {
+          e.preventDefault();
+          setDrag(false);
+          readFile(e.dataTransfer.files[0]);
+        }
+      },
+      /* @__PURE__ */ React.createElement("p", null, "Drop a loadflow ", /* @__PURE__ */ React.createElement("code", null, ".json"), " case here, or"),
+      /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => fileRef.current?.click() }, "Choose file"),
+      /* @__PURE__ */ React.createElement("input", { ref: fileRef, id: "import-file", type: "file", accept: ".json,application/json", className: "hidden", onChange: (e) => {
+        readFile(e.target.files[0]);
+        e.target.value = "";
+      } })
+    ), /* @__PURE__ */ React.createElement("textarea", { id: "import-paste", className: "code-area mt-3", rows: "5", placeholder: 'Or paste JSON: {"base_mva": 100.0, "buses": [...], "branches": [...]}', value: paste, onChange: (e) => setPaste(e.target.value) }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-2" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", disabled: !paste.trim(), onClick: () => ingest(paste, "Pasted case") }, "Import pasted JSON"), err && /* @__PURE__ */ React.createElement("span", { className: "text-crit text-[13px]" }, err))), /* @__PURE__ */ React.createElement(Section, { title: `Export \xB7 ${active.name}`, aside: /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, canSave && /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => saveFile(`${slug(active.name)}.json`, exportText) }, /* @__PURE__ */ React.createElement(Icon, { name: "save", size: 14 }), "Save .json"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => copyText(exportText, "Case JSON copied") }, /* @__PURE__ */ React.createElement(Icon, { name: "copy", size: 14 }), "Copy")) }, /* @__PURE__ */ React.createElement("pre", { className: "code-area max-h-64 overflow-auto" }, exportText), /* @__PURE__ */ React.createElement("p", { className: "text-faint text-[12px] mt-2" }, "Same layout and float formatting as Python's ", /* @__PURE__ */ React.createElement("code", null, "json"), " module. Runs as-is with ", /* @__PURE__ */ React.createElement("code", null, "loadflow case.json"), "."))), /* @__PURE__ */ React.createElement(Section, { title: `Scenarios \xB7 ${scenarios.length}`, aside: /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px]" }, "Kept in memory for this session. Export to keep them.") }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, scenarios.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.id, className: cx("scn-row", s.id === active.id && "is-active") }, /* @__PURE__ */ React.createElement("input", { className: "num-input flex-1 min-w-0", value: s.name, onChange: (e) => rename(s.id, e.target.value), "aria-label": "Scenario name" }), /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px] font-mono hidden sm:inline" }, s.data.buses.length, "b / ", s.data.branches.length, "br"), s.id !== active.id ? /* @__PURE__ */ React.createElement(Btn, { onClick: () => setActive(s.id) }, "Make active") : /* @__PURE__ */ React.createElement(Pill, { tone: "accent" }, "Active"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => duplicate(s.id), title: "Duplicate" }, /* @__PURE__ */ React.createElement(Icon, { name: "dup", size: 14 }), /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "Duplicate")), /* @__PURE__ */ React.createElement(Btn, { kind: "danger", disabled: scenarios.length < 2, onClick: () => remove(s.id), title: "Delete scenario" }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 })))))), /* @__PURE__ */ React.createElement(Section, { title: "Compare scenarios", aside: /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-[13px]" }, /* @__PURE__ */ React.createElement("select", { className: "num-input w-auto", value: a, onChange: (e) => setA(e.target.value), "aria-label": "Base scenario" }, scenarios.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name))), /* @__PURE__ */ React.createElement("span", { className: "text-muted" }, "vs"), /* @__PURE__ */ React.createElement("select", { className: "num-input w-auto", value: b, onChange: (e) => setB(e.target.value), "aria-label": "Compared scenario" }, scenarios.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.name)))) }, scenarios.length < 2 && /* @__PURE__ */ React.createElement("div", { className: "notice notice-info mb-3" }, "Duplicate the active scenario, change something in the copy, then compare the two here."), !both ? /* @__PURE__ */ React.createElement("div", { className: "notice notice-crit" }, "One of the scenarios does not solve: ", (ra?.buses ? rb : ra)?.message) : /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table compare" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Metric"), /* @__PURE__ */ React.createElement("th", { className: "r" }, sa.name), /* @__PURE__ */ React.createElement("th", { className: "r" }, sb.name), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u0394"))), /* @__PURE__ */ React.createElement("tbody", null, [
+      ["Losses", "MW", ra.total_p_loss_mw, rb.total_p_loss_mw, 3],
+      ["Generation", "MW", ra.total_gen_mw, rb.total_gen_mw, 2],
+      ["Reactive gen", "Mvar", ra.total_gen_mvar, rb.total_gen_mvar, 2],
+      ["Load", "MW", ra.total_load_mw, rb.total_load_mw, 2],
+      ["Min V", "pu", Math.min(...ra.buses.map((x) => x.v)), Math.min(...rb.buses.map((x) => x.v)), 4],
+      ["Max V", "pu", Math.max(...ra.buses.map((x) => x.v)), Math.max(...rb.buses.map((x) => x.v)), 4],
+      ["Voltage violations", "", viol(ra), viol(rb), 0],
+      ["Iterations", "", ra.iterations, rb.iterations, 0]
+    ].map(([l, u, x, y, d]) => /* @__PURE__ */ React.createElement("tr", { key: l }, /* @__PURE__ */ React.createElement("td", null, l, " ", u && /* @__PURE__ */ React.createElement("em", { className: "text-faint not-italic text-[11px]" }, u)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(x, d)), /* @__PURE__ */ React.createElement("td", { className: "r" }, fmt(y, d)), /* @__PURE__ */ React.createElement("td", { className: cx("r", Math.abs(y - x) > 10 ** -d / 2 && (y > x ? "text-high" : "text-low")) }, sgn(y - x, d))))))), /* @__PURE__ */ React.createElement("div", { className: "charts-row" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 text-[12px] mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("i", { className: "sw", style: { background: "var(--wire)" } }), sa.name), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("i", { className: "sw", style: { background: "var(--accent)" } }), sb.name)), /* @__PURE__ */ React.createElement(VoltageChart, { series: [{ name: sa.name, color: "var(--wire)", values: ids.map((id) => ({ id, v: mA[id]?.v })) }, { name: sb.name, color: "var(--accent)", values: ids.map((id) => ({ id, v: mB[id]?.v })) }] })), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Network changes \xB7 ", changes.length), changes.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "text-muted text-[13px]" }, "The two networks are identical.") : /* @__PURE__ */ React.createElement("ul", { className: "change-list" }, changes.slice(0, 40).map((c, i) => /* @__PURE__ */ React.createElement("li", { key: i }, c)), changes.length > 40 && /* @__PURE__ */ React.createElement("li", { className: "text-faint" }, "\u2026and ", changes.length - 40, " more")))), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Bus"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "V A", /* @__PURE__ */ React.createElement("em", null, "pu")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "V B", /* @__PURE__ */ React.createElement("em", null, "pu")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u0394V", /* @__PURE__ */ React.createElement("em", null, "pu")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u03B8 A", /* @__PURE__ */ React.createElement("em", null, "deg")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u03B8 B", /* @__PURE__ */ React.createElement("em", null, "deg")), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u0394\u03B8", /* @__PURE__ */ React.createElement("em", null, "deg")))), /* @__PURE__ */ React.createElement("tbody", null, ids.map((id) => {
+      const x = mA[id], y = mB[id];
+      const dv = x && y ? y.v - x.v : null;
+      return /* @__PURE__ */ React.createElement("tr", { key: id }, /* @__PURE__ */ React.createElement("td", { className: "font-mono" }, id), /* @__PURE__ */ React.createElement("td", { className: "r" }, x ? /* @__PURE__ */ React.createElement("span", { className: cx("vchip", `v-${x.vflag}`) }, x.v.toFixed(4)) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "r" }, y ? /* @__PURE__ */ React.createElement("span", { className: cx("vchip", `v-${y.vflag}`) }, y.v.toFixed(4)) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: cx("r", dv != null && Math.abs(dv) > 5e-5 && (dv > 0 ? "text-high" : "text-low")) }, dv == null ? "\u2014" : sgn(dv, 4)), /* @__PURE__ */ React.createElement("td", { className: "r" }, x ? x.angle_deg.toFixed(3) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "r" }, y ? y.angle_deg.toFixed(3) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "r" }, x && y ? sgn(y.angle_deg - x.angle_deg, 3) : "\u2014"));
+    })))))));
+  }
+  function VerifyPanel({ onClose, onOpenCase }) {
+    const [res, setRes] = useState2(null);
+    useEffect2(() => {
+      const t = setTimeout(() => setRes(verifySolver()), 30);
+      return () => clearTimeout(t);
+    }, []);
+    useEffect2(() => {
+      const k = (e) => e.key === "Escape" && onClose();
+      window.addEventListener("keydown", k);
+      return () => window.removeEventListener("keydown", k);
+    }, [onClose]);
+    return /* @__PURE__ */ React.createElement("div", { className: "modal-back", onPointerDown: (e) => e.target === e.currentTarget && onClose() }, /* @__PURE__ */ React.createElement("div", { className: "modal panel", role: "dialog", "aria-label": "Solver verification" }, /* @__PURE__ */ React.createElement("header", { className: "flex items-start justify-between gap-3 p-4 border-b border-line" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "label" }, "Self-test \xB7 IEEE 14-bus vs PYPOWER/MATPOWER reference"), res ? /* @__PURE__ */ React.createElement("div", { className: cx("verdict", res.pass ? "text-ok" : "text-crit") }, res.pass ? "PASS" : "FAIL", /* @__PURE__ */ React.createElement("span", { className: "text-muted text-[14px] font-normal ml-3" }, "all 14 buses within ", res.tol.toExponential(0), " pu / deg")) : /* @__PURE__ */ React.createElement("div", { className: "verdict text-muted" }, "Running\u2026")), /* @__PURE__ */ React.createElement("button", { className: "row-x", onClick: onClose, "aria-label": "Close" }, /* @__PURE__ */ React.createElement(Icon, { name: "x" }))), res && /* @__PURE__ */ React.createElement("div", { className: "p-4 overflow-auto flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "tiles" }, /* @__PURE__ */ React.createElement(Tile, { label: "Iterations", value: res.iterations, sub: `max mismatch ${res.mismatch.toExponential(2)} pu` }), /* @__PURE__ */ React.createElement(Tile, { label: "Max |\u0394V|", value: res.maxDv.toExponential(1), unit: "pu", tone: res.maxDv <= res.tol ? "ok" : "crit", sub: "Reference given to 6 decimals" }), /* @__PURE__ */ React.createElement(Tile, { label: "Max |\u0394\u03B8|", value: res.maxDa.toExponential(1), unit: "deg", tone: res.maxDa <= res.tol ? "ok" : "crit" }), /* @__PURE__ */ React.createElement(Tile, { label: "Losses", value: res.loss.toFixed(3), unit: "MW", tone: Math.abs(res.dLoss) < 5e-4 ? "ok" : "crit", sub: `reference ${res.lossRef.toFixed(3)} MW` }), /* @__PURE__ */ React.createElement(Tile, { label: "Power balance", value: res.balance.toExponential(1), unit: "pu", tone: "ok", sub: "|\u03A3P inj \u2212 P loss|" })), /* @__PURE__ */ React.createElement("div", { className: "notice notice-info" }, /* @__PURE__ */ React.createElement("b", null, "Bus 9 shunt guard."), " Dropping the 0.19 pu capacitor at bus 9 shifts voltages by up to ", /* @__PURE__ */ React.createElement("b", null, res.shuntShift.toFixed(4), " pu"), ", which would fail this test. The shunt is in the Y-bus diagonal, and this check runs on every verify."), /* @__PURE__ */ React.createElement("div", { className: "table-wrap" }, /* @__PURE__ */ React.createElement("table", { className: "grid-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Bus"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "V ref"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "V calc"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u0394V"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u03B8 ref"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u03B8 calc"), /* @__PURE__ */ React.createElement("th", { className: "r" }, "\u0394\u03B8"), /* @__PURE__ */ React.createElement("th", null, "Status"))), /* @__PURE__ */ React.createElement("tbody", null, res.rows.map((x) => /* @__PURE__ */ React.createElement("tr", { key: x.id }, /* @__PURE__ */ React.createElement("td", { className: "font-mono" }, x.id), /* @__PURE__ */ React.createElement("td", { className: "r" }, x.vRef.toFixed(6)), /* @__PURE__ */ React.createElement("td", { className: "r" }, x.v.toFixed(6)), /* @__PURE__ */ React.createElement("td", { className: "r text-faint" }, x.dv.toExponential(1)), /* @__PURE__ */ React.createElement("td", { className: "r" }, x.aRef.toFixed(6)), /* @__PURE__ */ React.createElement("td", { className: "r" }, x.a.toFixed(6)), /* @__PURE__ */ React.createElement("td", { className: "r text-faint" }, x.da.toExponential(1)), /* @__PURE__ */ React.createElement("td", null, x.pass ? /* @__PURE__ */ React.createElement(Pill, { tone: "ok" }, "pass") : /* @__PURE__ */ React.createElement(Pill, { tone: "crit" }, "fail"))))))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setRes(verifySolver()) }, /* @__PURE__ */ React.createElement(Icon, { name: "check", size: 14 }), "Run again"), /* @__PURE__ */ React.createElement(Btn, { onClick: onOpenCase }, "Open IEEE 14-bus in workspace"), /* @__PURE__ */ React.createElement("span", { className: "text-faint text-[12px] self-center" }, "Solve time ", res.ms.toFixed(1), " ms")))));
+  }
+  var TABS = [["diagram", "Diagram"], ["data", "Data"], ["results", "Results"], ["cases", "Cases"]];
+  function LoadFlowWorkspace() {
+    const [scenarios, setScenarios] = useState2(() => {
+      const s = makeScenario(CASES.demo3.name, CASES.demo3.data, CASES.demo3.layout);
+      s.result = runLoadFlow(s.data);
+      s.solvedData = s.data;
+      return [s];
+    });
+    const [activeId, setActiveId] = useState2(() => scenarios[0].id);
+    const [tab, setTab] = useState2("diagram");
+    const [selection, setSelection] = useState2(null);
+    const [tool, setTool] = useState2("select");
+    const [live, setLive] = useState2(true);
+    const [verify, setVerify] = useState2(false);
+    const [toast, setToast] = useState2(null);
+    const [downloads, setDownloads] = useState2(null);
+    const active = scenarios.find((s) => s.id === activeId) || scenarios[0];
+    const issues = useMemo(() => validateCase(active.data), [active.data]);
+    const stale = !!active.result && active.solvedData !== active.data;
+    useEffect2(() => {
+      let alive = true;
+      try {
+        window.claude?.use?.("downloads").then((d) => alive && setDownloads(d)).catch(() => {
+        });
+      } catch (e) {
+      }
+      return () => {
+        alive = false;
+      };
+    }, []);
+    useEffect2(() => {
+      if (!toast) return;
+      const t = setTimeout(() => setToast(null), 2600);
+      return () => clearTimeout(t);
+    }, [toast]);
+    const patch = (id, fn) => setScenarios((list) => list.map((s) => s.id === id ? fn(s) : s));
+    const update = useCallback((fn) => patch(activeId, (s) => {
+      const d = clone(s.data);
+      fn(d);
+      return { ...s, data: d };
+    }), [activeId]);
+    const solve = useCallback(() => patch(activeId, (s) => ({ ...s, result: runLoadFlow(s.data), solvedData: s.data })), [activeId]);
+    useEffect2(() => {
+      if (!live || !stale) return;
+      const t = setTimeout(solve, 120);
+      return () => clearTimeout(t);
+    }, [live, active.data, stale, solve]);
+    useEffect2(() => {
+      if (live && !active.result) solve();
+    }, [live, activeId]);
+    const renameBus = (oldId, newIdV) => {
+      if (newIdV === void 0 || !Number.isInteger(newIdV) || newIdV === oldId) return;
+      if (active.data.buses.some((b) => b.id === newIdV)) {
+        setToast({ tone: "crit", text: `Bus ${newIdV} already exists` });
+        return;
+      }
+      patch(activeId, (s) => {
+        const d = clone(s.data);
+        d.buses.forEach((b) => {
+          if (b.id === oldId) b.id = newIdV;
+        });
+        d.branches.forEach((br) => {
+          if (br.from === oldId) br.from = newIdV;
+          if (br.to === oldId) br.to = newIdV;
+        });
+        const layout = { ...s.layout };
+        layout[newIdV] = layout[oldId];
+        delete layout[oldId];
+        return { ...s, data: d, layout };
+      });
+      if (selection?.kind === "bus" && selection.id === oldId) setSelection({ kind: "bus", id: newIdV });
+    };
+    const addBusAt = (pt) => {
+      const id = Math.max(0, ...active.data.buses.map((b) => b.id)) + 1;
+      patch(activeId, (s) => {
+        const d = clone(s.data);
+        d.buses.push({ id, type: d.buses.length ? "PQ" : "slack" });
+        return { ...s, data: d, layout: { ...s.layout, [id]: pt || freeSpot(s.layout) } };
+      });
+      setSelection({ kind: "bus", id });
+      return id;
+    };
+    const addBranch = (from, to) => {
+      const k = active.data.branches.length;
+      update((d) => d.branches.push({ from, to, r: 0.01, x: 0.05, b: 0 }));
+      setSelection({ kind: "branch", k });
+    };
+    const deleteBus = (id) => {
+      patch(activeId, (s) => {
+        const d = clone(s.data);
+        d.buses = d.buses.filter((b) => b.id !== id);
+        d.branches = d.branches.filter((br) => br.from !== id && br.to !== id);
+        const layout = { ...s.layout };
+        delete layout[id];
+        return { ...s, data: d, layout };
+      });
+      setSelection(null);
+    };
+    const deleteBranch = (k) => {
+      update((d) => d.branches.splice(k, 1));
+      setSelection(null);
+    };
+    const deleteSelection = () => {
+      if (selection?.kind === "bus") deleteBus(selection.id);
+      else if (selection?.kind === "branch") deleteBranch(selection.k);
+    };
+    const relayout = () => patch(activeId, (s) => ({ ...s, layout: autoLayout(s.data) }));
+    const moveBus = (id, pt) => patch(activeId, (s) => ({ ...s, layout: { ...s.layout, [id]: pt } }));
+    const addScenario = (s) => {
+      setScenarios((l) => [...l, s]);
+      setActiveId(s.id);
+      setSelection(null);
+    };
+    const loadBuiltin = (k) => {
+      const c = CASES[k];
+      const s = makeScenario(c.name, c.data, c.layout);
+      s.result = runLoadFlow(s.data);
+      s.solvedData = s.data;
+      addScenario(s);
+      setTab("diagram");
+      setToast({ text: `Opened ${c.name}` });
+    };
+    const importCase = (data, name) => {
+      const s = makeScenario(name, data);
+      addScenario(s);
+      setTab("diagram");
+      setToast({ text: `Imported ${name}: ${data.buses.length} buses` });
+    };
+    const duplicate = (id) => {
+      const src = scenarios.find((s2) => s2.id === id);
+      const base = src.name.replace(/ · alt \d+$/, "");
+      const n = scenarios.filter((s2) => s2.name.startsWith(base + " \xB7 alt")).length + 1;
+      const s = { ...makeScenario(`${base} \xB7 alt ${n}`, src.data, src.layout), result: src.result, solvedData: null };
+      s.solvedData = s.result ? s.data : null;
+      addScenario(s);
+      setToast({ text: `Created ${s.name}. Edit it, then compare on the Cases tab.` });
+    };
+    const removeScenario = (id) => {
+      setScenarios((l) => {
+        const n = l.filter((s) => s.id !== id);
+        if (id === activeId && n.length) setActiveId(n[0].id);
+        return n.length ? n : l;
+      });
+    };
+    const saveFile = async (filename, text) => {
+      if (!downloads) {
+        copyText(text, "Saving is not available here. Copied to clipboard instead.");
+        return;
+      }
+      try {
+        await downloads.save({ filename, data: text });
+        setToast({ text: `Saved ${filename}` });
+      } catch (e) {
+        if (e?.code !== "declined") setToast({ tone: "crit", text: `Could not save: ${e?.message || e?.code || "unknown error"}` });
+      }
+    };
+    const copyText = (text, msg) => {
+      try {
+        navigator.clipboard.writeText(text).then(() => setToast({ text: msg }), () => setToast({ tone: "crit", text: "Clipboard blocked. Select the text and copy it manually." }));
+      } catch (e) {
+        setToast({ tone: "crit", text: "Clipboard blocked. Select the text and copy it manually." });
+      }
+    };
+    useEffect2(() => {
+      const onKey = (e) => {
+        const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          solve();
+          setToast({ text: "Solved" });
+          return;
+        }
+        if (typing || verify) return;
+        if (e.key === "Escape") {
+          setTool("select");
+          setSelection(null);
+        }
+        if ((e.key === "Delete" || e.key === "Backspace") && selection && tab === "diagram") {
+          e.preventDefault();
+          deleteSelection();
+        }
+        if (tab === "diagram") {
+          if (e.key === "v") setTool("select");
+          if (e.key === "b") setTool("bus");
+          if (e.key === "c") setTool("connect");
+        }
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    });
+    const r = active.result;
+    const errCount = issues.filter((x) => x.level === "error").length;
+    const status = errCount ? { tone: "crit", text: `${errCount} input error${errCount > 1 ? "s" : ""}` } : !r ? { tone: "muted", text: "Not solved" } : stale ? { tone: "warn", text: "Results stale" } : r.converged ? { tone: "ok", text: `Converged \xB7 ${r.iterations} iter` } : { tone: "crit", text: r.buses ? "Diverged" : "Solve failed" };
+    return /* @__PURE__ */ React.createElement("div", { className: "ws" }, /* @__PURE__ */ React.createElement("header", { className: "topbar" }, /* @__PURE__ */ React.createElement("div", { className: "ws-title" }, "Load flow"), /* @__PURE__ */ React.createElement("div", { className: "scn-chips", role: "tablist", "aria-label": "Scenarios" }, scenarios.map((s) => /* @__PURE__ */ React.createElement("button", { key: s.id, className: cx("chip", s.id === activeId && "is-active"), onClick: () => {
+      setActiveId(s.id);
+      setSelection(null);
+    } }, s.name)), /* @__PURE__ */ React.createElement("button", { className: "chip chip-add", onClick: () => duplicate(activeId), title: "Duplicate active scenario" }, /* @__PURE__ */ React.createElement(Icon, { name: "dup", size: 13 }))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 ml-auto" }, /* @__PURE__ */ React.createElement("label", { className: "live-toggle", title: "Re-solve after every edit" }, /* @__PURE__ */ React.createElement("input", { id: "live", type: "checkbox", checked: live, onChange: (e) => setLive(e.target.checked) }), /* @__PURE__ */ React.createElement("span", null, "Live solve")), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setVerify(true), title: "Run IEEE 14-bus self-test" }, /* @__PURE__ */ React.createElement(Icon, { name: "check", size: 14 }), "Verify solver"), /* @__PURE__ */ React.createElement(Btn, { kind: "primary", onClick: () => {
+      solve();
+      setToast({ text: "Solved" });
+    }, title: "Solve (Ctrl+Enter)" }, /* @__PURE__ */ React.createElement(Icon, { name: "bolt", size: 15 }), "Solve"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs", role: "tablist" }, TABS.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, role: "tab", "aria-selected": tab === k, className: cx("tab", tab === k && "is-active"), onClick: () => setTab(k) }, l, k === "data" && errCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "dot dot-crit" }), k === "results" && stale && /* @__PURE__ */ React.createElement("span", { className: "dot dot-warn" }))), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), r?.converged && !stale && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(r.total_p_loss_mw, 3)), " MW"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", tab === "diagram" && "is-diagram") }, tab === "diagram" && /* @__PURE__ */ React.createElement(
+      DiagramTab,
+      {
+        scenario: active,
+        result: r,
+        stale,
+        selection,
+        setSelection,
+        tool,
+        setTool,
+        issues,
+        update,
+        renameBus,
+        deleteBus,
+        deleteBranch,
+        deleteSelection,
+        onMoveBus: moveBus,
+        onAddBus: (pt) => addBusAt(pt),
+        onAddBranch: addBranch,
+        relayout
+      }
+    ), tab === "data" && /* @__PURE__ */ React.createElement(
+      DataTab,
+      {
+        scenario: active,
+        issues,
+        update,
+        renameBus,
+        deleteBus,
+        deleteBranch,
+        addBus: () => addBusAt(),
+        addBranchRow: () => {
+          const ids = active.data.buses.map((b) => b.id);
+          update((d) => d.branches.push({ from: ids[0], to: ids[1], r: 0.01, x: 0.05, b: 0 }));
+        }
+      }
+    ), tab === "results" && /* @__PURE__ */ React.createElement(
+      ResultsTab,
+      {
+        scenario: active,
+        result: r,
+        stale,
+        solve,
+        issues,
+        saveFile,
+        copyText,
+        onSelectBus: (id) => {
+          setSelection({ kind: "bus", id });
+          setTab("diagram");
+        }
+      }
+    ), tab === "cases" && /* @__PURE__ */ React.createElement(
+      CasesTab,
+      {
+        scenarios,
+        active,
+        setActive: (id) => {
+          setActiveId(id);
+          setSelection(null);
+        },
+        loadBuiltin,
+        importCase,
+        rename: (id, name) => patch(id, (s) => ({ ...s, name })),
+        duplicate,
+        remove: removeScenario,
+        saveFile,
+        copyText,
+        canSave: !!downloads
+      }
+    )), verify && /* @__PURE__ */ React.createElement(VerifyPanel, { onClose: () => setVerify(false), onOpenCase: () => {
+      setVerify(false);
+      loadBuiltin("ieee14");
+    } }), toast && /* @__PURE__ */ React.createElement("div", { className: cx("toast", toast.tone === "crit" && "toast-crit"), role: "status" }, toast.text));
+  }
+
+  // src/ui/workspaces.jsx
+  var WORKSPACES = [
+    {
+      key: "system",
+      short: "System",
+      title: "System view",
+      icon: "M3 20h18M5 20V9l4-3v14M13 20V4h6v16M15 8h2M15 12h2M15 16h2",
+      Component: null,
+      detail: "Equipment-level view of the whole package: utility source, transformers, switchgear lineups, cable bus runs and loads, drawn as equipment rather than wires, with live load-flow and fault results on each piece."
+    },
+    { key: "loadflow", short: "Flow", title: "Load flow", icon: "M3 12h4l3-8 4 16 3-8h4", Component: LoadFlowWorkspace, default: true },
+    {
+      key: "cablebus",
+      short: "Cable bus",
+      title: "Cable bus",
+      icon: "M3 8h18v8H3zM7 12h.01M12 12h.01M17 12h.01",
+      Component: null,
+      detail: "Cable bus check and designer at any voltage: current sharing, ampacity (table, datasheet, IEC 60287), shield and enclosure losses, magnetic field, fault forces and cross-section drawings."
+    },
+    {
+      key: "feeder",
+      short: "Feeder",
+      title: "Feeder & cable",
+      icon: "M4 4c8 0 8 16 16 16M4 4h3M17 20h3",
+      Component: null,
+      detail: "Feeder sizing with parallel sets, terminal temperature rules, voltage drop, losses, short-circuit withstand and lug selection."
+    },
+    {
+      key: "switchgear",
+      short: "Gear",
+      title: "Switchgear bus",
+      icon: "M4 3h16v18H4zM4 9h16M4 15h16M9 3v18",
+      Component: null,
+      detail: "Switchgear and switchboard bus: Rac/Rdc and lamination sharing, temperature rise, short-circuit bracing and support spans."
+    },
+    {
+      key: "transformer",
+      short: "Xfmr",
+      title: "Transformer",
+      icon: "M8 12a4 4 0 1 0 0-.01M16 12a4 4 0 1 0 0-.01M2 12h2M20 12h2",
+      Component: null,
+      detail: "Preliminary transformer design: core and windings, losses, impedance tuned to a target %Z, efficiency including the DOE test point, fault withstand."
+    }
+  ];
+
+  // src/ui/App.jsx
+  var { useState: useState3 } = React;
+  function App() {
+    const [active, setActive] = useState3(WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key);
+    const [opened, setOpened] = useState3(() => /* @__PURE__ */ new Set([active]));
+    const open = (k) => {
+      setActive(k);
+      setOpened((s) => new Set(s).add(k));
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "shell" }, /* @__PURE__ */ React.createElement("nav", { className: "rail", "aria-label": "Workspaces" }, /* @__PURE__ */ React.createElement("div", { className: "rail-brand", title: "Power Equipment Studio" }, /* @__PURE__ */ React.createElement("svg", { width: "24", height: "24", viewBox: "0 0 24 24", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: "M3 7h18M3 17h18M8 7v10M16 7v10", stroke: "var(--accent)", strokeWidth: "2.2", strokeLinecap: "round", fill: "none" }))), WORKSPACES.map((w) => /* @__PURE__ */ React.createElement("button", { key: w.key, className: cx("rail-btn", active === w.key && "is-active", !w.Component && "is-planned"), onClick: () => open(w.key), title: w.title }, /* @__PURE__ */ React.createElement("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.7", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" }, /* @__PURE__ */ React.createElement("path", { d: w.icon })), /* @__PURE__ */ React.createElement("span", null, w.short)))), /* @__PURE__ */ React.createElement("div", { className: "shell-main" }, WORKSPACES.map((w) => opened.has(w.key) && /* @__PURE__ */ React.createElement("div", { key: w.key, className: "ws-host", hidden: active !== w.key }, w.Component ? /* @__PURE__ */ React.createElement(w.Component, { goTo: open }) : /* @__PURE__ */ React.createElement(Planned, { w })))));
+  }
+  function Planned({ w }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "p-6 overflow-auto h-full" }, /* @__PURE__ */ React.createElement("div", { className: "panel p-6 max-w-2xl flex flex-col gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("h2", { className: "text-lg" }, w.title), /* @__PURE__ */ React.createElement(Pill, null, "Planned")), /* @__PURE__ */ React.createElement("p", { className: "text-muted leading-relaxed" }, w.detail)));
+  }
+
+  // src/main.jsx
+  ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+})();
+</script>
