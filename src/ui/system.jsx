@@ -11,6 +11,7 @@ import { dims, siteRoutes } from "./systemGeometry.js";
 import { Site3D } from "./system3d.jsx";
 import { SystemSld } from "./systemSld.jsx";
 import { GearLineupModal } from "./gearLineup.jsx";
+import { designChecks } from "../engine/designchecks.js";
 import { useHistory, ProjectMenu } from "./systemProject.jsx";
 import { ArcFlashSection } from "./systemArcFlash.jsx";
 
@@ -497,7 +498,23 @@ const EQ_FIELDS = {
   capacitor: [["kvar", "Rating", "kvar"]],
 };
 
-function EqInspector({ e, r, update, remove, rename, scShown, openLineup }) {
+function DesignCheckBlock({ dc }) {
+  if (!dc) return null;
+  const title = { cablebus: "Cable bus design check", bus: "Bus design check", transformer: "Transformer design check" }[dc.kind];
+  return (
+    <div className="res-block">
+      <div className="flex items-center justify-between mb-2"><div className="label">{title}</div><Pill tone={dc.passed ? "ok" : "crit"}>{dc.passed ? "Pass" : "Fail"}</Pill></div>
+      {dc.error ? <p className="text-crit text-[12.5px]">{dc.error}</p> : <>
+        <p className="text-muted text-[12.5px] mb-2">{dc.summary}</p>
+        <ul className="flex flex-col gap-1 text-[12.5px]">{dc.checks.map((k, i) => (
+          <li key={i} className="flex justify-between gap-2"><span className={k.passed ? "" : "text-crit"}>{k.passed ? "✓" : "✗"} {k.name}</span><span className="font-mono text-muted whitespace-nowrap">{k.value} / {k.limit} {k.unit}</span></li>
+        ))}</ul>
+      </>}
+    </div>
+  );
+}
+
+function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc }) {
   const full = { ...EQUIPMENT[e.type].defaults, ...e };
   const [confirm, setConfirm] = useState(false);
   useEffect(() => setConfirm(false), [e.id]);
@@ -536,6 +553,7 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup }) {
           </dl>
         </div>
       )}
+      <DesignCheckBlock dc={dc} />
       {NODE_KINDS.has(e.type) && openLineup && <Btn kind="primary-soft" onClick={() => openLineup(e.id)}>Lineup elevation & breaker schedule</Btn>}
       <div className="flex gap-2">
         {!confirm ? <Btn kind="danger" onClick={() => setConfirm(true)}><Icon name="trash" size={14} />Delete</Btn>
@@ -545,7 +563,7 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup }) {
   );
 }
 
-function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
+function ConInspector({ c, r, update, remove, kvAt, goCableBus, dc }) {
   const full = { ...CONNECTORS[c.kind].defaults, ...c };
   const table = c.kind === "direct" ? null : tableAmpacity(c.kind, full.size, full.material, full.insulation_c);
   return (
@@ -580,6 +598,7 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
           </dl>
         </div>
       )}
+      <DesignCheckBlock dc={dc} />
       <div className="flex gap-2 flex-wrap">
         {c.kind === "cablebus" && goCableBus && <Btn kind="primary-soft" onClick={() => goCableBus(c)}>Design in Cable bus</Btn>}
         <Btn kind="danger" onClick={() => remove(c.id)}><Icon name="trash" size={14} />Delete</Btn>
@@ -588,7 +607,7 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
   );
 }
 
-function SystemSummary({ sys, analysis }) {
+function SystemSummary({ sys, analysis, checks = {} }) {
   const t = analysis?.totals;
   const errs = analysis?.issues?.filter((x) => x.level === "error") || [];
   const flagged = analysis?.ok ? Object.entries(analysis.equipment).filter(([id, r]) => !["ok", "off"].includes(statusOf(sys.equipment.find((e) => e.id === id), r))) : [];
@@ -616,6 +635,11 @@ function SystemSummary({ sys, analysis }) {
           </ul>
         )}
       </div>
+      {Object.values(checks).length > 0 && (() => { const bad = Object.entries(checks).filter(([, d]) => !d.passed); return (
+        <div><div className="label mb-2">Equipment design checks</div>
+          {bad.length === 0 ? <p className="text-muted text-[13px]">{Object.keys(checks).length} checks pass (cable bus runs, gear bus, transformers).</p>
+            : <ul className="flex flex-col gap-1 text-[13px]">{bad.map(([id, d]) => <li key={id}><b className="font-mono text-crit">{id}</b> <span className="text-muted">{d.error || d.checks.filter((k) => !k.passed).map((k) => k.name).join("; ")}</span></li>)}</ul>}
+        </div>); })()}
       {off.length > 0 && <div className="notice notice-info"><b>De-energized:</b> {off.join(", ")}</div>}
       <p className="text-faint text-[12px] leading-relaxed">Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with c<sub>max</sub>, motors included. Ampacity from NEC tables ({AMPACITY_STATUS}). Cable R uses DC resistance at conductor temperature; reactance from NEC Chapter 9 Table 9.</p>
     </div>
@@ -623,10 +647,23 @@ function SystemSummary({ sys, analysis }) {
 }
 
 /* ============================================================== SCHEDULE */
-function Schedule({ sys, analysis, select, updateEq }) {
+function Schedule({ sys, analysis, select, updateEq, checks = {} }) {
   const res = analysis?.equipment || {}, cres = analysis?.connectors || {};
   return (
     <div className="flex flex-col gap-4 p-4 overflow-auto">
+      {Object.keys(checks).length > 0 && (
+        <Section title="Equipment design checks" aside={<span className="text-faint text-[12px]">pecalc modules at study currents and fault levels</span>}>
+          <div className="table-wrap"><table className="grid-table">
+            <thead><tr><th>Tag</th><th>Check</th><th>Design</th><th>Result</th><th>Failing checks</th></tr></thead>
+            <tbody>{Object.entries(checks).map(([id, d]) => (
+              <tr key={id} className="clickable" onClick={() => select({ kind: sys.connectors.some((c) => c.id === id) ? "con" : "eq", id })}>
+                <td className="font-mono">{id}</td><td className="text-muted">{{ cablebus: "Cable bus", bus: "Gear bus", transformer: "Transformer" }[d.kind]}</td>
+                <td style={{ fontFamily: "var(--font-ui)" }}>{d.error || d.summary}</td><td>{d.passed ? <Pill tone="ok">Pass</Pill> : <Pill tone="crit">Fail</Pill>}</td>
+                <td style={{ whiteSpace: "normal", fontFamily: "var(--font-ui)" }}>{d.checks.filter((k) => !k.passed).map((k) => k.name).join("; ") || "—"}</td>
+              </tr>))}</tbody>
+          </table></div>
+        </Section>
+      )}
       <Section title="Equipment schedule">
         <div className="table-wrap"><table className="grid-table">
           <thead><tr><th>Tag</th><th>Type</th><th>Description</th><th className="r">kV</th><th className="r">V<em>pu</em></th><th className="r">Loading</th><th className="r">I″k<em>kA</em></th><th className="r">Rating<em>kA</em></th><th className="r">Duty</th></tr></thead>
@@ -686,6 +723,9 @@ export function SystemWorkspace({ goTo }) {
   const [lineupFor, setLineupFor] = useState(() => (typeof location !== "undefined" && location.hash === "#system-lineup" ? "SWGR-LV" : null));
   const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso"));
   const analysis = useMemo(() => analyseSystem(sys, { motors }), [sys, motors]);
+  // Equipment design checks (pecalc cable bus / bus / transformer) are heavier: run them after the frame.
+  const [checks, setChecks] = useState({});
+  useEffect(() => { const t = setTimeout(() => { try { setChecks(designChecks(sys, analysis)); } catch (err) { setChecks({}); } }, 220); return () => clearTimeout(t); }, [analysis]); // eslint-disable-line
 
   const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === id ? clean({ ...e, ...patch }) : e)) }));
   const updateCon = (id, patch) => setSys((s) => ({ ...s, connectors: s.connectors.map((c) => (c.id === id ? clean({ ...c, ...patch }) : c)) }));
@@ -802,13 +842,13 @@ export function SystemWorkspace({ goTo }) {
               <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onMoveEnd={history.checkpoint} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
-              {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} />
-                : selCon ? <ConInspector c={selCon} r={analysis.ok ? analysis.connectors[selCon.id] : null} update={updateCon} remove={removeCon}
+              {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} dc={checks[selEq.id]} />
+                : selCon ? <ConInspector c={selCon} r={analysis.ok ? analysis.connectors[selCon.id] : null} update={updateCon} remove={removeCon} dc={checks[selCon.id]}
                     kvAt={analysis.ok ? analysis.equipment[selCon.from.split(".")[0]]?.kv : null} goCableBus={(c) => { bus.emit("cablebus:open", { connector: { ...CONNECTORS[c.kind].defaults, ...c }, current_a: analysis.connectors[c.id]?.i_a, kv: analysis.equipment[c.to.split(".")[0]]?.kv }); goTo("cablebus"); }} />
-                : <SystemSummary sys={sys} analysis={analysis} />}
+                : <SystemSummary sys={sys} analysis={analysis} checks={checks} />}
             </aside>
           </div>
-        ) : <Schedule updateEq={updateEq} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
+        ) : <Schedule updateEq={updateEq} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
       </main>
       {lineupFor && sys.equipment.some((e) => e.id === lineupFor) && <GearLineupModal sys={sys} analysis={analysis} gearId={lineupFor} onClose={() => setLineupFor(null)} />}
     </div>
