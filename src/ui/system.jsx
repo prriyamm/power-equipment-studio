@@ -7,6 +7,8 @@ import {
 } from "../engine/system.js";
 import { Btn, Pill, Section, Field, NumField, Tile, Icon, cx, fmt, clone } from "./common.jsx";
 import { bus } from "./bus.js";
+import { dims, siteRoutes } from "./systemGeometry.js";
+import { Site3D } from "./system3d.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -14,22 +16,6 @@ const C30 = Math.cos(Math.PI / 6), S30 = 0.5;
 const iso = (x, y, z = 0) => [(x - y) * U * C30, (x + y) * U * S30 - z * U];
 const P = (pts) => pts.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
 const unIso = (sx, sy) => { const a = sx / (U * C30), b = sy / (U * S30); return [(a + b) / 2, (b - a) / 2]; };
-
-// footprint (w along x, d along y, h up) in grid units
-function dims(e) {
-  switch (e.type) {
-    case "switchgear": { const mv = e.kv > 1; return { w: e.sections * (mv ? 1.2 : 1.0), d: mv ? 2.4 : 1.8, h: mv ? 3.0 : 2.6 }; }
-    case "mcc": return { w: e.sections * 0.8, d: 0.9, h: 2.6 };
-    case "panel": return { w: 0.9, d: 0.45, h: 2.0 };
-    case "transformer": return { w: 2.0, d: 1.8, h: 1.9 };
-    case "motor": return { w: 2.0, d: 1.0, h: 1.1 };
-    case "load": return { w: 2.6, d: 2.2, h: 1.7 };
-    case "capacitor": return { w: 1.2, d: 0.9, h: 1.7 };
-    case "generator": return { w: 2.8, d: 1.3, h: 1.5 };
-    case "utility": return { w: 1.0, d: 1.0, h: 4.2 };
-    default: return { w: 1, d: 1, h: 1 };
-  }
-}
 
 /* --------------------------------------------------------- iso primitives */
 function Box({ x, y, z = 0, w, d, h, tone = "eq", className, stroke = true }) {
@@ -224,36 +210,6 @@ function UtilityArt({ e, x, y }) {
 
 const ART = { switchgear: SwitchgearArt, mcc: MccArt, panel: MccArt, transformer: TransformerArt, motor: MotorArt, load: LoadArt, capacitor: CapacitorArt, generator: GeneratorArt, utility: UtilityArt };
 
-/* ------------------------------------------------------------- terminals */
-// Connection points: cable bus lands on top (overhead), cable enters from below (duct bank).
-function anchor(e, termName, kind, slot = 0.5) {
-  const { w, d, h } = dims(e); const x = e.gx, y = e.gy;
-  const top = kind === "cablebus";
-  switch (e.type) {
-    case "transformer": {
-      const hv = termName === "hv";
-      return top ? [x + (hv ? 0.4 : w - 0.4), y + d / 2, h + (hv ? 0.75 : 0.4)] : [x + (hv ? 0.4 : w - 0.4), y + d / 2, 0];
-    }
-    case "utility": return top ? [x + 0.5, y + 0.5, 3.6] : [x + 0.65, y + 0.5, 0];
-    case "switchgear": case "mcc": case "panel": return [x + w * slot, y + d * 0.35, top ? h : 0];
-    case "motor": return top ? [x + 0.92, y + d / 2, 1.3] : [x + 0.92, y + d / 2, 0];
-    default: return [x + w / 2, y + d / 2, top ? h : 0];
-  }
-}
-
-function routeConnector(c, eqMap, slots) {
-  const [fa, ft] = c.from.split("."), [ta, tt] = c.to.split(".");
-  const A = eqMap[fa], B = eqMap[ta];
-  if (!A || !B) return null;
-  const pa = anchor(A, ft, c.kind, slots[c.id + ":from"] ?? 0.5), pb = anchor(B, tt, c.kind, slots[c.id + ":to"] ?? 0.5);
-  if (c.kind === "cablebus") {
-    const zt = Math.max(dims(A).h, dims(B).h, pa[2], pb[2]) + 0.9;
-    return { overhead: true, zt, pts: [pa, [pa[0], pa[1], zt], [pb[0], pa[1], zt], [pb[0], pb[1], zt], pb] };
-  }
-  if (c.kind === "direct") return { pts: [pa, pb], direct: true };
-  return { overhead: false, pts: [pa, [pa[0], pb[1], 0], pb] };
-}
-
 /* ---------------------------------------------------------- connector art */
 function CableBusArt({ route, res, selected, animate }) {
   const W = 0.42, H = 0.2;
@@ -390,20 +346,7 @@ function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConn
   const vh = view.w * (size.h / size.w);
   const eqMap = useMemo(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
 
-  // spread connectors landing on the same gear across its sections
-  const slots = useMemo(() => {
-    const per = {};
-    sys.connectors.forEach((c) => ["from", "to"].forEach((k) => {
-      const id = c[k].split(".")[0]; const e = eqMap[id]; if (!e || !NODE_KINDS.has(e.type)) return;
-      const other = eqMap[c[k === "from" ? "to" : "from"].split(".")[0]];
-      (per[id] ||= []).push({ key: c.id + ":" + k, ox: other ? other.gx - other.gy : 0 });
-    }));
-    const out = {};
-    for (const list of Object.values(per)) { list.sort((a, b) => a.ox - b.ox); list.forEach((s, i) => (out[s.key] = (i + 0.5) / list.length)); }
-    return out;
-  }, [sys.connectors, eqMap]);
-  const routes = useMemo(() => Object.fromEntries(sys.connectors.map((c) => [c.id, routeConnector({ ...CONNECTORS[c.kind].defaults, ...c }, eqMap, slots)])), [sys.connectors, eqMap, slots]);
-
+  const { slots, routes } = useMemo(() => siteRoutes(sys), [sys.equipment, sys.connectors]); // eslint-disable-line
   const fit = useCallback(() => {
     const pts = [];
     for (const e of Object.values(eqMap)) { const { w, d, h } = dims(e); [[e.gx, e.gy, 0], [e.gx + w, e.gy, 0], [e.gx, e.gy + d, 0], [e.gx + w, e.gy + d, 0], [e.gx, e.gy, h + 1.5]].forEach((p) => pts.push(iso(...p))); }
@@ -724,6 +667,7 @@ export function SystemWorkspace({ goTo }) {
   const [motors, setMotors] = useState(true);
   const [fitSignal, setFitSignal] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : "iso"));
   const analysis = useMemo(() => analyseSystem(sys, { motors }), [sys, motors]);
 
   const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => (e.id === id ? clean({ ...e, ...patch }) : e)) }));
@@ -818,8 +762,12 @@ export function SystemWorkspace({ goTo }) {
             <div className="flex flex-col min-w-0 min-h-0 gap-2">
               <div className="toolbar">
                 <div className="seg">
+                  <Btn active={mode === "iso"} onClick={() => setMode("iso")} title="Isometric site plan">Iso</Btn>
+                  <Btn active={mode === "3d"} onClick={() => { setMode("3d"); setTool("select"); }} title="Orbitable 3D model">3D</Btn>
+                </div>
+                <div className="seg">
                   <Btn active={tool === "select"} onClick={() => setTool("select")}><Icon name="select" size={14} />Select</Btn>
-                  <Btn active={tool === "connect"} onClick={() => setTool("connect")}><Icon name="connect" size={14} />Connect</Btn>
+                  <Btn active={tool === "connect"} disabled={mode === "3d"} onClick={() => setTool("connect")}><Icon name="connect" size={14} />Connect</Btn>
                 </div>
                 <div className="relative">
                   <Btn kind="primary-soft" onClick={() => setAddOpen(!addOpen)}><Icon name="plus" size={14} />Add equipment</Btn>
@@ -831,7 +779,8 @@ export function SystemWorkspace({ goTo }) {
                   <Btn onClick={() => setFitSignal((x) => x + 1)}><Icon name="fit" size={14} />Fit</Btn>
                 </div>
               </div>
-              <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />
+              {mode === "3d" ? <Site3D sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} animate={animate} showTags={showTags} /> :
+              <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
               {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} />

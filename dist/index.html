@@ -311,10 +311,22 @@
   .xf-sw-hv { background: color-mix(in srgb, var(--accent) 55%, var(--bg)); border-color: var(--accent) !important; }
   @media (max-width: 899px) { .xf-grid { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 420px) { .xf-fields { grid-template-columns: minmax(0, 1fr); } .xf-grid { padding: 10px 12px; } }
+
+  /* 3D view */
+  .site3d { position: relative; }
+  .canvas3d { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  .canvas3d:active { cursor: grabbing; }
+  .labels3d { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .lbl3d { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 1px; padding: 4px 8px 4px 10px; background: var(--tag-bg); border: 1px solid var(--line); border-radius: 4px; white-space: nowrap; border-left: 3px solid var(--faint); }
+  .lbl3d[data-tone="ok"] { border-left-color: var(--ok); } .lbl3d[data-tone="warn"] { border-left-color: var(--high); } .lbl3d[data-tone="crit"] { border-left-color: var(--crit); }
+  .lbl3d b { font-size: 10.5px; font-weight: 600; color: var(--fg); }
+  .lbl3d span { font-family: var(--font-data); font-size: 9.5px; color: var(--muted); }
+  .lbl3d span:empty { display: none; }
   .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
   @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
 </style>
 <div id="root"><div class="boot">Loading Power Equipment Studio…</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script>
@@ -652,7 +664,7 @@
     const { vm, va } = sol;
     const { P: P2, Q } = injections(Y, vm, va);
     const base = net.base;
-    const V = Array.from(vm, (m, i) => [m * Math.cos(va[i]), m * Math.sin(va[i])]);
+    const V2 = Array.from(vm, (m, i) => [m * Math.cos(va[i]), m * Math.sin(va[i])]);
     const buses = net.buses.map((b, i) => {
       const p = P2[i] * base, q = Q[i] * base;
       const pg = p + b.pLoad, qg = q + b.qLoad;
@@ -676,7 +688,7 @@
     let tl = [0, 0];
     const branches = net.branches.map((br) => {
       const pr = branchPrims(br);
-      const vf = V[br.f], vt = V[br.t];
+      const vf = V2[br.f], vt = V2[br.t];
       const If = [cmul(pr.yff, vf)[0] + cmul(pr.yft, vt)[0], cmul(pr.yff, vf)[1] + cmul(pr.yft, vt)[1]];
       const It = [cmul(pr.ytf, vf)[0] + cmul(pr.ytt, vt)[0], cmul(pr.ytf, vf)[1] + cmul(pr.ytt, vt)[1]];
       const Sf = cmul(vf, conj(If)), St = cmul(vt, conj(It));
@@ -2960,17 +2972,7 @@
     ]
   };
 
-  // src/ui/system.jsx
-  var { useState: useState3, useMemo: useMemo2, useEffect: useEffect3, useRef: useRef2, useCallback: useCallback2 } = React;
-  var U = 34;
-  var C30 = Math.cos(Math.PI / 6);
-  var S30 = 0.5;
-  var iso = (x, y, z = 0) => [(x - y) * U * C30, (x + y) * U * S30 - z * U];
-  var P = (pts) => pts.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
-  var unIso = (sx, sy) => {
-    const a = sx / (U * C30), b = sy / (U * S30);
-    return [(a + b) / 2, (b - a) / 2];
-  };
+  // src/ui/systemGeometry.js
   function dims(e) {
     switch (e.type) {
       case "switchgear": {
@@ -2997,6 +2999,540 @@
         return { w: 1, d: 1, h: 1 };
     }
   }
+  function anchor(e, termName, kind, slot = 0.5) {
+    const { w, d, h } = dims(e);
+    const x = e.gx, y = e.gy;
+    const top = kind === "cablebus";
+    switch (e.type) {
+      case "transformer": {
+        const hv = termName === "hv";
+        return top ? [x + (hv ? 0.4 : w - 0.4), y + d / 2, h + (hv ? 0.75 : 0.4)] : [x + (hv ? 0.4 : w - 0.4), y + d / 2, 0];
+      }
+      case "utility":
+        return top ? [x + 0.5, y + 0.5, 3.6] : [x + 0.65, y + 0.5, 0];
+      case "switchgear":
+      case "mcc":
+      case "panel":
+        return [x + w * slot, y + d * 0.35, top ? h : 0];
+      case "motor":
+        return top ? [x + 0.92, y + d / 2, 1.3] : [x + 0.92, y + d / 2, 0];
+      default:
+        return [x + w / 2, y + d / 2, top ? h : 0];
+    }
+  }
+  function routeConnector(c, eqMap, slots) {
+    const [fa, ft] = c.from.split("."), [ta, tt] = c.to.split(".");
+    const A = eqMap[fa], B = eqMap[ta];
+    if (!A || !B) return null;
+    const pa = anchor(A, ft, c.kind, slots[c.id + ":from"] ?? 0.5), pb = anchor(B, tt, c.kind, slots[c.id + ":to"] ?? 0.5);
+    if (c.kind === "cablebus") {
+      const zt = Math.max(dims(A).h, dims(B).h, pa[2], pb[2]) + 0.9;
+      return { overhead: true, zt, pts: [pa, [pa[0], pa[1], zt], [pb[0], pa[1], zt], [pb[0], pb[1], zt], pb] };
+    }
+    if (c.kind === "direct") return { pts: [pa, pb], direct: true };
+    return { overhead: false, pts: [pa, [pa[0], pb[1], 0], pb] };
+  }
+  function connectorSlots(sys, eqMap) {
+    const per = {};
+    sys.connectors.forEach((c) => ["from", "to"].forEach((k) => {
+      const id = c[k].split(".")[0];
+      const e = eqMap[id];
+      if (!e || !NODE_KINDS.has(e.type)) return;
+      const other = eqMap[c[k === "from" ? "to" : "from"].split(".")[0]];
+      (per[id] || (per[id] = [])).push({ key: c.id + ":" + k, ox: other ? other.gx - other.gy : 0 });
+    }));
+    const out = {};
+    for (const list of Object.values(per)) {
+      list.sort((a, b) => a.ox - b.ox);
+      list.forEach((s, i) => out[s.key] = (i + 0.5) / list.length);
+    }
+    return out;
+  }
+  var fullEq = (e) => ({ ...EQUIPMENT[e.type].defaults, ...e });
+  var fullCon = (c) => ({ ...CONNECTORS[c.kind].defaults, ...c });
+  function siteRoutes(sys) {
+    const eqMap = Object.fromEntries(sys.equipment.map((e) => [e.id, fullEq(e)]));
+    const slots = connectorSlots(sys, eqMap);
+    const routes = Object.fromEntries(sys.connectors.map((c) => [c.id, routeConnector(fullCon(c), eqMap, slots)]));
+    return { eqMap, slots, routes };
+  }
+
+  // src/ui/system3d.jsx
+  var { useEffect: useEffect3, useRef: useRef2, useState: useState3 } = React;
+  var COLORS = {
+    eq: 7306119,
+    door: 5661294,
+    edge: 2765628,
+    tank: 5205850,
+    fin: 5996134,
+    porcelain: 9132602,
+    brass: 13214287,
+    motor: 4155540,
+    bldg: 7831690,
+    roof: 7032636,
+    window: 2640483,
+    gen: 13214280,
+    tray: 11845319,
+    pole: 7033920,
+    phA: 14703183,
+    phB: 15254362,
+    phC: 5939424,
+    ok: 5030794,
+    warn: 16747338,
+    crit: 16736095,
+    ground: 1120802,
+    duct: 3885654
+  };
+  var loadHex = (pct) => pct == null ? 9676984 : pct > 100 ? COLORS.crit : pct > 80 ? COLORS.warn : COLORS.ok;
+  function mats() {
+    const m = {};
+    const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: 0.18, ...o });
+    for (const [k, v] of Object.entries(COLORS)) m[k] = std(v);
+    m.brass = std(COLORS.brass, { metalness: 0.7, roughness: 0.35 });
+    m.tray = std(COLORS.tray, { metalness: 0.55, roughness: 0.4 });
+    m.cover = std(COLORS.tray, { metalness: 0.5, roughness: 0.45, transparent: true, opacity: 0.28 });
+    m.window = std(COLORS.window, { metalness: 0.1, roughness: 0.15, emissive: 729651 });
+    m.lampOn = new THREE.MeshBasicMaterial({ color: 16728128 });
+    m.lampOff = new THREE.MeshBasicMaterial({ color: 4247680 });
+    m.duct = std(COLORS.duct, { transparent: true, opacity: 0.55 });
+    return m;
+  }
+  function boxAt(M, mat, x, y, z, w, h, d) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.set(x + w / 2, y + h / 2, z + d / 2);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+  function cylY(mat, x, y, z, r, h, seg = 18) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat);
+    m.position.set(x, y + h / 2, z);
+    m.castShadow = true;
+    return m;
+  }
+  function bushing(G, M, x, y, z, r, h, sheds, mat) {
+    G.add(cylY(mat, x, y, z, r, h));
+    for (let i = 1; i <= sheds; i++) G.add(cylY(mat, x, y + i * h / (sheds + 1), z, r * 1.7, 0.03));
+  }
+  function buildEquipment(e, M, energized) {
+    const G = new THREE.Group();
+    const { w, d, h } = dims(e);
+    const x = e.gx, z = e.gy;
+    switch (e.type) {
+      case "switchgear":
+      case "mcc":
+      case "panel": {
+        G.add(boxAt(M, M.eq, x, 0, z, w, h, d));
+        const n = e.type === "panel" ? 1 : e.sections, sw = w / n, mv = e.kv > 1;
+        const rows = e.type === "mcc" ? 6 : mv ? 2 : 3;
+        for (let i = 0; i < n; i++) for (let j = 0; j < rows; j++) {
+          const v0 = 0.1 + j * (h - 0.2) / rows, vh = (h - 0.2) / rows - 0.05;
+          G.add(boxAt(M, M.door, x + i * sw + 0.05, v0, z + d, sw - 0.1, vh, 0.03));
+          const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), energized ? M.lampOn : M.lampOff);
+          lamp.position.set(x + (i + 1) * sw - 0.15, v0 + vh * 0.75, z + d + 0.05);
+          G.add(lamp);
+          if (e.type !== "mcc") G.add(boxAt(M, M.edge, x + i * sw + sw * 0.3, v0 + vh * 0.3, z + d + 0.03, sw * 0.4, vh * 0.3, 0.02));
+        }
+        G.add(boxAt(M, M.edge, x + 0.1, h, z + 0.2, w - 0.2, 0.04, 0.35));
+        break;
+      }
+      case "transformer": {
+        G.add(boxAt(M, M.tank, x, 0, z, w, h, d));
+        for (let i = 0; i < 7; i++) {
+          G.add(boxAt(M, M.fin, x + w, 0.25, z + 0.25 + i * (d - 0.5) / 6, 0.42, h - 0.55, 0.05));
+          G.add(boxAt(M, M.fin, x + 0.25 + i * (w - 0.5) / 6, 0.25, z + d, 0.05, h - 0.55, 0.36));
+        }
+        for (const f of [0.3, 0.75, 1.2]) bushing(G, M, x + 0.4, h, z + f + 0.15, 0.08, 0.75, 3, M.porcelain);
+        for (const f of [0.35, 0.8, 1.25]) G.add(cylY(M.brass, x + w - 0.4, h, z + f + 0.1, 0.1, 0.38));
+        G.add(boxAt(M, M.door, x + 0.35, h * 0.45, z + d - 0.01, 0.55, h * 0.27, 0.04));
+        break;
+      }
+      case "motor": {
+        const r = d * 0.42, cy = r + 0.18;
+        G.add(boxAt(M, M.eq, x + 0.15, 0, z + 0.05, w - 0.3, 0.16, d - 0.1));
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w - 0.45, 28), M.motor);
+        body.rotation.z = Math.PI / 2;
+        body.position.set(x + 0.25 + (w - 0.45) / 2, cy, z + d / 2);
+        body.castShadow = true;
+        G.add(body);
+        for (let i = 0; i < 6; i++) {
+          const rib = new THREE.Mesh(new THREE.TorusGeometry(r * 1.01, 0.018, 6, 28), M.motor);
+          rib.rotation.y = Math.PI / 2;
+          rib.position.set(x + 0.45 + i * 0.2, cy, z + d / 2);
+          G.add(rib);
+        }
+        const cowl = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.96, r * 0.96, 0.3, 24), M.edge);
+        cowl.rotation.z = Math.PI / 2;
+        cowl.position.set(x + 0.15, cy, z + d / 2);
+        G.add(cowl);
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 10), M.brass);
+        shaft.rotation.z = Math.PI / 2;
+        shaft.position.set(x + w, cy, z + d / 2);
+        G.add(shaft);
+        G.add(boxAt(M, M.motor, x + 0.7, cy + r - 0.05, z + d / 2 - 0.22, 0.45, 0.3, 0.44));
+        break;
+      }
+      case "load": {
+        G.add(boxAt(M, M.bldg, x, 0, z, w, h, d));
+        const shape = new THREE.Shape();
+        shape.moveTo(0, 0);
+        shape.lineTo(d, 0);
+        shape.lineTo(d / 2, 0.55);
+        shape.lineTo(0, 0);
+        const roof = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: w + 0.1, bevelEnabled: false }), M.roof);
+        roof.rotation.y = Math.PI / 2;
+        roof.position.set(x - 0.05, h, z + d);
+        roof.castShadow = true;
+        G.add(roof);
+        G.add(boxAt(M, M.door, x + w * 0.4, 0, z + d, w * 0.2, h * 0.7, 0.03));
+        for (const f of [0.12, 0.72]) G.add(boxAt(M, M.window, x + w * f, h * 0.45, z + d, w * 0.16, h * 0.3, 0.03));
+        break;
+      }
+      case "capacitor": {
+        G.add(boxAt(M, M.eq, x, 0, z, w, h, d));
+        for (const f of [0.3, 0.6, 0.9]) G.add(cylY(M.eq, x + f + 0.05, h, z + d / 2, 0.11, 0.35));
+        for (const v of [0.25, 0.4, 0.55, 0.7]) G.add(boxAt(M, M.edge, x + w * 0.15, h * v, z + d, w * 0.7, 0.04, 0.02));
+        break;
+      }
+      case "generator": {
+        G.add(boxAt(M, M.gen, x, 0, z, w, h, d));
+        G.add(cylY(M.edge, x + w - 0.5, h, z + d / 2, 0.1, 0.8));
+        break;
+      }
+      case "utility": {
+        const cx2 = x + 0.5, cz = z + 0.5, H = 4;
+        for (const dz of [-0.45, 0.45]) G.add(cylY(M.pole, cx2, 0, cz + dz, 0.07, H, 10));
+        G.add(boxAt(M, M.pole, cx2 - 0.06, H - 0.36, cz - 0.75, 0.12, 0.12, 1.5));
+        for (const dz of [-0.55, 0, 0.55]) {
+          bushing(G, M, cx2, H - 0.25, cz + dz, 0.05, 0.3, 2, M.porcelain);
+          const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(cx2, H + 0.05, cz + dz), new THREE.Vector3(cx2 - 2.5, H + 0.1, cz + dz - 0.6), new THREE.Vector3(cx2 - 5, H + 0.9, cz + dz - 1.2));
+          G.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.012, 4, false), M.tray));
+        }
+        break;
+      }
+      default:
+        G.add(boxAt(M, M.eq, x, 0, z, w, h, d));
+    }
+    G.userData = { kind: "eq", id: e.id, top: new THREE.Vector3(x + w / 2, h + (e.type === "transformer" ? 0.9 : 0.3), z + d / 2) };
+    G.traverse((o) => {
+      o.userData.pick = { kind: "eq", id: e.id };
+    });
+    return G;
+  }
+  function segmentBox(M, mat, a, b, W, H, yOff = 0) {
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return null;
+    const g = Math.abs(dy) > 1e-6 ? new THREE.BoxGeometry(W, len, H) : Math.abs(dx) > 1e-6 ? new THREE.BoxGeometry(len + W, H, W) : new THREE.BoxGeometry(W, H, len + W);
+    const m = new THREE.Mesh(g, mat);
+    m.position.set((a.x + b.x) / 2, (a.y + b.y) / 2 + yOff, (a.z + b.z) / 2);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  }
+  var V = (p) => new THREE.Vector3(p[0], p[2], p[1]);
+  function buildConnector(c, route, M, res) {
+    const G = new THREE.Group();
+    const pts = route.pts.map(V);
+    if (c.kind === "cablebus") {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        const vertical = Math.abs(a.y - b.y) > 1e-6;
+        if (vertical) {
+          const s = segmentBox(M, M.tray, a, b, 0.42, 0.24);
+          if (s) G.add(s);
+          continue;
+        }
+        const base = segmentBox(M, M.tray, new THREE.Vector3(a.x, a.y - 0.2, a.z), new THREE.Vector3(b.x, b.y - 0.2, b.z), 0.44, 0.03);
+        if (base) G.add(base);
+        const horizX = Math.abs(a.x - b.x) > 1e-6;
+        for (const off of [-0.21, 0.21]) {
+          const o = horizX ? new THREE.Vector3(0, 0, off) : new THREE.Vector3(off, 0, 0);
+          const rail = segmentBox(M, M.tray, a.clone().add(o).setY(a.y - 0.1), b.clone().add(o).setY(b.y - 0.1), 0.03, 0.2);
+          if (rail) {
+            rail.scale.set(horizX ? 1 : 0.07, 1, horizX ? 0.07 : 1);
+            G.add(rail);
+          }
+        }
+        const cover = segmentBox(M, M.cover, a, b, 0.44, 0.02);
+        if (cover) G.add(cover);
+        [M.phA, M.phB, M.phC].forEach((mat, k) => {
+          const off = (k - 1) * 0.11;
+          const o = horizX ? new THREE.Vector3(0, 0, off) : new THREE.Vector3(off, 0, 0);
+          const p0 = a.clone().add(o).setY(a.y - 0.12), p1 = b.clone().add(o).setY(b.y - 0.12);
+          const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(p0, p1), 1, 0.035, 8, false), mat);
+          G.add(tube);
+        });
+      }
+    } else if (c.kind !== "direct") {
+      const g = pts.map((p) => p.clone().setY(0.02));
+      for (let i = 0; i < g.length - 1; i++) {
+        const s = segmentBox(M, M.duct, g[i], g[i + 1], Math.min(0.18 + (c.sets ?? 1) * 0.05, 0.5), 0.04);
+        if (s) G.add(s);
+      }
+      const line = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(g.map((p) => p.clone().setY(0.06)), false, "catmullrom", 0), 64, 0.03, 6, false),
+        new THREE.MeshBasicMaterial({ color: loadHex(res?.loading_pct) })
+      );
+      G.add(line);
+    }
+    G.traverse((o) => {
+      o.userData.pick = { kind: "con", id: c.id };
+    });
+    G.userData = { kind: "con", id: c.id };
+    return G;
+  }
+  function Site3D({ sys, analysis, selection, setSelection, animate, showTags }) {
+    const wrapRef = useRef2(null), canvasRef = useRef2(null), labelsRef = useRef2(null);
+    const st = useRef2(null);
+    const [failed, setFailed] = useState3(typeof THREE === "undefined");
+    useEffect3(() => {
+      if (typeof THREE === "undefined") return;
+      let renderer;
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true });
+      } catch (err) {
+        setFailed(true);
+        return;
+      }
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(659220);
+      scene.fog = new THREE.Fog(659220, 45, 110);
+      const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
+      scene.add(new THREE.HemisphereLight(13624319, 2761760, 1));
+      const sun = new THREE.DirectionalLight(16773853, 1.35);
+      sun.position.set(-18, 30, -8);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 90 });
+      scene.add(sun);
+      scene.add(sun.target);
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: COLORS.ground, roughness: 0.95 }));
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+      const grid = new THREE.GridHelper(80, 80, 2240572, 1450283);
+      grid.position.y = 5e-3;
+      scene.add(grid);
+      const world = new THREE.Group();
+      scene.add(world);
+      const flows = new THREE.Group();
+      scene.add(flows);
+      const orbit = { target: new THREE.Vector3(10, 0, 6), r: 34, theta: -0.75, phi: 0.95 };
+      const s = { renderer, scene, camera, sun, world, flows, orbit, M: mats(), labels: [], particles: [], selBox: null, raf: 0, clock: new THREE.Clock(), animate: true };
+      st.current = s;
+      const place = () => {
+        const { target, r, theta, phi } = orbit;
+        camera.position.set(target.x + r * Math.sin(phi) * Math.sin(theta), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(theta));
+        camera.lookAt(target);
+      };
+      s.place = place;
+      const resize = () => {
+        const el = wrapRef.current;
+        if (!el) return;
+        const w = el.clientWidth || 800, h = el.clientHeight || 500;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      };
+      const ro = new ResizeObserver(resize);
+      ro.observe(wrapRef.current);
+      resize();
+      const cv = canvasRef.current;
+      let drag = null;
+      const down = (ev) => {
+        cv.setPointerCapture(ev.pointerId);
+        drag = { x: ev.clientX, y: ev.clientY, pan: ev.button === 2 || ev.shiftKey, moved: false };
+      };
+      const move = (ev) => {
+        if (!drag) return;
+        const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+        drag.x = ev.clientX;
+        drag.y = ev.clientY;
+        if (Math.abs(dx) + Math.abs(dy) > 1) drag.moved = true;
+        if (drag.pan) {
+          const k = orbit.r * 16e-4;
+          const right = new THREE.Vector3().subVectors(camera.position, orbit.target).cross(camera.up).normalize();
+          const fwd = new THREE.Vector3(Math.sin(orbit.theta), 0, Math.cos(orbit.theta));
+          orbit.target.addScaledVector(right, dx * k).addScaledVector(fwd, -dy * k);
+        } else {
+          orbit.theta -= dx * 6e-3;
+          orbit.phi = Math.min(1.45, Math.max(0.15, orbit.phi - dy * 5e-3));
+        }
+        place();
+      };
+      const up = (ev) => {
+        if (drag && !drag.moved) {
+          const rect = cv.getBoundingClientRect();
+          const ndc = new THREE.Vector2((ev.clientX - rect.left) / rect.width * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+          const ray = new THREE.Raycaster();
+          ray.setFromCamera(ndc, camera);
+          const hit = ray.intersectObjects(world.children, true).find((h) => h.object.userData.pick);
+          s.onPick?.(hit ? hit.object.userData.pick : null);
+        }
+        drag = null;
+      };
+      const wheel = (ev) => {
+        ev.preventDefault();
+        orbit.r = Math.min(120, Math.max(6, orbit.r * Math.exp(ev.deltaY * 12e-4)));
+        place();
+      };
+      const ctx = (ev) => ev.preventDefault();
+      cv.addEventListener("pointerdown", down);
+      cv.addEventListener("pointermove", move);
+      cv.addEventListener("pointerup", up);
+      cv.addEventListener("wheel", wheel, { passive: false });
+      cv.addEventListener("contextmenu", ctx);
+      const tmp = new THREE.Vector3();
+      const loop = () => {
+        s.raf = requestAnimationFrame(loop);
+        if (!wrapRef.current || wrapRef.current.offsetParent === null) return;
+        const dt = s.clock.getDelta();
+        if (s.animate) for (const p of s.particles) {
+          p.t = (p.t + dt * p.speed) % 1;
+          const L = p.total * p.t;
+          let acc = 0;
+          for (let i = 0; i < p.pts.length - 1; i++) {
+            const seg = p.pts[i].distanceTo(p.pts[i + 1]);
+            if (acc + seg >= L) {
+              p.mesh.position.lerpVectors(p.pts[i], p.pts[i + 1], (L - acc) / Math.max(seg, 1e-9));
+              break;
+            }
+            acc += seg;
+          }
+        }
+        renderer.render(scene, camera);
+        const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+        for (const lb of s.labels) {
+          tmp.copy(lb.pos).project(camera);
+          const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+          lb.el.style.display = vis && s.showTags ? "" : "none";
+          if (vis) lb.el.style.transform = `translate(${(tmp.x + 1) / 2 * w}px, ${(1 - tmp.y) / 2 * h}px) translate(-50%, -100%)`;
+        }
+      };
+      place();
+      loop();
+      return () => {
+        cancelAnimationFrame(s.raf);
+        ro.disconnect();
+        cv.removeEventListener("pointerdown", down);
+        cv.removeEventListener("pointermove", move);
+        cv.removeEventListener("pointerup", up);
+        cv.removeEventListener("wheel", wheel);
+        cv.removeEventListener("contextmenu", ctx);
+        renderer.dispose();
+      };
+    }, []);
+    useEffect3(() => {
+      if (st.current) st.current.onPick = (p) => setSelection(p ? { kind: p.kind, id: p.id } : null);
+    }, [setSelection]);
+    useEffect3(() => {
+      if (st.current) {
+        st.current.animate = animate;
+        st.current.showTags = showTags;
+        st.current.flows.visible = animate;
+      }
+    }, [animate, showTags]);
+    useEffect3(() => {
+      const s = st.current;
+      if (!s) return;
+      const dispose = (grp) => {
+        grp.traverse((o) => {
+          o.geometry?.dispose?.();
+        });
+        grp.clear();
+      };
+      dispose(s.world);
+      dispose(s.flows);
+      s.particles = [];
+      const labelsEl = labelsRef.current;
+      labelsEl.innerHTML = "";
+      s.labels = [];
+      const { eqMap, routes } = siteRoutes(sys);
+      const ok = analysis?.ok, res = analysis?.equipment || {}, cres = analysis?.connectors || {};
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const e of Object.values(eqMap)) {
+        const g = buildEquipment(e, s.M, !!ok);
+        s.world.add(g);
+        const { w, d } = dims(e);
+        minX = Math.min(minX, e.gx);
+        maxX = Math.max(maxX, e.gx + w);
+        minZ = Math.min(minZ, e.gy);
+        maxZ = Math.max(maxZ, e.gy + d);
+        const r = ok ? res[e.id] : null;
+        const el = document.createElement("div");
+        el.className = "lbl3d";
+        const tone = !r ? "" : r.loading_pct > 100 || r.sc_duty_pct > 100 ? "crit" : r.vflag !== "ok" || r.loading_pct > 80 || r.sc_duty_pct > 90 ? "warn" : "ok";
+        el.dataset.tone = tone;
+        const line2 = !r ? "" : r.loading_pct != null ? `${r.v_pu.toFixed(3)} pu \xB7 ${fmt(r.loading_pct, 0)}%` : `${r.v_pu.toFixed(3)} pu`;
+        const line3 = r?.ik_ka != null && ["switchgear", "mcc", "panel", "utility"].includes(e.type) ? `I\u2033k ${fmt(r.ik_ka, 1)} kA` : "";
+        el.innerHTML = `<b></b><span></span><span></span>`;
+        el.children[0].textContent = e.name || e.id;
+        el.children[1].textContent = line2;
+        el.children[2].textContent = line3;
+        labelsEl.appendChild(el);
+        s.labels.push({ el, pos: g.userData.top.clone() });
+      }
+      for (const c of sys.connectors) {
+        const rt = routes[c.id];
+        if (!rt || rt.direct) continue;
+        const r = ok ? cres[c.id] : null;
+        s.world.add(buildConnector({ ...c }, rt, s.M, r));
+        if (r) {
+          let pts = rt.pts.map(V).map((p) => c.kind === "cablebus" ? p.clone().setY(p.y + 0.05) : p.clone().setY(0.12));
+          if (c.kind !== "cablebus") pts = pts.map((p) => p.clone().setY(0.12));
+          if (r.dir < 0) pts.reverse();
+          let total = 0;
+          for (let i = 0; i < pts.length - 1; i++) total += pts[i].distanceTo(pts[i + 1]);
+          const n = Math.max(2, Math.round(total / 1.4)), speed = (0.25 + 0.9 * Math.min(1, (r.loading_pct ?? 30) / 100)) * (6 / Math.max(total, 1));
+          const mat = new THREE.MeshBasicMaterial({ color: loadHex(r.loading_pct) });
+          for (let i = 0; i < n; i++) {
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), mat);
+            s.flows.add(mesh);
+            s.particles.push({ mesh, pts, total, t: i / n, speed });
+          }
+        }
+      }
+      if (!s.framed && isFinite(minX)) {
+        s.orbit.target.set((minX + maxX) / 2, 0.8, (minZ + maxZ) / 2);
+        s.orbit.r = Math.max(18, 1.25 * Math.hypot(maxX - minX, maxZ - minZ));
+        s.sun.target.position.copy(s.orbit.target);
+        s.sun.position.set(s.orbit.target.x - 18, 30, s.orbit.target.z - 10);
+        s.place();
+        s.framed = true;
+      }
+    }, [sys, analysis]);
+    useEffect3(() => {
+      const s = st.current;
+      if (!s) return;
+      if (s.selBox) {
+        s.scene.remove(s.selBox);
+        s.selBox = null;
+      }
+      if (!selection) return;
+      const target = s.world.children.find((g) => g.userData.kind === (selection.kind === "eq" ? "eq" : "con") && g.userData.id === selection.id);
+      if (!target) return;
+      s.selBox = new THREE.BoxHelper(target, 14201434);
+      s.scene.add(s.selBox);
+    }, [selection, sys, analysis]);
+    if (failed) return /* @__PURE__ */ React.createElement("div", { className: "canvas-wrap grid place-items-center text-muted p-6 text-center" }, "3D view needs WebGL, which this browser or frame does not provide. The isometric view shows the same model.");
+    return /* @__PURE__ */ React.createElement("div", { ref: wrapRef, className: "canvas-wrap site3d" }, /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef, className: "canvas3d" }), /* @__PURE__ */ React.createElement("div", { ref: labelsRef, className: "labels3d" }), /* @__PURE__ */ React.createElement("div", { className: "canvas-hud left" }, /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "Drag to orbit \xB7 right-drag or shift-drag to pan \xB7 scroll to zoom \xB7 click to select")));
+  }
+
+  // src/ui/system.jsx
+  var { useState: useState4, useMemo: useMemo2, useEffect: useEffect4, useRef: useRef3, useCallback: useCallback2 } = React;
+  var U = 34;
+  var C30 = Math.cos(Math.PI / 6);
+  var S30 = 0.5;
+  var iso = (x, y, z = 0) => [(x - y) * U * C30, (x + y) * U * S30 - z * U];
+  var P = (pts) => pts.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  var unIso = (sx, sy) => {
+    const a = sx / (U * C30), b = sy / (U * S30);
+    return [(a + b) / 2, (b - a) / 2];
+  };
   function Box({ x, y, z = 0, w, d, h, tone = "eq", className, stroke = true }) {
     const x1 = x + w, y1 = y + d, z1 = z + h;
     const top = [iso(x, y, z1), iso(x1, y, z1), iso(x1, y1, z1), iso(x, y1, z1)];
@@ -3115,39 +3651,6 @@
     }), /* @__PURE__ */ React.createElement("line", { x1: iso(cx0 + 0.15, cy0, 0)[0], y1: iso(cx0 + 0.15, cy0, 0)[1], x2: iso(cx0 + 0.15, cy0, H - 0.4)[0], y2: iso(cx0 + 0.15, cy0, H - 0.4)[1], stroke: "var(--eq-edge)", strokeWidth: "2.5" }));
   }
   var ART = { switchgear: SwitchgearArt, mcc: MccArt, panel: MccArt, transformer: TransformerArt, motor: MotorArt, load: LoadArt, capacitor: CapacitorArt, generator: GeneratorArt, utility: UtilityArt };
-  function anchor(e, termName, kind, slot = 0.5) {
-    const { w, d, h } = dims(e);
-    const x = e.gx, y = e.gy;
-    const top = kind === "cablebus";
-    switch (e.type) {
-      case "transformer": {
-        const hv = termName === "hv";
-        return top ? [x + (hv ? 0.4 : w - 0.4), y + d / 2, h + (hv ? 0.75 : 0.4)] : [x + (hv ? 0.4 : w - 0.4), y + d / 2, 0];
-      }
-      case "utility":
-        return top ? [x + 0.5, y + 0.5, 3.6] : [x + 0.65, y + 0.5, 0];
-      case "switchgear":
-      case "mcc":
-      case "panel":
-        return [x + w * slot, y + d * 0.35, top ? h : 0];
-      case "motor":
-        return top ? [x + 0.92, y + d / 2, 1.3] : [x + 0.92, y + d / 2, 0];
-      default:
-        return [x + w / 2, y + d / 2, top ? h : 0];
-    }
-  }
-  function routeConnector(c, eqMap, slots) {
-    const [fa, ft] = c.from.split("."), [ta, tt] = c.to.split(".");
-    const A = eqMap[fa], B = eqMap[ta];
-    if (!A || !B) return null;
-    const pa = anchor(A, ft, c.kind, slots[c.id + ":from"] ?? 0.5), pb = anchor(B, tt, c.kind, slots[c.id + ":to"] ?? 0.5);
-    if (c.kind === "cablebus") {
-      const zt = Math.max(dims(A).h, dims(B).h, pa[2], pb[2]) + 0.9;
-      return { overhead: true, zt, pts: [pa, [pa[0], pa[1], zt], [pb[0], pa[1], zt], [pb[0], pb[1], zt], pb] };
-    }
-    if (c.kind === "direct") return { pts: [pa, pb], direct: true };
-    return { overhead: false, pts: [pa, [pa[0], pb[1], 0], pb] };
-  }
   function CableBusArt({ route, res, selected, animate }) {
     const W = 0.42, H = 0.2;
     const segs = [];
@@ -3252,39 +3755,23 @@
     return /* @__PURE__ */ React.createElement("g", { transform: `translate(${x - w / 2},${y - h - 10})`, className: "tag", pointerEvents: "none" }, /* @__PURE__ */ React.createElement("line", { x1: w / 2, y1: h, x2: w / 2, y2: h + 10, stroke: "var(--faint)", strokeWidth: "0.8" }), /* @__PURE__ */ React.createElement("rect", { width: w, height: h, rx: "4", fill: "var(--tag-bg)", stroke: selected ? "var(--accent)" : "var(--line)", strokeWidth: selected ? 1.4 : 0.8 }), /* @__PURE__ */ React.createElement("rect", { width: "3", height: h, rx: "1.5", fill: tone === "crit" ? "var(--crit)" : tone === "warn" ? "var(--high)" : tone === "ok" ? "var(--ok)" : "var(--faint)" }), lines.map((l, i) => /* @__PURE__ */ React.createElement("text", { key: i, x: "9", y: 14 + i * 12.5, className: i ? "tag-sub" : "tag-title" }, l)));
   }
   function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConnect, showTags, animate, fitSignal }) {
-    const wrapRef = useRef2(null), svgRef = useRef2(null);
-    const [size, setSize] = useState3({ w: 1e3, h: 640 });
-    const [view, setView] = useState3({ x: -600, y: -100, w: 1400 });
-    const drag = useRef2(null);
-    const [pending2, setPending] = useState3(null);
-    useEffect3(() => {
+    const wrapRef = useRef3(null), svgRef = useRef3(null);
+    const [size, setSize] = useState4({ w: 1e3, h: 640 });
+    const [view, setView] = useState4({ x: -600, y: -100, w: 1400 });
+    const drag = useRef3(null);
+    const [pending2, setPending] = useState4(null);
+    useEffect4(() => {
       const el = wrapRef.current;
       const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 1e3, h: el.clientHeight || 640 }));
       ro.observe(el);
       return () => ro.disconnect();
     }, []);
-    useEffect3(() => {
+    useEffect4(() => {
       if (tool !== "connect") setPending(null);
     }, [tool]);
     const vh = view.w * (size.h / size.w);
     const eqMap = useMemo2(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
-    const slots = useMemo2(() => {
-      const per = {};
-      sys.connectors.forEach((c) => ["from", "to"].forEach((k) => {
-        const id = c[k].split(".")[0];
-        const e = eqMap[id];
-        if (!e || !NODE_KINDS.has(e.type)) return;
-        const other = eqMap[c[k === "from" ? "to" : "from"].split(".")[0]];
-        (per[id] || (per[id] = [])).push({ key: c.id + ":" + k, ox: other ? other.gx - other.gy : 0 });
-      }));
-      const out = {};
-      for (const list of Object.values(per)) {
-        list.sort((a, b) => a.ox - b.ox);
-        list.forEach((s, i) => out[s.key] = (i + 0.5) / list.length);
-      }
-      return out;
-    }, [sys.connectors, eqMap]);
-    const routes = useMemo2(() => Object.fromEntries(sys.connectors.map((c) => [c.id, routeConnector({ ...CONNECTORS[c.kind].defaults, ...c }, eqMap, slots)])), [sys.connectors, eqMap, slots]);
+    const { slots, routes } = useMemo2(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
     const fit = useCallback2(() => {
       const pts = [];
       for (const e of Object.values(eqMap)) {
@@ -3299,7 +3786,7 @@
       if ((y1 - y0) / w > asp) w = (y1 - y0) / asp;
       setView({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - w * asp / 2, w });
     }, [eqMap, size]);
-    useEffect3(() => {
+    useEffect4(() => {
       fit();
     }, [fitSignal, Math.round(size.w / 60), Math.round(size.h / 60)]);
     const toSvg = (ev) => {
@@ -3309,7 +3796,7 @@
       const p = pt.matrixTransform(svg.getScreenCTM().inverse());
       return [p.x, p.y];
     };
-    useEffect3(() => {
+    useEffect4(() => {
       const svg = svgRef.current;
       const onWheel = (ev) => {
         ev.preventDefault();
@@ -3431,8 +3918,8 @@
   };
   function EqInspector({ e, r, update, remove, rename, scShown }) {
     const full = { ...EQUIPMENT[e.type].defaults, ...e };
-    const [confirm, setConfirm] = useState3(false);
-    useEffect3(() => setConfirm(false), [e.id]);
+    const [confirm, setConfirm] = useState4(false);
+    useEffect4(() => setConfirm(false), [e.id]);
     return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "label" }, EQUIPMENT[e.type].label), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono truncate" }, e.id)), /* @__PURE__ */ React.createElement(Pill, { tone: statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : r ? "ok" : "muted" }, r ? statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK" : "No result")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Tag" }, /* @__PURE__ */ React.createElement("input", { id: "eq-id", className: "num-input", defaultValue: e.id, key: e.id, onBlur: (ev) => rename(e.id, ev.target.value.trim()), onKeyDown: (ev) => ev.key === "Enter" && ev.currentTarget.blur() })), /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { id: "eq-name", className: "num-input", value: e.name ?? "", onChange: (ev) => update(e.id, { name: ev.target.value }) })), EQ_FIELDS[e.type].map(([k, l, u]) => /* @__PURE__ */ React.createElement(Field, { key: k, label: l, unit: u }, /* @__PURE__ */ React.createElement(NumField, { id: `eq-${k}`, value: e[k], placeholder: String(full[k]), onCommit: (v) => update(e.id, { [k]: v }) }))), e.type === "motor" && /* @__PURE__ */ React.createElement(Field, { label: "Fault contribution" }, /* @__PURE__ */ React.createElement("select", { id: "eq-contrib", className: "num-input", value: full.contributes ? "yes" : "no", onChange: (ev) => update(e.id, { contributes: ev.target.value === "yes" }) }, /* @__PURE__ */ React.createElement("option", { value: "yes" }, "Included"), /* @__PURE__ */ React.createElement("option", { value: "no" }, "Excluded")))), r && /* @__PURE__ */ React.createElement("div", { className: "res-block" }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Load flow", scShown && " \xB7 short circuit"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Voltage"), /* @__PURE__ */ React.createElement("dd", { style: { color: r.vflag === "ok" ? "var(--ok)" : r.vflag === "low" ? "var(--low)" : "var(--high)" } }, r.v_pu.toFixed(4), " pu \xB7 ", fmtKv(r.v_kv)), /* @__PURE__ */ React.createElement("dt", null, "Angle"), /* @__PURE__ */ React.createElement("dd", null, r.angle.toFixed(2), "\xB0"), r.bus_i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Bus current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.bus_i_a, 0), " A (", fmt(r.loading_pct, 1), " %)")), r.s_kva != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Through"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.s_kva, 0), " kVA (", fmt(r.loading_pct, 1), " %)")), r.i_hv_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "HV / LV current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_hv_a, 1), " / ", fmt(r.i_lv_a, 0), " A")), r.loss_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Losses"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.loss_kw, 2), " kW")), r.p_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "P"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_kw, 1), " kW")), r.q_kvar != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Q"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.q_kvar, 1), " kvar")), r.i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_a, 1), " A")), r.ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "I\u2033k (3\u03C6)"), /* @__PURE__ */ React.createElement("dd", { className: r.sc_duty_pct > 100 ? "text-crit" : "" }, fmt(r.ik_ka, 2), " kA", r.sc_duty_pct != null && ` \xB7 ${fmt(r.sc_duty_pct, 0)} % of ${full.sc_ka} kA`)), r.ip_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Peak ip"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.ip_ka, 2), " kA \xB7 X/R ", fmt(r.xr_fault, 1))), r.lv_ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "LV terminal I\u2033k"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.lv_ik_ka, 2), " kA")), r.contribution_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Motor contribution"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.contribution_ka, 2), " kA")))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, !confirm ? /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => setConfirm(true) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger-solid", onClick: () => remove(e.id) }, "Delete ", e.id, " and its connections"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setConfirm(false) }, "Cancel"))));
   }
   function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
@@ -3461,15 +3948,16 @@
   }
   var ADDABLE = [["transformer", "Transformer"], ["switchgear", "Switchgear"], ["mcc", "MCC"], ["motor", "Motor"], ["load", "Load"], ["capacitor", "Capacitor"], ["generator", "Generator"], ["utility", "Utility"]];
   function SystemWorkspace({ goTo }) {
-    const [sys, setSys] = useState3(() => clone(EXAMPLE_SYSTEM));
-    const [selection, setSelection] = useState3(null);
-    const [tool, setTool] = useState3("select");
-    const [view, setView] = useState3("site");
-    const [showTags, setShowTags] = useState3(true);
-    const [animate, setAnimate] = useState3(true);
-    const [motors, setMotors] = useState3(true);
-    const [fitSignal, setFitSignal] = useState3(0);
-    const [addOpen, setAddOpen] = useState3(false);
+    const [sys, setSys] = useState4(() => clone(EXAMPLE_SYSTEM));
+    const [selection, setSelection] = useState4(null);
+    const [tool, setTool] = useState4("select");
+    const [view, setView] = useState4("site");
+    const [showTags, setShowTags] = useState4(true);
+    const [animate, setAnimate] = useState4(true);
+    const [motors, setMotors] = useState4(true);
+    const [fitSignal, setFitSignal] = useState4(0);
+    const [addOpen, setAddOpen] = useState4(false);
+    const [mode, setMode] = useState4(() => typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : "iso");
     const analysis = useMemo2(() => analyseSystem(sys, { motors }), [sys, motors]);
     const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => e.id === id ? clean({ ...e, ...patch }) : e) }));
     const updateCon = (id, patch) => setSys((s) => ({ ...s, connectors: s.connectors.map((c) => c.id === id ? clean({ ...c, ...patch }) : c) }));
@@ -3542,7 +4030,7 @@
       bus.emit("loadflow:open", { data: c.lfCase, name: `${sys.name} (buses)`, layout });
       goTo("loadflow");
     };
-    useEffect3(() => {
+    useEffect4(() => {
       const onKey = (ev) => {
         if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
         if (!wsVisible()) return;
@@ -3559,7 +4047,7 @@
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     });
-    const hostRef = useRef2(null);
+    const hostRef = useRef3(null);
     const wsVisible = () => !!hostRef.current && hostRef.current.offsetParent !== null;
     const selEq = selection?.kind === "eq" && sys.equipment.find((e) => e.id === selection.id);
     const selCon = selection?.kind === "con" && sys.connectors.find((c) => c.id === selection.id);
@@ -3569,7 +4057,10 @@
       setSys(clone(EXAMPLE_SYSTEM));
       setSelection(null);
       setFitSignal((x) => x + 1);
-    } }, "Reset example"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs" }, [["site", "Site view"], ["schedule", "Schedules & fault table"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, className: cx("tab", view === k && "is-active"), onClick: () => setView(k) }, l)), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), t && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Demand ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.load_kw, 0)), " kW \xB7 Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.loss_kw, 1)), " kW \xB7 Max I\u2033k ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.max_ik_ka, 1)), " kA"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", view === "site" && "is-diagram") }, view === "site" ? /* @__PURE__ */ React.createElement("div", { className: "diagram-grid" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-w-0 min-h-0 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "toolbar" }, /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select") }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", onClick: () => setTool("connect") }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setAddOpen(!addOpen) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add equipment"), addOpen && /* @__PURE__ */ React.createElement("div", { className: "menu" }, ADDABLE.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => addEq(k) }, l)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap ml-auto" }, /* @__PURE__ */ React.createElement(Btn, { active: showTags, onClick: () => setShowTags(!showTags) }, "Tags"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate) }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"))), /* @__PURE__ */ React.createElement(SiteView, { sys, analysis, selection, setSelection, tool, onMove: move, onConnect: connect, showTags, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, selEq ? /* @__PURE__ */ React.createElement(EqInspector, { e: selEq, r: analysis.ok ? analysis.equipment[selEq.id] : null, update: updateEq, remove: removeEq, rename: renameEq, scShown: !!analysis.sc }) : selCon ? /* @__PURE__ */ React.createElement(
+    } }, "Reset example"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs" }, [["site", "Site view"], ["schedule", "Schedules & fault table"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, className: cx("tab", view === k && "is-active"), onClick: () => setView(k) }, l)), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), t && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Demand ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.load_kw, 0)), " kW \xB7 Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.loss_kw, 1)), " kW \xB7 Max I\u2033k ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.max_ik_ka, 1)), " kA"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", view === "site" && "is-diagram") }, view === "site" ? /* @__PURE__ */ React.createElement("div", { className: "diagram-grid" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-w-0 min-h-0 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "toolbar" }, /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: mode === "iso", onClick: () => setMode("iso"), title: "Isometric site plan" }, "Iso"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "3d", onClick: () => {
+      setMode("3d");
+      setTool("select");
+    }, title: "Orbitable 3D model" }, "3D")), /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select") }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", disabled: mode === "3d", onClick: () => setTool("connect") }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setAddOpen(!addOpen) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add equipment"), addOpen && /* @__PURE__ */ React.createElement("div", { className: "menu" }, ADDABLE.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => addEq(k) }, l)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap ml-auto" }, /* @__PURE__ */ React.createElement(Btn, { active: showTags, onClick: () => setShowTags(!showTags) }, "Tags"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate) }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"))), mode === "3d" ? /* @__PURE__ */ React.createElement(Site3D, { sys, analysis, selection, setSelection, animate, showTags }) : /* @__PURE__ */ React.createElement(SiteView, { sys, analysis, selection, setSelection, tool, onMove: move, onConnect: connect, showTags, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, selEq ? /* @__PURE__ */ React.createElement(EqInspector, { e: selEq, r: analysis.ok ? analysis.equipment[selEq.id] : null, update: updateEq, remove: removeEq, rename: renameEq, scShown: !!analysis.sc }) : selCon ? /* @__PURE__ */ React.createElement(
       ConInspector,
       {
         c: selCon,
@@ -3897,7 +4388,7 @@
   }
 
   // src/ui/transformer.jsx
-  var { useState: useState4, useMemo: useMemo3 } = React;
+  var { useState: useState5, useMemo: useMemo3 } = React;
   var EXAMPLE = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
   function solve(inp, tune) {
     try {
@@ -3908,8 +4399,8 @@
     }
   }
   function TransformerWorkspace() {
-    const [inp, setInp] = useState4(() => transformerInput(EXAMPLE));
-    const [tune, setTune] = useState4(true);
+    const [inp, setInp] = useState5(() => transformerInput(EXAMPLE));
+    const [tune, setTune] = useState5(true);
     const { result: r, error } = useMemo3(() => solve(inp, tune), [inp, tune]);
     const set = (k, optional) => (v) => setInp((s) => v === void 0 && !optional ? s : { ...s, [k]: v === void 0 ? null : v });
     const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `xf-${k}`, value: inp[k] === null ? void 0 : inp[k], placeholder: o.ph, disabled: o.disabled, onCommit: set(k, o.optional) }));
@@ -4038,13 +4529,13 @@
   ];
 
   // src/ui/App.jsx
-  var { useState: useState5 } = React;
+  var { useState: useState6 } = React;
   function App() {
-    const [active, setActive] = useState5(() => {
-      const h = (typeof location !== "undefined" ? location.hash : "").slice(1);
+    const [active, setActive] = useState6(() => {
+      const h = (typeof location !== "undefined" ? location.hash : "").slice(1).split("-")[0];
       return WORKSPACES.some((w) => w.key === h) ? h : WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key;
     });
-    const [opened, setOpened] = useState5(() => /* @__PURE__ */ new Set([active]));
+    const [opened, setOpened] = useState6(() => /* @__PURE__ */ new Set([active]));
     const open = (k) => {
       setActive(k);
       setOpened((s) => new Set(s).add(k));

@@ -311,9 +311,21 @@
   .xf-sw-hv { background: color-mix(in srgb, var(--accent) 55%, var(--bg)); border-color: var(--accent) !important; }
   @media (max-width: 899px) { .xf-grid { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 420px) { .xf-fields { grid-template-columns: minmax(0, 1fr); } .xf-grid { padding: 10px 12px; } }
+
+  /* 3D view */
+  .site3d { position: relative; }
+  .canvas3d { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  .canvas3d:active { cursor: grabbing; }
+  .labels3d { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .lbl3d { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 1px; padding: 4px 8px 4px 10px; background: var(--tag-bg); border: 1px solid var(--line); border-radius: 4px; white-space: nowrap; border-left: 3px solid var(--faint); }
+  .lbl3d[data-tone="ok"] { border-left-color: var(--ok); } .lbl3d[data-tone="warn"] { border-left-color: var(--high); } .lbl3d[data-tone="crit"] { border-left-color: var(--crit); }
+  .lbl3d b { font-size: 10.5px; font-weight: 600; color: var(--fg); }
+  .lbl3d span { font-family: var(--font-data); font-size: 9.5px; color: var(--muted); }
+  .lbl3d span:empty { display: none; }
   .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
   @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
 </style>
 <div id="root"><div class="boot">Loading Power Equipment Studio…</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
