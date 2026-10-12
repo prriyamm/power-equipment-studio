@@ -7,7 +7,7 @@ That file is published as a Claude Artifact.
 
 | Workspace | What it does |
 |---|---|
-| **System** | The package as equipment: isometric site plan, orbitable 3D model, auto-generated one-line diagram. Live load flow, IEC 60909 short circuit, breaker switching with de-energized islands, switchgear lineup elevations and breaker schedules (NEC 240), arc-flash study (IEEE 1584-2018, PLACEHOLDER coefficients), project save/load, example library, undo/redo. |
+| **System** | The package as equipment: isometric site plan, orbitable 3D model (procedural equipment, loading / bus-voltage / fault-current overlays), auto-generated one-line diagram. Live load flow, IEC 60909 short circuit, breaker switching with de-energized islands, switchgear lineup elevations and breaker schedules (NEC 240), arc-flash study (IEEE 1584-2018, PLACEHOLDER coefficients), project save/load, example library, undo/redo. |
 | **Load flow** | Newton-Raphson bus model, one-line editor, data tables, results, scenarios and comparison, IEEE 14-bus self-test, Q-limits, N−1 screening, short circuit. Byte-compatible with the Python `loadflow` CLI. |
 | **Cable bus** | Check and designer (port of pecalc): current sharing, table/datasheet/IEC 60287 ampacity, shield and enclosure losses, magnetic field map, fault forces, cross-section and iso enclosure view. |
 | **Feeder & cable** | Feeder sizing with parallel sets, NEC 110.14(C)/215, voltage drop, withstand, lug selection. |

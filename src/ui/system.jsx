@@ -770,7 +770,7 @@ export function SystemWorkspace({ goTo }) {
   const [fitSignal, setFitSignal] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
   const [lineupFor, setLineupFor] = useState(() => (typeof location !== "undefined" && location.hash === "#system-lineup" ? "SWGR-LV" : null));
-  const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso"));
+  const [mode, setMode] = useState(() => (typeof location !== "undefined" && location.hash.startsWith("#system-3d") ? "3d" : location.hash === "#system-sld" ? "sld" : "iso"));
   const analysis = useMemo(() => analyseSystem(sys, { motors }), [sys, motors]);
   // Equipment design checks (pecalc cable bus / bus / transformer) are heavier: run them after the frame.
   const [checks, setChecks] = useState({});
@@ -888,7 +888,7 @@ export function SystemWorkspace({ goTo }) {
                   <Btn onClick={() => setFitSignal((x) => x + 1)}><Icon name="fit" size={14} />Fit</Btn>
                 </div>
               </div>
-              {mode === "sld" ? <SystemSld sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} showTags={showTags} /> : mode === "3d" ? <Site3D sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} animate={animate} showTags={showTags} /> :
+              {mode === "sld" ? <SystemSld sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} showTags={showTags} /> : mode === "3d" ? <Site3D sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} animate={animate} showTags={showTags} fitSignal={fitSignal} /> :
               <SiteView sys={sys} analysis={analysis} selection={selection} setSelection={setSelection} tool={tool} onMove={move} onMoveEnd={history.checkpoint} onConnect={connect} showTags={showTags} animate={animate} fitSignal={fitSignal} />}
             </div>
             <aside className="panel inspector">
