@@ -5,6 +5,8 @@
  *
  * Study registry at the bottom: Phase 2/3 studies plug in there.
  * ========================================================================== */
+import { screenN1 } from "./contingency.js";
+import { lfShortCircuit } from "./lfshortcircuit.js";
 const DEG = Math.PI / 180;
 
 /* ---------- canonical field order (matches the Python case files) ---------- */
@@ -219,8 +221,9 @@ function solveNR(net, Y, opts = {}) {
   const tol = opts.tol ?? 1e-8, maxIter = opts.maxIter ?? 50;
   const n = net.buses.length;
   // Start point matches the Python solver: case magnitudes (PQ default 1.0) and case angles.
-  const vm = Float64Array.from(net.buses, (b) => b.vSpec);
-  const va = Float64Array.from(net.buses, (b) => b.aSpec);
+  const vm = opts.init ? Float64Array.from(opts.init.vm) : Float64Array.from(net.buses, (b) => b.vSpec);
+  const va = opts.init ? Float64Array.from(opts.init.va) : Float64Array.from(net.buses, (b) => b.aSpec);
+  if (opts.init) for (const b of net.buses) if (b.kind !== "PQ") vm[b.idx] = b.vSpec;
   const ang = net.buses.filter((b) => b.kind !== "slack").map((b) => b.idx);
   const pq = net.buses.filter((b) => b.kind === "PQ").map((b) => b.idx);
   const na = ang.length, nq = pq.length, N = na + nq;
@@ -283,8 +286,42 @@ function runLoadFlow(data, opts = {}) {
   const net = loadNetwork(data);
   const Y = buildYbus(net);
   let sol;
-  try { sol = solveNR(net, Y, opts); }
-  catch (e) { return { ok: false, converged: false, issues, message: e.message }; }
+  let switching = null, outerIterations = 0;
+  try {
+    sol = solveNR(net, Y, opts);
+    if (opts.enforceQLimits && sol.converged) {
+      // MATPOWER-style outer loop: PV buses beyond q_min/q_max become PQ at the limit; a switched bus
+      // returns to PV when its voltage crosses back over the setpoint (limit no longer binding).
+      switching = [];
+      const TOL = 1e-6, maxOuter = opts.maxOuter ?? 10;
+      for (outerIterations = 1; outerIterations <= maxOuter && sol.converged; outerIterations++) {
+        const { Q } = injections(Y, sol.vm, sol.va);
+        let changed = false;
+        const justSwitched = new Set();
+        for (const b of net.buses) {
+          if (b.kind !== "PV") continue;
+          const qg = Q[b.idx] * net.base + b.qLoad;
+          const hi = num(b.qMax) && qg > b.qMax + TOL, lo = !hi && num(b.qMin) && qg < b.qMin - TOL;
+          if (!hi && !lo) continue;
+          const lim = hi ? b.qMax : b.qMin;
+          b.kind = "PQ"; b.switched = hi ? "q_max" : "q_min"; b.qSpec = (lim - b.qLoad) / net.base;
+          switching.push({ bus: b.id, from: "PV", to: "PQ", limit: b.switched, q_mvar: lim, v: sol.vm[b.idx] });
+          justSwitched.add(b.idx); changed = true;
+        }
+        for (const b of net.buses) {
+          if (!b.switched || justSwitched.has(b.idx)) continue;
+          const v = sol.vm[b.idx];
+          if ((b.switched === "q_max" && v > b.vSpec + 1e-9) || (b.switched === "q_min" && v < b.vSpec - 1e-9)) {
+            switching.push({ bus: b.id, from: "PQ", to: "PV", limit: b.switched, q_mvar: b.switched === "q_max" ? b.qMax : b.qMin, v });
+            b.kind = "PV"; b.switched = null; changed = true;
+          }
+        }
+        if (!changed) break;
+        sol = solveNR(net, Y, { ...opts, init: { vm: sol.vm, va: sol.va } });
+      }
+      outerIterations = Math.min(outerIterations, maxOuter);
+    }
+  } catch (e) { return { ok: false, converged: false, issues, message: e.message }; }
   const { vm, va } = sol;
   const { P, Q } = injections(Y, vm, va);
   const base = net.base;
@@ -295,7 +332,8 @@ function runLoadFlow(data, opts = {}) {
     const vflag = vm[i] < (opts.vMin ?? 0.95) ? "low" : vm[i] > (opts.vMax ?? 1.05) ? "high" : "ok";
     const qflag = b.kind !== "PQ" && ((num(b.qMax) && qg > b.qMax + 1e-6) ? "qmax" : (num(b.qMin) && qg < b.qMin - 1e-6) ? "qmin" : null);
     return { id: b.id, type: b.kind, v: vm[i], angle_deg: va[i] / DEG, p_mw: p, q_mvar: q,
-      p_gen_mw: pg, q_gen_mvar: qg, p_load_mw: b.pLoad, q_load_mvar: b.qLoad, vflag, qflag };
+      p_gen_mw: pg, q_gen_mvar: qg, p_load_mw: b.pLoad, q_load_mvar: b.qLoad, vflag, qflag,
+      ...(switching ? { switched: !!b.switched, switched_limit: b.switched || null } : {}) };
   });
   let tl = [0, 0];
   const branches = net.branches.map((br) => {
@@ -321,6 +359,7 @@ function runLoadFlow(data, opts = {}) {
     total_gen_mw: buses.reduce((a, b) => a + b.p_gen_mw, 0), total_load_mw: buses.reduce((a, b) => a + b.p_load_mw, 0),
     total_gen_mvar: buses.reduce((a, b) => a + b.q_gen_mvar, 0), total_load_mvar: buses.reduce((a, b) => a + b.q_load_mvar, 0),
     balance_residual_pu: Math.abs(sumP - tl[0]),
+    ...(switching ? { q_limits_enforced: true, switching, outer_iterations: outerIterations } : {}),
     buses, branches, solve_ms: (typeof performance !== "undefined" ? performance : Date).now() - t0,
   };
 }
@@ -367,6 +406,15 @@ const CASES = {
     layout: { 1: [110, 470], 2: [270, 600], 3: [620, 610], 4: [600, 440], 5: [330, 400], 6: [330, 250], 7: [760, 360],
       8: [920, 360], 9: [740, 230], 10: [600, 150], 11: [450, 170], 12: [150, 120], 13: [340, 70], 14: [800, 80] } },
 };
+// Same network with tight generator Q limits (MATPOWER case14 limits, bus 2 q_max 30, bus 3 q_max 15)
+// so that Q-limit enforcement has something to do. Not a published reference case.
+CASES.ieee14q = {
+  name: "IEEE 14-bus, tight Q limits", note: "IEEE 14-bus with generator Q limits that bind at buses 2 and 3. Try the Studies tab.",
+  data: JSON.parse(JSON.stringify(CASES.ieee14.data)), layout: CASES.ieee14.layout,
+};
+for (const [id, lo, hi] of [[2, -40, 30], [3, 0, 15], [6, -6, 24], [8, -6, 24]]) {
+  const b = CASES.ieee14q.data.buses.find((x) => x.id === id); b.q_min = lo; b.q_max = hi;
+}
 const IEEE14_REF = {
   v: [1.06, 1.045, 1.01, 1.017671, 1.019514, 1.07, 1.06152, 1.09, 1.055932, 1.050985, 1.056907, 1.055189, 1.050382, 1.03553],
   angle: [0, -4.982589, -12.7251, -10.312901, -8.773854, -14.220946, -13.359627, -13.359627, -14.938521, -15.097288, -14.790622, -15.075584, -15.156276, -16.033644],
@@ -434,9 +482,9 @@ function autoLayout(data, W = 1000, H = 680) {
 /* ---------- study registry: phases 2–3 slot in here ---------- */
 const STUDIES = [
   { key: "loadflow", phase: 1, name: "Load flow", detail: "Polar Newton-Raphson, 1e-8 pu", run: runLoadFlow },
-  { key: "qlimits", phase: 2, name: "Q-limit enforcement", detail: "PV→PQ switching when q_min/q_max is hit", run: null },
-  { key: "contingency", phase: 2, name: "N−1 screening", detail: "Outage each branch, rank by overloads and voltage violations", run: null },
-  { key: "shortcircuit", phase: 2, name: "Short circuit", detail: "IEC 60909-style Thevenin fault currents per bus", run: null },
+  { key: "qlimits", phase: 2, name: "Q-limit enforcement", detail: "PV→PQ switching when q_min/q_max is hit", run: (data, opts = {}) => runLoadFlow(data, { ...opts, enforceQLimits: true }) },
+  { key: "contingency", phase: 2, name: "N−1 screening", detail: "Outage each branch, rank by overloads and voltage violations", run: (data, opts) => screenN1(data, opts) },
+  { key: "shortcircuit", phase: 2, name: "Short circuit", detail: "IEC 60909-style Thevenin fault currents per bus", run: (data, opts) => lfShortCircuit(data, opts) },
   { key: "timeseries", phase: 3, name: "Time series", detail: "Load-duration and profile runs", run: null },
   { key: "report", phase: 3, name: "Report", detail: "PDF study report export", run: null },
 ];

@@ -2,6 +2,8 @@
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
 import * as LF from "../engine/loadflow.js";
 import { bus } from "./bus.js";
+import { StudiesTab } from "./lfstudies.jsx";
+import { outageCase } from "../engine/contingency.js";
 import { Btn, FLAG_COLOR, Field, Icon, NumField, Pill, Section, Tile, V_MIN, V_MAX, busType, clone, cx, fmt, freeSpot, isXfmr, makeScenario, newId, sgn, vflagOf } from "./common.jsx";
 
 /* ================================================================ DIAGRAM */
@@ -226,6 +228,9 @@ function Diagram({ scenario, result, stale, selection, setSelection, tool, setTo
               <text x={x + hw + 8} y={y + 4.5} className="bus-label">
                 <tspan className="bus-kind">{t === "slack" ? "SL" : t} </tspan>{b.id}
               </text>
+              {r?.switched && !stale && (
+                <g transform={`translate(${x + hw - 2},${y - 24})`}><rect x="-52" y="-9" width="54" height="15" rx="7.5" fill="var(--panel)" stroke="var(--high)" strokeWidth="1" /><text x="-25" y="2" textAnchor="middle" fill="var(--high)" style={{ fontSize: 9.5, fontFamily: "var(--font-data)" }}>PQ@limit</text></g>
+              )}
               {r && !stale && (
                 <text x={x - hw - 8} y={y - 1} textAnchor="end" className="bus-res">
                   <tspan fill={FLAG_COLOR[r.vflag]}>{r.v.toFixed(4)}</tspan>
@@ -919,7 +924,7 @@ function VerifyPanel({ onClose, onOpenCase }) {
 }
 
 /* =================================================================== APP */
-const TABS = [["diagram", "Diagram"], ["data", "Data"], ["results", "Results"], ["cases", "Cases"]];
+const TABS = [["diagram", "Diagram"], ["data", "Data"], ["results", "Results"], ["studies", "Studies"], ["cases", "Cases"]];
 
 export function LoadFlowWorkspace() {
   const [scenarios, setScenarios] = useState(() => {
@@ -949,7 +954,14 @@ export function LoadFlowWorkspace() {
 
   const patch = (id, fn) => setScenarios((list) => list.map((s) => (s.id === id ? fn(s) : s)));
   const update = useCallback((fn) => patch(activeId, (s) => { const d = clone(s.data); fn(d); return { ...s, data: d }; }), [activeId]);
-  const solve = useCallback(() => patch(activeId, (s) => ({ ...s, result: LF.runLoadFlow(s.data), solvedData: s.data })), [activeId]);
+  const solve = useCallback(() => patch(activeId, (s) => ({ ...s, result: LF.runLoadFlow(s.data, { enforceQLimits: !!s.enforceQ }), solvedData: s.data })), [activeId]);
+  const setEnforceQ = (on) => patch(activeId, (s) => { const n = { ...s, enforceQ: on }; n.result = LF.runLoadFlow(n.data, { enforceQLimits: on }); n.solvedData = n.data; return n; });
+  const openOutage = (k) => {
+    const src = active, br = src.data.branches[k];
+    const s = makeScenario(`${src.name} − branch ${br.from}→${br.to}`, outageCase(src.data, k), src.layout);
+    s.enforceQ = src.enforceQ; s.result = LF.runLoadFlow(s.data, { enforceQLimits: !!s.enforceQ }); s.solvedData = s.data;
+    addScenario(s); setTab("diagram"); setToast({ text: `Opened outage ${br.from}→${br.to}. Compare it on the Cases tab.` });
+  };
 
   // Live solve: debounce re-solve after edits.
   useEffect(() => {
@@ -1007,7 +1019,7 @@ export function LoadFlowWorkspace() {
     const src = scenarios.find((s) => s.id === id);
     const base = src.name.replace(/ · alt \d+$/, "");
     const n = scenarios.filter((s) => s.name.startsWith(base + " · alt")).length + 1;
-    const s = { ...makeScenario(`${base} · alt ${n}`, src.data, src.layout), result: src.result, solvedData: null };
+    const s = { ...makeScenario(`${base} · alt ${n}`, src.data, src.layout), result: src.result, solvedData: null, enforceQ: src.enforceQ };
     s.solvedData = s.result ? s.data : null;
     addScenario(s); setToast({ text: `Created ${s.name}. Edit it, then compare on the Cases tab.` });
   };
@@ -1086,6 +1098,7 @@ export function LoadFlowWorkspace() {
           addBus={() => addBusAt()} addBranchRow={() => { const ids = active.data.buses.map((b) => b.id); update((d) => d.branches.push({ from: ids[0], to: ids[1], r: 0.01, x: 0.05, b: 0.0 })); }} />}
         {tab === "results" && <ResultsTab scenario={active} result={r} stale={stale} solve={solve} issues={issues} saveFile={saveFile} copyText={copyText}
           onSelectBus={(id) => { setSelection({ kind: "bus", id }); setTab("diagram"); }} />}
+        {tab === "studies" && <StudiesTab scenario={active} result={r} stale={stale} setEnforceQ={setEnforceQ} openOutage={openOutage} />}
         {tab === "cases" && <CasesTab scenarios={scenarios} active={active} setActive={(id) => { setActiveId(id); setSelection(null); }} loadBuiltin={loadBuiltin} importCase={importCase}
           rename={(id, name) => patch(id, (s) => ({ ...s, name }))} duplicate={duplicate} remove={removeScenario} saveFile={saveFile} copyText={copyText} canSave={!!downloads} />}
       </main>
