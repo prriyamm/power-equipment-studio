@@ -15,6 +15,7 @@ import { designChecks } from "../engine/designchecks.js";
 import { CoordinationView } from "./tccView.jsx";
 import { useHistory, ProjectMenu } from "./systemProject.jsx";
 import { ArcFlashSection } from "./systemArcFlash.jsx";
+import { MotorStartSection, ProfileSection } from "./systemStudies.jsx";
 
 /* ------------------------------------------------------------ projection */
 const U = 34;                                  // px per grid unit (one unit ≈ 3 ft)
@@ -704,6 +705,8 @@ function Schedule({ sys, analysis, select, updateEq, checks = {} }) {
         </Section>
       )}
       <ArcFlashSection sys={sys} analysis={analysis} updateEq={updateEq} />
+      <MotorStartSection sys={sys} />
+      <ProfileSection sys={sys} />
     </div>
   );
 }
