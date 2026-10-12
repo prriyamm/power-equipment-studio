@@ -35,6 +35,17 @@
     --high: #ff8b4a;      /* over-voltage / warning */
     --crit: #ff5f5f;
     --info: #63b6d6;
+    /* equipment surfaces: top / left (front) / right faces */
+    --eq-t: #4a5764; --eq-l: #2c3640; --eq-r: #3a4652; --eq-edge: #151c23; --door: #34404b;
+    --tank-t: #4f6b58; --tank-l: #2f4436; --tank-r: #3d5747; --fin-t: #5a7a64; --fin-l: #2a3d31; --fin-r: #3a5243;
+    --motor-t: #5a7ea8; --motor-l: #2e4560; --motor-r: #3d5c80;
+    --bldg-t: #4d5560; --bldg-l: #343b44; --bldg-r: #3f4751; --roof: #5d4a3c; --window: #1c3a4d;
+    --gen-t: #b39248; --gen-l: #6d5828; --gen-r: #8a7034;
+    --tray-t: #9aa7b2; --tray-l: #5f6d79; --tray-r: #7a8894;
+    --porcelain: #9a6a48; --brass: #c9a24f; --pole: #6b5440;
+    --duct: rgba(120, 140, 155, 0.10); --duct-edge: #3b4a56;
+    --ph-a: #e05a4f; --ph-b: #e8c35a; --ph-c: #5aa0e0;
+    --tag-bg: rgba(12, 18, 24, 0.92);
     --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --font-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
     color-scheme: dark;
@@ -249,6 +260,29 @@
     .rail-brand { display: none; }
     .rail-btn { flex: 1 0 60px; }
   }
+
+  /* system site view */
+  .site .canvas { background: radial-gradient(ellipse at 50% 40%, #101922 0%, var(--bg) 70%); }
+  .site-pad { fill: #0e161d; stroke: none; }
+  .g-minor { stroke: #15202a; stroke-width: 0.7; }
+  .g-major { stroke: #1d2a36; stroke-width: 1; }
+  .eq { cursor: move; }
+  .tool-connect .eq { cursor: pointer; }
+  .eq:hover { filter: brightness(1.12); }
+  .eq.is-pending { filter: drop-shadow(0 0 6px var(--accent)); }
+  .eq-shadow { fill: rgba(0, 0, 0, 0.35); }
+  .sel-ring { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 5 3; }
+  .con { cursor: pointer; }
+  .con-hit { fill: none; stroke: transparent; stroke-width: 14; }
+  .tag-title { font-family: var(--font-ui); font-size: 10.5px; font-weight: 600; fill: var(--fg); }
+  .tag-sub { font-family: var(--font-data); font-size: 9.5px; fill: var(--muted); }
+  .con-label { font-family: var(--font-data); font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+  .con-label.sub { font-size: 9.5px; font-weight: 500; }
+  .lg-tray { background: var(--tray-r) !important; height: 6px !important; }
+  .lg-duct { background: transparent !important; border: 1px dashed var(--duct-edge); height: 6px !important; }
+  .menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px; display: flex; flex-direction: column; min-width: 160px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .menu button { text-align: left; padding: 6px 10px; border-radius: 5px; font-size: 13px; color: var(--fg); }
+  .menu button:hover { background: var(--panel); color: var(--accent); }
   .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
   @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
 </style>

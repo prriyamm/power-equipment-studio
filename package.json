@@ -6,7 +6,7 @@
   "description": "Power Equipment Studio for the browser: load flow, equipment-level system view, cable bus, feeder, switchgear and transformer design. Builds to one self-contained HTML file.",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test tests/",
+    "test": "node --test \"tests/*.test.mjs\"",
     "check": "npm test && npm run build"
   },
   "devDependencies": {

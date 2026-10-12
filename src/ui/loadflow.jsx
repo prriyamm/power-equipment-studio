@@ -1,6 +1,7 @@
 /* Load-flow workspace: one-line diagram, data tables, results, cases, verify. */
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
 import * as LF from "../engine/loadflow.js";
+import { bus } from "./bus.js";
 import { Btn, FLAG_COLOR, Field, Icon, NumField, Pill, Section, Tile, V_MIN, V_MAX, busType, clone, cx, fmt, freeSpot, isXfmr, makeScenario, newId, sgn, vflagOf } from "./common.jsx";
 
 /* ================================================================ DIAGRAM */
@@ -1011,6 +1012,13 @@ export function LoadFlowWorkspace() {
     addScenario(s); setToast({ text: `Created ${s.name}. Edit it, then compare on the Cases tab.` });
   };
   const removeScenario = (id) => { setScenarios((l) => { const n = l.filter((s) => s.id !== id); if (id === activeId && n.length) setActiveId(n[0].id); return n.length ? n : l; }); };
+
+  // Networks handed over from other workspaces (System view → compiled bus model).
+  useEffect(() => bus.on("loadflow:open", ({ data, name, layout }) => {
+    const s = makeScenario(name, data, layout && Object.keys(layout).length === data.buses.length ? layout : undefined);
+    s.result = LF.runLoadFlow(s.data); s.solvedData = s.data;
+    addScenario(s); setTab("diagram"); setToast({ text: `Opened ${name}: ${data.buses.length} buses` });
+  }), []); // eslint-disable-line
 
   const saveFile = async (filename, text) => {
     if (!downloads) { copyText(text, "Saving is not available here. Copied to clipboard instead."); return; }
