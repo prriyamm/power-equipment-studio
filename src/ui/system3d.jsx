@@ -4,6 +4,7 @@
 const { useEffect, useRef, useState } = React;
 import { dims, siteRoutes } from "./systemGeometry.js";
 import { fmt } from "./common.jsx";
+import { createViewer } from "./three/viewer.js";
 
 const COLORS = {
   eq: 0x6f7b87, door: 0x56626e, edge: 0x2a333c, tank: 0x4f6f5a, fin: 0x5b7e66, porcelain: 0x8b5a3a, brass: 0xc9a24f,
@@ -171,80 +172,22 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
   const st = useRef(null);
   const [failed, setFailed] = useState(typeof THREE === "undefined");
 
-  // one-time renderer, camera, lights, controls
+  // one-time viewer: renderer, camera, lights, controls (shared scaffolding in ./three/viewer.js)
   useEffect(() => {
     if (typeof THREE === "undefined") return;
-    let renderer;
-    try { renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true }); }
-    catch (err) { setFailed(true); return; }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a0f14); scene.fog = new THREE.Fog(0x0a0f14, 45, 110);
-    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
-    scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x2a2420, 1.0));
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.35); sun.position.set(-18, 30, -8); sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 90 });
-    scene.add(sun); scene.add(sun.target);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: COLORS.ground, roughness: 0.95 }));
-    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
-    const grid = new THREE.GridHelper(80, 80, 0x22303c, 0x16212b); grid.position.y = 0.005; scene.add(grid);
-    const world = new THREE.Group(); scene.add(world);
-    const flows = new THREE.Group(); scene.add(flows);
-    const orbit = { target: new THREE.Vector3(10, 0, 6), r: 34, theta: -0.75, phi: 0.95 };
-    const s = { renderer, scene, camera, sun, world, flows, orbit, M: mats(), labels: [], particles: [], selBox: null, raf: 0, clock: new THREE.Clock(), animate: true };
+    let viewer;
+    try {
+      viewer = createViewer(canvasRef.current, wrapRef.current, {
+        background: 0x0a0f14, fog: [0x0a0f14, 45, 110], gridSize: 80, groundColor: COLORS.ground, labelsEl: labelsRef.current,
+        orbit: { target: new THREE.Vector3(10, 0, 6), r: 34, theta: -0.75, phi: 0.95 },
+      });
+    } catch (err) { setFailed(true); return; }
+    const flows = new THREE.Group(); viewer.scene.add(flows);
+    const s = Object.assign(viewer, { flows, M: mats(), particles: [], selBox: null, animate: true });
     st.current = s;
-
-    const place = () => {
-      const { target, r, theta, phi } = orbit;
-      camera.position.set(target.x + r * Math.sin(phi) * Math.sin(theta), target.y + r * Math.cos(phi), target.z + r * Math.sin(phi) * Math.cos(theta));
-      camera.lookAt(target);
-    };
-    s.place = place;
-    const resize = () => {
-      const el = wrapRef.current; if (!el) return;
-      const w = el.clientWidth || 800, h = el.clientHeight || 500;
-      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-    };
-    const ro = new ResizeObserver(resize); ro.observe(wrapRef.current); resize();
-
-    // controls
-    const cv = canvasRef.current; let drag = null;
-    const down = (ev) => { cv.setPointerCapture(ev.pointerId); drag = { x: ev.clientX, y: ev.clientY, pan: ev.button === 2 || ev.shiftKey, moved: false }; };
-    const move = (ev) => {
-      if (!drag) return;
-      const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; drag.x = ev.clientX; drag.y = ev.clientY;
-      if (Math.abs(dx) + Math.abs(dy) > 1) drag.moved = true;
-      if (drag.pan) {
-        const k = orbit.r * 0.0016;
-        const right = new THREE.Vector3().subVectors(camera.position, orbit.target).cross(camera.up).normalize();
-        const fwd = new THREE.Vector3(Math.sin(orbit.theta), 0, Math.cos(orbit.theta));
-        orbit.target.addScaledVector(right, dx * k).addScaledVector(fwd, -dy * k);
-      } else {
-        orbit.theta -= dx * 0.006; orbit.phi = Math.min(1.45, Math.max(0.15, orbit.phi - dy * 0.005));
-      }
-      place();
-    };
-    const up = (ev) => {
-      if (drag && !drag.moved) {
-        const rect = cv.getBoundingClientRect();
-        const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
-        const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, camera);
-        const hit = ray.intersectObjects(world.children, true).find((h) => h.object.userData.pick);
-        s.onPick?.(hit ? hit.object.userData.pick : null);
-      }
-      drag = null;
-    };
-    const wheel = (ev) => { ev.preventDefault(); orbit.r = Math.min(120, Math.max(6, orbit.r * Math.exp(ev.deltaY * 0.0012))); place(); };
-    const ctx = (ev) => ev.preventDefault();
-    cv.addEventListener("pointerdown", down); cv.addEventListener("pointermove", move); cv.addEventListener("pointerup", up);
-    cv.addEventListener("wheel", wheel, { passive: false }); cv.addEventListener("contextmenu", ctx);
-
-    const tmp = new THREE.Vector3();
-    const loop = () => {
-      s.raf = requestAnimationFrame(loop);
-      if (!wrapRef.current || wrapRef.current.offsetParent === null) return; // hidden workspace: skip work
-      const dt = s.clock.getDelta();
-      if (s.animate) for (const p of s.particles) {
+    s.onFrame((dt) => {
+      if (!s.animate) return;
+      for (const p of s.particles) {
         p.t = (p.t + dt * p.speed) % 1;
         const L = p.total * p.t; let acc = 0;
         for (let i = 0; i < p.pts.length - 1; i++) {
@@ -253,34 +196,19 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
           acc += seg;
         }
       }
-      renderer.render(scene, camera);
-      // HTML labels follow their anchor points
-      const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
-      for (const lb of s.labels) {
-        tmp.copy(lb.pos).project(camera);
-        const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
-        lb.el.style.display = vis && s.showTags ? "" : "none";
-        if (vis) lb.el.style.transform = `translate(${((tmp.x + 1) / 2) * w}px, ${((1 - tmp.y) / 2) * h}px) translate(-50%, -100%)`;
-      }
-    };
-    place(); loop();
-    return () => {
-      cancelAnimationFrame(s.raf); ro.disconnect();
-      cv.removeEventListener("pointerdown", down); cv.removeEventListener("pointermove", move); cv.removeEventListener("pointerup", up);
-      cv.removeEventListener("wheel", wheel); cv.removeEventListener("contextmenu", ctx);
-      renderer.dispose();
-    };
+    });
+    return () => { s.dispose(); };
   }, []);
 
-  useEffect(() => { if (st.current) st.current.onPick = (p) => setSelection(p ? { kind: p.kind, id: p.id } : null); }, [setSelection]);
-  useEffect(() => { if (st.current) { st.current.animate = animate; st.current.showTags = showTags; st.current.flows.visible = animate; } }, [animate, showTags]);
+  useEffect(() => { if (st.current) st.current.onPick((p) => setSelection(p ? { kind: p.kind, id: p.id } : null)); }, [setSelection]);
+  useEffect(() => { if (st.current) { st.current.animate = animate; st.current.showLabels = showTags; st.current.flows.visible = animate; } }, [animate, showTags]);
 
   // rebuild meshes when the model or results change
   useEffect(() => {
     const s = st.current; if (!s) return;
     const dispose = (grp) => { grp.traverse((o) => { o.geometry?.dispose?.(); }); grp.clear(); };
     dispose(s.world); dispose(s.flows); s.particles = [];
-    const labelsEl = labelsRef.current; labelsEl.innerHTML = ""; s.labels = [];
+    s.clearLabels();
     const { eqMap, routes } = siteRoutes(sys);
     const ok = analysis?.ok, res = analysis?.equipment || {}, cres = analysis?.connectors || {};
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -295,7 +223,7 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
       const line3 = r?.ik_ka != null && ["switchgear", "mcc", "panel", "utility"].includes(e.type) ? `I″k ${fmt(r.ik_ka, 1)} kA` : "";
       el.innerHTML = `<b></b><span></span><span></span>`;
       el.children[0].textContent = e.name || e.id; el.children[1].textContent = line2; el.children[2].textContent = line3;
-      labelsEl.appendChild(el); s.labels.push({ el, pos: g.userData.top.clone() });
+      s.addLabel(el, g.userData.top);
     }
     for (const c of sys.connectors) {
       const rt = routes[c.id]; if (!rt || rt.direct) continue;
