@@ -322,6 +322,28 @@
   .lbl3d b { font-size: 10.5px; font-weight: 600; color: var(--fg); }
   .lbl3d span { font-family: var(--font-data); font-size: 9.5px; color: var(--muted); }
   .lbl3d span:empty { display: none; }
+
+  /* one-line diagram */
+  .sld-wrap { background: var(--bg); background-image: radial-gradient(var(--grid-major) 1px, transparent 1px); background-size: 20px 20px; }
+  .sld-scroll { position: absolute; inset: 0; overflow: auto; }
+  .sld { display: block; }
+  .sld-bus, .sld-edge, .sld-dev { cursor: pointer; }
+  .sld-hit { stroke: transparent; stroke-width: 16; fill: none; }
+  .sld-sel { stroke: var(--accent); stroke-width: 10; opacity: 0.3; fill: none; }
+  .sld-sel-box { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 4 3; }
+  .sld-brk { fill: var(--bg); stroke: var(--wire); stroke-width: 1.4; }
+  .sld-brk.is-closed { fill: var(--crit); fill-opacity: 0.85; stroke: var(--crit); }
+  .sld-sym circle, .sld-sym path, .sld-sym rect { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+  .sld-sym .sld-fill { fill: var(--fg); }
+  .sld-sym-text { font-family: var(--font-ui); font-weight: 600; font-size: 13px; fill: var(--fg); }
+  .sld-cable { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+  .sld-tie { fill: none; stroke: var(--wire); stroke-width: 1.4; stroke-dasharray: 6 4; }
+  .sld-bus-name { font-family: var(--font-ui); font-size: 12px; font-weight: 600; fill: var(--fg); }
+  .sld-bus-kv { font-family: var(--font-data); font-weight: 400; fill: var(--muted); font-size: 11px; }
+  .sld-bus-res { font-family: var(--font-data); font-size: 10.5px; }
+  .sld-bus-res .dim { fill: var(--muted); }
+  .sld-tag-title { font-family: var(--font-ui); font-size: 11px; font-weight: 600; fill: var(--fg); }
+  .sld-tag { font-family: var(--font-data); font-size: 10px; fill: var(--muted); }
   .boot { padding: 24px 16px; color: var(--muted); font-family: var(--font-data); font-size: 13px; }
   @media (max-width: 600px) { .topbar { padding: 8px 16px; } .topbar .btn { padding: 5px 8px; } }
 </style>
@@ -2597,6 +2619,164 @@
     }
   };
 
+  // src/engine/pecalc/util.js
+  function pyRepr(x) {
+    if (typeof x === "string") {
+      const q = x.includes("'") && !x.includes('"') ? '"' : "'";
+      return q + x.replace(/\\/g, "\\\\").replace(q === "'" ? /'/g : /"/g, "\\" + q) + q;
+    }
+    return String(x);
+  }
+  var KeyError = class extends Error {
+    constructor(key) {
+      super(pyRepr(key));
+      this.name = "KeyError";
+    }
+  };
+  function lookup(obj, key) {
+    if (!Object.prototype.hasOwnProperty.call(obj, key)) throw new KeyError(key);
+    return obj[key];
+  }
+
+  // src/engine/pecalc/conductors.js
+  var SIZES = [
+    "14",
+    "12",
+    "10",
+    "8",
+    "6",
+    "4",
+    "3",
+    "2",
+    "1",
+    "1/0",
+    "2/0",
+    "3/0",
+    "4/0",
+    "250",
+    "300",
+    "350",
+    "400",
+    "500",
+    "600",
+    "700",
+    "750",
+    "800",
+    "900",
+    "1000",
+    "1250",
+    "1500",
+    "1750",
+    "2000"
+  ];
+  var AREA_CMIL = {
+    "14": 4110,
+    "12": 6530,
+    "10": 10380,
+    "8": 16510,
+    "6": 26240,
+    "4": 41740,
+    "3": 52620,
+    "2": 66360,
+    "1": 83690,
+    "1/0": 105600,
+    "2/0": 133100,
+    "3/0": 167800,
+    "4/0": 211600,
+    ...Object.fromEntries(SIZES.slice(13).map((s) => [s, parseInt(s, 10) * 1e3]))
+  };
+  var DIAMETER_IN = {
+    "14": 0.073,
+    "12": 0.092,
+    "10": 0.116,
+    "8": 0.146,
+    "6": 0.184,
+    "4": 0.232,
+    "3": 0.26,
+    "2": 0.292,
+    "1": 0.332,
+    "1/0": 0.372,
+    "2/0": 0.418,
+    "3/0": 0.47,
+    "4/0": 0.528,
+    "250": 0.575,
+    "300": 0.63,
+    "350": 0.681,
+    "400": 0.728,
+    "500": 0.813,
+    "600": 0.893,
+    "700": 0.964,
+    "750": 0.998,
+    "800": 1.03,
+    "900": 1.094,
+    "1000": 1.152,
+    "1250": 1.289,
+    "1500": 1.412,
+    "1750": 1.526,
+    "2000": 1.632
+  };
+  var _INSULATION_IN = [
+    [["14", "12", "10"], 0.03],
+    [["8", "6", "4", "3", "2"], 0.045],
+    [["1", "1/0", "2/0", "3/0", "4/0"], 0.055],
+    [["250", "300", "350", "400", "500"], 0.065],
+    [["600", "700", "750", "800", "900", "1000"], 0.08],
+    [["1250", "1500", "1750", "2000"], 0.095]
+  ];
+  var MATERIALS = {
+    Cu: { rho20: 10.371, t0: 234.5 },
+    // annealed copper, 100 % IACS
+    Al: { rho20: 16.946, t0: 228.1 }
+    // 1350 aluminum, 61.2 % IACS
+  };
+  var STRANDING_FACTOR = 1.02;
+  var MU0 = 4e-7 * Math.PI;
+  var FT = 0.3048;
+  function normalizeSize(size) {
+    let s = String(size).trim().toLowerCase();
+    for (const token of ["kcmil", "mcm", "awg", "#"]) s = s.split(token).join("");
+    s = s.trim();
+    if (!Object.prototype.hasOwnProperty.call(AREA_CMIL, s)) {
+      throw new Error(`Unknown conductor size ${pyRepr(size)}; expected one of ${SIZES.join(", ")}`);
+    }
+    return s;
+  }
+  function diameterMm(size) {
+    return DIAMETER_IN[normalizeSize(size)] * 25.4;
+  }
+  function insulationMm(size) {
+    size = normalizeSize(size);
+    for (const [sizes, wall] of _INSULATION_IN) if (sizes.includes(size)) return wall * 25.4;
+    throw new Error(size);
+  }
+  function cableOdMm(size) {
+    return diameterMm(size) + 2 * insulationMm(size);
+  }
+  function rdcOhmPerM(size, material, temp_c = 75) {
+    const m = lookup(MATERIALS, material);
+    const r20_per_ft = m.rho20 / AREA_CMIL[normalizeSize(size)] * STRANDING_FACTOR;
+    const r_per_ft = r20_per_ft * (m.t0 + temp_c) / (m.t0 + 20);
+    return r_per_ft / FT;
+  }
+  var _f = (x4) => x4 / (192 + 0.8 * x4);
+  function acFactors(rdc, freq, d_mm, spacing_mm) {
+    const xs4 = (8 * Math.PI * freq * 1e-7 * 1 / rdc) ** 2;
+    const ys = _f(xs4);
+    let yp = 0;
+    if (spacing_mm) {
+      const xp4 = (8 * Math.PI * freq * 1e-7 * 0.8 / rdc) ** 2;
+      const ratio2 = (d_mm / spacing_mm) ** 2;
+      const fp = _f(xp4);
+      yp = fp * ratio2 * (0.312 * ratio2 + 1.18 / (fp + 0.27));
+    }
+    return [ys, yp];
+  }
+  function racOhmPerM(size, material, temp_c = 75, freq = 60, spacing_mm = null) {
+    const rdc = rdcOhmPerM(size, material, temp_c);
+    const [ys, yp] = acFactors(rdc, freq, diameterMm(size), spacing_mm);
+    return rdc * (1 + ys + yp);
+  }
+
   // src/engine/system.js
   var SQRT32 = Math.sqrt(3);
   var EQUIPMENT = {
@@ -2618,16 +2798,8 @@
   var NODE_KINDS = /* @__PURE__ */ new Set(["switchgear", "mcc", "panel"]);
   var AWG = { "14": 2.08, "12": 3.31, "10": 5.26, "8": 8.37, "6": 13.3, "4": 21.2, "3": 26.7, "2": 33.6, "1": 42.4, "1/0": 53.5, "2/0": 67.4, "3/0": 85, "4/0": 107.2 };
   var CONDUCTOR_SIZES = [...Object.keys(AWG), "250", "300", "350", "400", "500", "600", "750", "1000"];
-  function areaMm2(size) {
-    if (AWG[size]) return AWG[size];
-    const k = Number(size);
-    if (!isFinite(k) || k <= 0) throw new Error(`Unknown conductor size "${size}"`);
-    return k * 0.506707;
-  }
-  function rdcPer1000ft(size, material = "Cu", tempC = 75) {
-    const rho20 = material === "Al" ? 28264e-12 : 17241e-12, alpha = material === "Al" ? 403e-5 : 393e-5;
-    const r_per_m = rho20 * (1 + alpha * (tempC - 20)) / (areaMm2(size) * 1e-6);
-    return r_per_m * 304.8;
+  function racPer1000ft(size, material = "Cu", tempC = 75) {
+    return racOhmPerM(size, material, tempC, 60, cableOdMm(size)) * 304.8;
   }
   function xlPer1000ft(size, raceway = "steel") {
     const col = reactance_nec_table9_default[raceway] || reactance_nec_table9_default.steel;
@@ -2822,7 +2994,7 @@
       let rOhm, xOhm;
       const L = Math.max(c.length_ft, 1);
       try {
-        rOhm = rdcPer1000ft(c.size, c.material, c.insulation_c) * L / 1e3 / c.sets;
+        rOhm = racPer1000ft(c.size, c.material, c.insulation_c) * L / 1e3 / c.sets;
         xOhm = xlPer1000ft(c.size, c.kind === "cablebus" ? "aluminum" : c.raceway) * L / 1e3 / c.sets;
       } catch (err) {
         add("error", c.id, err.message);
@@ -3522,8 +3694,201 @@
     return /* @__PURE__ */ React.createElement("div", { ref: wrapRef, className: "canvas-wrap site3d" }, /* @__PURE__ */ React.createElement("canvas", { ref: canvasRef, className: "canvas3d" }), /* @__PURE__ */ React.createElement("div", { ref: labelsRef, className: "labels3d" }), /* @__PURE__ */ React.createElement("div", { className: "canvas-hud left" }, /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "Drag to orbit \xB7 right-drag or shift-drag to pan \xB7 scroll to zoom \xB7 click to select")));
   }
 
+  // src/ui/systemSld.jsx
+  var { useMemo: useMemo2, useRef: useRef3, useState: useState4, useEffect: useEffect4 } = React;
+  var COL = 175;
+  var ROW = 150;
+  var BAR_PAD = 40;
+  var loadColor = (pct) => pct == null ? "var(--wire)" : pct > 100 ? "var(--crit)" : pct > 80 ? "var(--high)" : "var(--ok)";
+  var vColor = (f) => f === "low" ? "var(--low)" : f === "high" ? "var(--high)" : "var(--ok)";
+  var kvLabel = (kv) => kv == null ? "" : kv < 1 ? `${Math.round(kv * 1e3)} V` : `${kv} kV`;
+  function layoutSld(sys, analysis) {
+    const c = analysis.compiled;
+    const eq = c.eq;
+    const nBus = c.busMeta.length;
+    const edges = c.lfCase.branches.map((b, i) => ({ from: b.from, to: b.to, meta: c.branchMeta[i] }));
+    const devicesAt = Array.from({ length: nBus + 1 }, () => []);
+    for (const e of eq.values()) {
+      if (["motor", "load", "capacitor", "generator", "utility"].includes(e.type)) devicesAt[c.busOf(`${e.id}.${EQUIPMENT[e.type].terminals[0]}`)].push(e);
+    }
+    const util = [...eq.values()].find((e) => e.type === "utility");
+    const root = util ? c.busOf(`${util.id}.out`) : 1;
+    const parent = new Array(nBus + 1).fill(0), via = new Array(nBus + 1).fill(null), depth = new Array(nBus + 1).fill(-1);
+    const children = Array.from({ length: nBus + 1 }, () => []);
+    depth[root] = 0;
+    const q = [root];
+    const treeEdges = /* @__PURE__ */ new Set();
+    while (q.length) {
+      const u = q.shift();
+      edges.forEach((e, k) => {
+        const v = e.from === u ? e.to : e.to === u ? e.from : null;
+        if (v == null || depth[v] >= 0) return;
+        depth[v] = depth[u] + 1;
+        parent[v] = u;
+        via[v] = e;
+        children[u].push(v);
+        treeEdges.add(k);
+        q.push(v);
+      });
+    }
+    const width = new Array(nBus + 1).fill(1);
+    const leafDevs = (b) => devicesAt[b].filter((e) => e.type !== "utility");
+    const measure = (b) => {
+      const w = children[b].reduce((s, ch) => s + measure(ch), 0) + leafDevs(b).length;
+      width[b] = Math.max(1, w);
+      return width[b];
+    };
+    measure(root);
+    const pos = {};
+    const place = (b, x0) => {
+      pos[b] = { x0, x1: x0 + width[b] * COL, y: 110 + depth[b] * ROW };
+      let x = x0;
+      for (const ch of children[b]) {
+        place(ch, x);
+        x += width[ch] * COL;
+      }
+      pos[b].devX = [];
+      for (const d of leafDevs(b)) {
+        pos[b].devX.push({ e: d, x: x + COL / 2 });
+        x += COL;
+      }
+    };
+    place(root, 0);
+    const ties = edges.filter((_, k) => !treeEdges.has(k));
+    return { root, pos, children, via, devicesAt, ties, width: width[root] * COL, maxDepth: Math.max(...depth), c };
+  }
+  function Breaker({ x, y, closed = true }) {
+    return /* @__PURE__ */ React.createElement("rect", { x: x - 6, y: y - 6, width: "12", height: "12", className: cx("sld-brk", closed && "is-closed") });
+  }
+  function XfmrSym({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sld-sym" }, /* @__PURE__ */ React.createElement("circle", { cx: x, cy: y - 9, r: "12" }), /* @__PURE__ */ React.createElement("circle", { cx: x, cy: y + 9, r: "12" }));
+  }
+  function MotorSym({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sld-sym" }, /* @__PURE__ */ React.createElement("circle", { cx: x, cy: y, r: "14" }), /* @__PURE__ */ React.createElement("text", { x, y: y + 4.5, textAnchor: "middle", className: "sld-sym-text" }, "M"));
+  }
+  function GenSym({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sld-sym" }, /* @__PURE__ */ React.createElement("circle", { cx: x, cy: y, r: "14" }), /* @__PURE__ */ React.createElement("path", { d: `M${x - 8},${y} q4,-8 8,0 t8,0` }));
+  }
+  function LoadSym({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sld-sym" }, /* @__PURE__ */ React.createElement("path", { d: `M${x - 9},${y - 6} L${x},${y + 8} L${x + 9},${y - 6} Z`, className: "sld-fill" }));
+  }
+  function CapSym({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sld-sym" }, /* @__PURE__ */ React.createElement("path", { d: `M${x - 12},${y - 3} H${x + 12} M${x - 12},${y + 4} H${x + 12} M${x},${y + 4} V${y + 14} M${x - 7},${y + 14} H${x + 7} M${x - 4},${y + 18} H${x + 4}` }));
+  }
+  function UtilSym({ x, y }) {
+    return /* @__PURE__ */ React.createElement("g", { className: "sld-sym" }, /* @__PURE__ */ React.createElement("rect", { x: x - 16, y: y - 16, width: "32", height: "22" }), /* @__PURE__ */ React.createElement("path", { d: `M${x - 16},${y - 16} L${x + 16},${y + 6} M${x + 16},${y - 16} L${x - 16},${y + 6}` }));
+  }
+  function SystemSld({ sys, analysis, selection, setSelection, showTags }) {
+    const wrapRef = useRef3(null);
+    const Lm = useMemo2(() => analysis?.compiled && !analysis.issues.some((i) => i.level === "error") ? layoutSld(sys, analysis) : null, [sys, analysis]);
+    const [zoom, setZoom] = useState4(1);
+    const L = Lm;
+    if (!L) return /* @__PURE__ */ React.createElement("div", { className: "canvas-wrap grid place-items-center text-muted p-6" }, "Fix the model errors to draw the one-line diagram.");
+    const { pos, children, via, devicesAt, root, c } = L;
+    const ok = analysis.ok;
+    const eqRes = analysis.equipment || {}, conRes = analysis.connectors || {};
+    const W = L.width + 2 * BAR_PAD + 320, H = 90 + (L.maxDepth + 1) * ROW + 120;
+    const sel = (kind, id) => selection?.kind === kind && selection.id === id;
+    const busRes = (b) => analysis.lf?.buses ? analysis.lf.buses[b - 1] : null;
+    const sc = (b) => analysis.sc?.buses?.[b - 1];
+    const out = [];
+    const busLabel = (b) => {
+      const meta = c.busMeta[b - 1];
+      const node = meta.members.find((m) => NODE_KINDS.has(c.eq.get(m).type));
+      return { node, name: node ? c.eq.get(node).name || node : meta.terms[0].replace(".", " "), kv: meta.kv };
+    };
+    for (const [bStr, p] of Object.entries(pos)) {
+      const b = Number(bStr);
+      for (const ch of children[b]) {
+        const e = via[ch];
+        const pc = pos[ch];
+        const x = (pc.x0 + pc.x1) / 2 - (pc.x1 - pc.x0) / 2 + COL / 2 + BAR_PAD;
+        const xs = Math.max(p.x0 + BAR_PAD, Math.min(p.x1 + BAR_PAD - 1, x));
+        const y0 = p.y + 4, y1 = pc.y - 4, ym = (y0 + y1) / 2;
+        const m = e.meta, isX = m.kind === "transformer";
+        const r = isX ? eqRes[m.id] : conRes[m.id];
+        const color = ok ? loadColor(r?.loading_pct) : "var(--wire)";
+        const selected = sel(isX ? "eq" : "con", m.id);
+        const pick = (ev) => {
+          ev.stopPropagation();
+          setSelection({ kind: isX ? "eq" : "con", id: m.id });
+        };
+        out.push(
+          /* @__PURE__ */ React.createElement("g", { key: "e" + ch, className: "sld-edge", onPointerDown: pick }, /* @__PURE__ */ React.createElement("path", { d: `M${xs},${y0} V${y1}`, className: "sld-hit" }), selected && /* @__PURE__ */ React.createElement("path", { d: `M${xs},${y0} V${y1}`, className: "sld-sel" }), /* @__PURE__ */ React.createElement("path", { d: `M${xs},${y0} V${y1}`, stroke: color, strokeWidth: ok && r ? 1.6 + Math.min(3, (r.loading_pct ?? 0) / 35) : 1.6, fill: "none" }), /* @__PURE__ */ React.createElement(Breaker, { x: xs, y: y0 + 16 }), isX ? /* @__PURE__ */ React.createElement(XfmrSym, { x: xs, y: ym }) : /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("path", { d: `M${xs - 7},${ym - 4} l14,-6 M${xs - 7},${ym + 4} l14,-6`, className: "sld-cable" })), showTags && /* @__PURE__ */ React.createElement("g", { transform: `translate(${xs + 18},${ym - 16})`, pointerEvents: "none" }, /* @__PURE__ */ React.createElement("text", { className: "sld-tag-title" }, m.id), /* @__PURE__ */ React.createElement("text", { y: "13", className: "sld-tag" }, isX ? `${fmt(c.eq.get(m.id).kva, 0)} kVA \xB7 ${c.eq.get(m.id).z_pct} %Z` : describeCon(sys, m.id)), ok && r && /* @__PURE__ */ React.createElement("text", { y: "26", className: "sld-tag", fill: color }, isX ? `${fmt(r.s_kva, 0)} kVA \xB7 ${fmt(r.loading_pct, 0)} %` : `${fmt(r.i_a, 0)} A \xB7 ${r.loading_pct == null ? "\u2014" : fmt(r.loading_pct, 0) + " %"} \xB7 VD ${fmt(r.vd_pct, 2)} %`)))
+        );
+      }
+    }
+    L.ties.forEach((e, i) => {
+      const a = pos[e.from], b = pos[e.to];
+      if (!a || !b) return;
+      out.push(/* @__PURE__ */ React.createElement("path", { key: "tie" + i, d: `M${a.x1 + BAR_PAD - 10},${a.y} C${a.x1 + BAR_PAD + 60},${a.y} ${b.x1 + BAR_PAD + 60},${b.y} ${b.x1 + BAR_PAD - 10},${b.y}`, className: "sld-tie" }));
+    });
+    for (const [bStr, p] of Object.entries(pos)) {
+      const b = Number(bStr);
+      const lab = busLabel(b), r = busRes(b), s = sc(b);
+      const x0 = p.x0 + BAR_PAD, x1 = p.x1 + BAR_PAD;
+      const nodeSel = lab.node && sel("eq", lab.node);
+      const nr = lab.node ? eqRes[lab.node] : null;
+      const pickBus = (ev) => {
+        ev.stopPropagation();
+        if (lab.node) setSelection({ kind: "eq", id: lab.node });
+      };
+      const hasUtil = devicesAt[b].some((e) => e.type === "utility");
+      if (!lab.node && !hasUtil) {
+        const xd = p.x0 + COL / 2 + BAR_PAD;
+        out.push(
+          /* @__PURE__ */ React.createElement("g", { key: "b" + b, className: "sld-node" }, /* @__PURE__ */ React.createElement("circle", { cx: xd, cy: p.y, r: "4.5", fill: ok && r ? vColor(r.vflag) : "var(--bar)" }), showTags && ok && r && /* @__PURE__ */ React.createElement("text", { x: xd + 10, y: p.y + 4, className: "sld-bus-res" }, /* @__PURE__ */ React.createElement("tspan", { fill: vColor(r.vflag) }, r.v.toFixed(4)), s && /* @__PURE__ */ React.createElement("tspan", { className: "dim" }, " \xB7 ", fmt(s.ik_ka, 1), " kA")))
+        );
+        p.devX.forEach((dv, i) => {
+          if (i === 0) dv.x = p.x0 + COL / 2;
+        });
+      } else {
+        const bw = Math.max(x1 - x0 - 24, 24);
+        out.push(
+          /* @__PURE__ */ React.createElement("g", { key: "b" + b, className: "sld-bus", onPointerDown: pickBus }, nodeSel && /* @__PURE__ */ React.createElement("rect", { x: x0 - 6, y: p.y - 8, width: bw + 12, height: "16", rx: "3", className: "sld-sel-box" }), /* @__PURE__ */ React.createElement("rect", { x: x0, y: p.y - 4, width: bw, height: "8", rx: "1.5", fill: ok && r ? vColor(r.vflag) : "var(--bar)" }), /* @__PURE__ */ React.createElement("text", { x: x0, y: p.y - 26, className: "sld-bus-name" }, hasUtil && !lab.node ? "Service point" : lab.name, " ", /* @__PURE__ */ React.createElement("tspan", { className: "sld-bus-kv" }, kvLabel(lab.kv)), lab.node && /* @__PURE__ */ React.createElement("tspan", { className: "sld-bus-kv" }, "  ", c.eq.get(lab.node).bus_a, " A \xB7 ", c.eq.get(lab.node).sc_ka, " kA")), showTags && ok && r && /* @__PURE__ */ React.createElement("text", { x: x0, y: p.y - 11, className: "sld-bus-res" }, /* @__PURE__ */ React.createElement("tspan", { fill: vColor(r.vflag) }, r.v.toFixed(4), " pu"), s && /* @__PURE__ */ React.createElement("tspan", { className: "dim" }, "  I\u2033k ", fmt(s.ik_ka, 1), " kA"), nr?.sc_duty_pct != null && /* @__PURE__ */ React.createElement("tspan", { fill: nr.sc_duty_pct > 100 ? "var(--crit)" : nr.sc_duty_pct > 90 ? "var(--high)" : "var(--muted)" }, "  (", fmt(nr.sc_duty_pct, 0), " % duty)"), nr?.loading_pct != null && /* @__PURE__ */ React.createElement("tspan", { className: "dim" }, "  \xB7 ", fmt(nr.loading_pct, 0), " % bus")))
+        );
+      }
+      for (const d of devicesAt[b].filter((e) => e.type === "utility")) {
+        const x = x0 + 30;
+        out.push(
+          /* @__PURE__ */ React.createElement("g", { key: "u" + d.id, className: "sld-dev", onPointerDown: (ev) => {
+            ev.stopPropagation();
+            setSelection({ kind: "eq", id: d.id });
+          } }, /* @__PURE__ */ React.createElement("path", { d: `M${x},${p.y - 4} V${p.y - 44}`, stroke: "var(--wire)", strokeWidth: "1.6" }), /* @__PURE__ */ React.createElement(UtilSym, { x, y: p.y - 56 }), /* @__PURE__ */ React.createElement("text", { x: x + 26, y: p.y - 62, className: "sld-tag-title" }, d.name || d.id), /* @__PURE__ */ React.createElement("text", { x: x + 26, y: p.y - 49, className: "sld-tag" }, d.mva_sc, " MVA sc \xB7 X/R ", d.xr), sel("eq", d.id) && /* @__PURE__ */ React.createElement("rect", { x: x - 22, y: p.y - 72, width: "44", height: "36", className: "sld-sel-box", transform: "translate(0,-4)" }))
+        );
+      }
+      p.devX.forEach(({ e: d, x: dx }) => {
+        const x = dx + BAR_PAD, y0 = p.y + 4, y1 = p.y + 66;
+        const rr = eqRes[d.id];
+        const Sym = { motor: MotorSym, load: LoadSym, capacitor: CapSym, generator: GenSym }[d.type];
+        out.push(
+          /* @__PURE__ */ React.createElement("g", { key: "d" + d.id, className: "sld-dev", onPointerDown: (ev) => {
+            ev.stopPropagation();
+            setSelection({ kind: "eq", id: d.id });
+          } }, /* @__PURE__ */ React.createElement("path", { d: `M${x},${y0} V${y1 - 14}`, stroke: "var(--wire)", strokeWidth: "1.6" }), /* @__PURE__ */ React.createElement(Breaker, { x, y: y0 + 16 }), sel("eq", d.id) && /* @__PURE__ */ React.createElement("circle", { cx: x, cy: y1, r: "22", className: "sld-sel-box" }), Sym && /* @__PURE__ */ React.createElement(Sym, { x, y: y1 }), showTags && /* @__PURE__ */ React.createElement("text", { x, y: y1 + 32, textAnchor: "middle", className: "sld-tag-title" }, d.name || d.id), showTags && ok && rr && /* @__PURE__ */ React.createElement("text", { x, y: y1 + 45, textAnchor: "middle", className: "sld-tag" }, d.type === "capacitor" ? `${fmt(rr.q_kvar, 0)} kvar` : d.type === "generator" ? `${fmt(rr.p_kw, 0)} kW` : `${fmt(rr.p_kw, 0)} kW \xB7 ${fmt(rr.i_a, 0)} A`))
+        );
+      });
+    }
+    return /* @__PURE__ */ React.createElement("div", { ref: wrapRef, className: "canvas-wrap sld-wrap", onPointerDown: () => setSelection(null) }, /* @__PURE__ */ React.createElement("div", { className: "sld-scroll" }, /* @__PURE__ */ React.createElement("svg", { width: W * zoom, height: H * zoom, viewBox: `0 0 ${W} ${H}`, className: "sld", role: "img", "aria-label": "Single-line diagram" }, out)), /* @__PURE__ */ React.createElement("div", { className: "canvas-hud right" }, /* @__PURE__ */ React.createElement("button", { className: "hud-btn", onClick: (ev) => {
+      ev.stopPropagation();
+      setZoom((z) => Math.min(2.5, z * 1.2));
+    }, "aria-label": "Zoom in" }, "+"), /* @__PURE__ */ React.createElement("button", { className: "hud-btn", onClick: (ev) => {
+      ev.stopPropagation();
+      setZoom((z) => Math.max(0.4, z / 1.2));
+    }, "aria-label": "Zoom out" }, "\u2212"), /* @__PURE__ */ React.createElement("button", { className: "hud-btn", onClick: (ev) => {
+      ev.stopPropagation();
+      setZoom(1);
+    }, "aria-label": "Reset zoom" }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }))));
+  }
+  function describeCon(sys, id) {
+    const c = sys.connectors.find((x) => x.id === id);
+    if (!c) return "";
+    const f = { ...CONNECTORS[c.kind].defaults, ...c };
+    return `${CONNECTORS[c.kind].label} ${f.sets}\xD7${f.size} ${f.material}, ${f.length_ft} ft`;
+  }
+
   // src/ui/system.jsx
-  var { useState: useState4, useMemo: useMemo2, useEffect: useEffect4, useRef: useRef3, useCallback: useCallback2 } = React;
+  var { useState: useState5, useMemo: useMemo3, useEffect: useEffect5, useRef: useRef4, useCallback: useCallback2 } = React;
   var U = 34;
   var C30 = Math.cos(Math.PI / 6);
   var S30 = 0.5;
@@ -3667,7 +4032,7 @@
         segs.push(/* @__PURE__ */ React.createElement(Box, { key: i, x: a[0] - W / 2, y: y0, z: a[2] - H, w: W, d: y1 - y0, h: H, tone: "tray" }));
       }
     }
-    const color = loadColor(res?.loading_pct);
+    const color = loadColor2(res?.loading_pct);
     const phase = ["var(--ph-a)", "var(--ph-b)", "var(--ph-c)"];
     const path = route.pts.slice(1, -1);
     const offsetLine = (off) => {
@@ -3684,7 +4049,7 @@
     return /* @__PURE__ */ React.createElement("g", null, selected && /* @__PURE__ */ React.createElement("polyline", { points: P(route.pts.map((p) => iso(...p))), fill: "none", stroke: "var(--accent)", strokeWidth: "14", opacity: "0.25", strokeLinejoin: "round" }), segs, [-0.11, 0, 0.11].map((off, i) => /* @__PURE__ */ React.createElement("polyline", { key: i, points: P(offsetLine(off)), fill: "none", stroke: phase[i], strokeWidth: "1.3", opacity: "0.85" })), animate && res && /* @__PURE__ */ React.createElement("polyline", { points: P(ordered), className: "flow", stroke: color, style: { animationDuration: flowSpeed(res.loading_pct) } }));
   }
   function CableArt({ route, res, selected, animate, sets = 1 }) {
-    const color = loadColor(res?.loading_pct);
+    const color = loadColor2(res?.loading_pct);
     const ground = route.pts.map((p) => [p[0], p[1], 0]);
     const W = Math.min(0.18 + sets * 0.05, 0.5);
     const segs = [];
@@ -3699,7 +4064,7 @@
     const ordered = res && res.dir < 0 ? [...flow].reverse() : flow;
     return /* @__PURE__ */ React.createElement("g", null, selected && /* @__PURE__ */ React.createElement("polyline", { points: P(flow), fill: "none", stroke: "var(--accent)", strokeWidth: "12", opacity: "0.28", strokeLinejoin: "round" }), segs, /* @__PURE__ */ React.createElement("polyline", { points: P(flow), fill: "none", stroke: color, strokeWidth: "1.6", opacity: "0.9", strokeLinejoin: "round" }), animate && res && /* @__PURE__ */ React.createElement("polyline", { points: P(ordered), className: "flow", stroke: "var(--fg)", style: { animationDuration: flowSpeed(res.loading_pct) } }));
   }
-  var loadColor = (pct) => pct == null ? "var(--wire)" : pct > 100 ? "var(--crit)" : pct > 80 ? "var(--high)" : "var(--ok)";
+  var loadColor2 = (pct) => pct == null ? "var(--wire)" : pct > 100 ? "var(--crit)" : pct > 80 ? "var(--high)" : "var(--ok)";
   var flowSpeed = (pct) => `${Math.max(0.45, 2.4 - 1.8 * Math.min(1, (pct ?? 30) / 100))}s`;
   function depthOrder(items) {
     const n = items.length, after = items.map(() => []);
@@ -3755,23 +4120,23 @@
     return /* @__PURE__ */ React.createElement("g", { transform: `translate(${x - w / 2},${y - h - 10})`, className: "tag", pointerEvents: "none" }, /* @__PURE__ */ React.createElement("line", { x1: w / 2, y1: h, x2: w / 2, y2: h + 10, stroke: "var(--faint)", strokeWidth: "0.8" }), /* @__PURE__ */ React.createElement("rect", { width: w, height: h, rx: "4", fill: "var(--tag-bg)", stroke: selected ? "var(--accent)" : "var(--line)", strokeWidth: selected ? 1.4 : 0.8 }), /* @__PURE__ */ React.createElement("rect", { width: "3", height: h, rx: "1.5", fill: tone === "crit" ? "var(--crit)" : tone === "warn" ? "var(--high)" : tone === "ok" ? "var(--ok)" : "var(--faint)" }), lines.map((l, i) => /* @__PURE__ */ React.createElement("text", { key: i, x: "9", y: 14 + i * 12.5, className: i ? "tag-sub" : "tag-title" }, l)));
   }
   function SiteView({ sys, analysis, selection, setSelection, tool, onMove, onConnect, showTags, animate, fitSignal }) {
-    const wrapRef = useRef3(null), svgRef = useRef3(null);
-    const [size, setSize] = useState4({ w: 1e3, h: 640 });
-    const [view, setView] = useState4({ x: -600, y: -100, w: 1400 });
-    const drag = useRef3(null);
-    const [pending2, setPending] = useState4(null);
-    useEffect4(() => {
+    const wrapRef = useRef4(null), svgRef = useRef4(null);
+    const [size, setSize] = useState5({ w: 1e3, h: 640 });
+    const [view, setView] = useState5({ x: -600, y: -100, w: 1400 });
+    const drag = useRef4(null);
+    const [pending2, setPending] = useState5(null);
+    useEffect5(() => {
       const el = wrapRef.current;
       const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 1e3, h: el.clientHeight || 640 }));
       ro.observe(el);
       return () => ro.disconnect();
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (tool !== "connect") setPending(null);
     }, [tool]);
     const vh = view.w * (size.h / size.w);
-    const eqMap = useMemo2(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
-    const { slots, routes } = useMemo2(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
+    const eqMap = useMemo3(() => Object.fromEntries(sys.equipment.map((e) => [e.id, { ...EQUIPMENT[e.type].defaults, ...e }])), [sys.equipment]);
+    const { slots, routes } = useMemo3(() => siteRoutes(sys), [sys.equipment, sys.connectors]);
     const fit = useCallback2(() => {
       const pts = [];
       for (const e of Object.values(eqMap)) {
@@ -3786,7 +4151,7 @@
       if ((y1 - y0) / w > asp) w = (y1 - y0) / asp;
       setView({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - w * asp / 2, w });
     }, [eqMap, size]);
-    useEffect4(() => {
+    useEffect5(() => {
       fit();
     }, [fitSignal, Math.round(size.w / 60), Math.round(size.h / 60)]);
     const toSvg = (ev) => {
@@ -3796,7 +4161,7 @@
       const p = pt.matrixTransform(svg.getScreenCTM().inverse());
       return [p.x, p.y];
     };
-    useEffect4(() => {
+    useEffect5(() => {
       const svg = svgRef.current;
       const onWheel = (ev) => {
         ev.preventDefault();
@@ -3897,7 +4262,7 @@
       }
       const m = pts[bi], n = pts[bi + 1];
       const p = iso((m[0] + n[0]) / 2, (m[1] + n[1]) / 2, rt.overhead ? m[2] + 0.1 : 0);
-      return /* @__PURE__ */ React.createElement("g", { key: "l" + c.id, transform: `translate(${p[0]},${p[1]})`, pointerEvents: "none" }, /* @__PURE__ */ React.createElement("text", { className: "con-label", textAnchor: "middle", y: "-6" }, c.id), /* @__PURE__ */ React.createElement("text", { className: "con-label sub", textAnchor: "middle", y: "6", fill: loadColor(r.loading_pct) }, fmt(r.i_a, 0), " A \xB7 ", r.loading_pct == null ? "\u2014" : fmt(r.loading_pct, 0) + "%"));
+      return /* @__PURE__ */ React.createElement("g", { key: "l" + c.id, transform: `translate(${p[0]},${p[1]})`, pointerEvents: "none" }, /* @__PURE__ */ React.createElement("text", { className: "con-label", textAnchor: "middle", y: "-6" }, c.id), /* @__PURE__ */ React.createElement("text", { className: "con-label sub", textAnchor: "middle", y: "6", fill: loadColor2(r.loading_pct) }, fmt(r.i_a, 0), " A \xB7 ", r.loading_pct == null ? "\u2014" : fmt(r.loading_pct, 0) + "%"));
     }), showTags && ordered.map(({ e }) => {
       const { w, d, h } = dims(e);
       const r = ok ? res[e.id] : null;
@@ -3918,8 +4283,8 @@
   };
   function EqInspector({ e, r, update, remove, rename, scShown }) {
     const full = { ...EQUIPMENT[e.type].defaults, ...e };
-    const [confirm, setConfirm] = useState4(false);
-    useEffect4(() => setConfirm(false), [e.id]);
+    const [confirm, setConfirm] = useState5(false);
+    useEffect5(() => setConfirm(false), [e.id]);
     return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "label" }, EQUIPMENT[e.type].label), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-mono truncate" }, e.id)), /* @__PURE__ */ React.createElement(Pill, { tone: statusOf(e, r) === "crit" ? "crit" : statusOf(e, r) === "warn" ? "warn" : r ? "ok" : "muted" }, r ? statusOf(e, r) === "crit" ? "Overloaded" : statusOf(e, r) === "warn" ? "Check" : "OK" : "No result")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(Field, { label: "Tag" }, /* @__PURE__ */ React.createElement("input", { id: "eq-id", className: "num-input", defaultValue: e.id, key: e.id, onBlur: (ev) => rename(e.id, ev.target.value.trim()), onKeyDown: (ev) => ev.key === "Enter" && ev.currentTarget.blur() })), /* @__PURE__ */ React.createElement(Field, { label: "Name" }, /* @__PURE__ */ React.createElement("input", { id: "eq-name", className: "num-input", value: e.name ?? "", onChange: (ev) => update(e.id, { name: ev.target.value }) })), EQ_FIELDS[e.type].map(([k, l, u]) => /* @__PURE__ */ React.createElement(Field, { key: k, label: l, unit: u }, /* @__PURE__ */ React.createElement(NumField, { id: `eq-${k}`, value: e[k], placeholder: String(full[k]), onCommit: (v) => update(e.id, { [k]: v }) }))), e.type === "motor" && /* @__PURE__ */ React.createElement(Field, { label: "Fault contribution" }, /* @__PURE__ */ React.createElement("select", { id: "eq-contrib", className: "num-input", value: full.contributes ? "yes" : "no", onChange: (ev) => update(e.id, { contributes: ev.target.value === "yes" }) }, /* @__PURE__ */ React.createElement("option", { value: "yes" }, "Included"), /* @__PURE__ */ React.createElement("option", { value: "no" }, "Excluded")))), r && /* @__PURE__ */ React.createElement("div", { className: "res-block" }, /* @__PURE__ */ React.createElement("div", { className: "label mb-2" }, "Load flow", scShown && " \xB7 short circuit"), /* @__PURE__ */ React.createElement("dl", { className: "kv" }, /* @__PURE__ */ React.createElement("dt", null, "Voltage"), /* @__PURE__ */ React.createElement("dd", { style: { color: r.vflag === "ok" ? "var(--ok)" : r.vflag === "low" ? "var(--low)" : "var(--high)" } }, r.v_pu.toFixed(4), " pu \xB7 ", fmtKv(r.v_kv)), /* @__PURE__ */ React.createElement("dt", null, "Angle"), /* @__PURE__ */ React.createElement("dd", null, r.angle.toFixed(2), "\xB0"), r.bus_i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Bus current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.bus_i_a, 0), " A (", fmt(r.loading_pct, 1), " %)")), r.s_kva != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Through"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.s_kva, 0), " kVA (", fmt(r.loading_pct, 1), " %)")), r.i_hv_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "HV / LV current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_hv_a, 1), " / ", fmt(r.i_lv_a, 0), " A")), r.loss_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Losses"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.loss_kw, 2), " kW")), r.p_kw != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "P"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.p_kw, 1), " kW")), r.q_kvar != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Q"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.q_kvar, 1), " kvar")), r.i_a != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Current"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.i_a, 1), " A")), r.ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "I\u2033k (3\u03C6)"), /* @__PURE__ */ React.createElement("dd", { className: r.sc_duty_pct > 100 ? "text-crit" : "" }, fmt(r.ik_ka, 2), " kA", r.sc_duty_pct != null && ` \xB7 ${fmt(r.sc_duty_pct, 0)} % of ${full.sc_ka} kA`)), r.ip_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Peak ip"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.ip_ka, 2), " kA \xB7 X/R ", fmt(r.xr_fault, 1))), r.lv_ik_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "LV terminal I\u2033k"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.lv_ik_ka, 2), " kA")), r.contribution_ka != null && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("dt", null, "Motor contribution"), /* @__PURE__ */ React.createElement("dd", null, fmt(r.contribution_ka, 2), " kA")))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, !confirm ? /* @__PURE__ */ React.createElement(Btn, { kind: "danger", onClick: () => setConfirm(true) }, /* @__PURE__ */ React.createElement(Icon, { name: "trash", size: 14 }), "Delete") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Btn, { kind: "danger-solid", onClick: () => remove(e.id) }, "Delete ", e.id, " and its connections"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setConfirm(false) }, "Cancel"))));
   }
   function ConInspector({ c, r, update, remove, kvAt, goCableBus }) {
@@ -3948,17 +4313,17 @@
   }
   var ADDABLE = [["transformer", "Transformer"], ["switchgear", "Switchgear"], ["mcc", "MCC"], ["motor", "Motor"], ["load", "Load"], ["capacitor", "Capacitor"], ["generator", "Generator"], ["utility", "Utility"]];
   function SystemWorkspace({ goTo }) {
-    const [sys, setSys] = useState4(() => clone(EXAMPLE_SYSTEM));
-    const [selection, setSelection] = useState4(null);
-    const [tool, setTool] = useState4("select");
-    const [view, setView] = useState4("site");
-    const [showTags, setShowTags] = useState4(true);
-    const [animate, setAnimate] = useState4(true);
-    const [motors, setMotors] = useState4(true);
-    const [fitSignal, setFitSignal] = useState4(0);
-    const [addOpen, setAddOpen] = useState4(false);
-    const [mode, setMode] = useState4(() => typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : "iso");
-    const analysis = useMemo2(() => analyseSystem(sys, { motors }), [sys, motors]);
+    const [sys, setSys] = useState5(() => clone(EXAMPLE_SYSTEM));
+    const [selection, setSelection] = useState5(null);
+    const [tool, setTool] = useState5("select");
+    const [view, setView] = useState5("site");
+    const [showTags, setShowTags] = useState5(true);
+    const [animate, setAnimate] = useState5(true);
+    const [motors, setMotors] = useState5(true);
+    const [fitSignal, setFitSignal] = useState5(0);
+    const [addOpen, setAddOpen] = useState5(false);
+    const [mode, setMode] = useState5(() => typeof location !== "undefined" && location.hash === "#system-3d" ? "3d" : location.hash === "#system-sld" ? "sld" : "iso");
+    const analysis = useMemo3(() => analyseSystem(sys, { motors }), [sys, motors]);
     const updateEq = (id, patch) => setSys((s) => ({ ...s, equipment: s.equipment.map((e) => e.id === id ? clean({ ...e, ...patch }) : e) }));
     const updateCon = (id, patch) => setSys((s) => ({ ...s, connectors: s.connectors.map((c) => c.id === id ? clean({ ...c, ...patch }) : c) }));
     const move = (id, gx, gy) => updateEq(id, { gx, gy });
@@ -4030,7 +4395,7 @@
       bus.emit("loadflow:open", { data: c.lfCase, name: `${sys.name} (buses)`, layout });
       goTo("loadflow");
     };
-    useEffect4(() => {
+    useEffect5(() => {
       const onKey = (ev) => {
         if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
         if (!wsVisible()) return;
@@ -4047,7 +4412,7 @@
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     });
-    const hostRef = useRef3(null);
+    const hostRef = useRef4(null);
     const wsVisible = () => !!hostRef.current && hostRef.current.offsetParent !== null;
     const selEq = selection?.kind === "eq" && sys.equipment.find((e) => e.id === selection.id);
     const selCon = selection?.kind === "con" && sys.connectors.find((c) => c.id === selection.id);
@@ -4060,7 +4425,10 @@
     } }, "Reset example"))), /* @__PURE__ */ React.createElement("nav", { className: "tabs" }, [["site", "Site view"], ["schedule", "Schedules & fault table"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, className: cx("tab", view === k && "is-active"), onClick: () => setView(k) }, l)), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-3 pr-1 text-[12.5px]" }, /* @__PURE__ */ React.createElement(Pill, { tone: status.tone }, status.text), t && /* @__PURE__ */ React.createElement("span", { className: "text-muted hidden md:inline" }, "Demand ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.load_kw, 0)), " kW \xB7 Losses ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.loss_kw, 1)), " kW \xB7 Max I\u2033k ", /* @__PURE__ */ React.createElement("b", { className: "text-fg font-mono" }, fmt(t.max_ik_ka, 1)), " kA"))), /* @__PURE__ */ React.createElement("main", { className: cx("main", view === "site" && "is-diagram") }, view === "site" ? /* @__PURE__ */ React.createElement("div", { className: "diagram-grid" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-w-0 min-h-0 gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "toolbar" }, /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: mode === "iso", onClick: () => setMode("iso"), title: "Isometric site plan" }, "Iso"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "3d", onClick: () => {
       setMode("3d");
       setTool("select");
-    }, title: "Orbitable 3D model" }, "3D")), /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select") }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", disabled: mode === "3d", onClick: () => setTool("connect") }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setAddOpen(!addOpen) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add equipment"), addOpen && /* @__PURE__ */ React.createElement("div", { className: "menu" }, ADDABLE.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => addEq(k) }, l)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap ml-auto" }, /* @__PURE__ */ React.createElement(Btn, { active: showTags, onClick: () => setShowTags(!showTags) }, "Tags"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate) }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"))), mode === "3d" ? /* @__PURE__ */ React.createElement(Site3D, { sys, analysis, selection, setSelection, animate, showTags }) : /* @__PURE__ */ React.createElement(SiteView, { sys, analysis, selection, setSelection, tool, onMove: move, onConnect: connect, showTags, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, selEq ? /* @__PURE__ */ React.createElement(EqInspector, { e: selEq, r: analysis.ok ? analysis.equipment[selEq.id] : null, update: updateEq, remove: removeEq, rename: renameEq, scShown: !!analysis.sc }) : selCon ? /* @__PURE__ */ React.createElement(
+    }, title: "Orbitable 3D model" }, "3D"), /* @__PURE__ */ React.createElement(Btn, { active: mode === "sld", onClick: () => {
+      setMode("sld");
+      setTool("select");
+    }, title: "Auto-generated single-line diagram" }, "One-line")), /* @__PURE__ */ React.createElement("div", { className: "seg" }, /* @__PURE__ */ React.createElement(Btn, { active: tool === "select", onClick: () => setTool("select") }, /* @__PURE__ */ React.createElement(Icon, { name: "select", size: 14 }), "Select"), /* @__PURE__ */ React.createElement(Btn, { active: tool === "connect", disabled: mode !== "iso", onClick: () => setTool("connect") }, /* @__PURE__ */ React.createElement(Icon, { name: "connect", size: 14 }), "Connect")), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement(Btn, { kind: "primary-soft", onClick: () => setAddOpen(!addOpen) }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), "Add equipment"), addOpen && /* @__PURE__ */ React.createElement("div", { className: "menu" }, ADDABLE.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, onClick: () => addEq(k) }, l)))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 flex-wrap ml-auto" }, /* @__PURE__ */ React.createElement(Btn, { active: showTags, onClick: () => setShowTags(!showTags) }, "Tags"), /* @__PURE__ */ React.createElement(Btn, { active: animate, onClick: () => setAnimate(!animate) }, /* @__PURE__ */ React.createElement(Icon, { name: "play", size: 13 }), "Flow"), /* @__PURE__ */ React.createElement(Btn, { onClick: () => setFitSignal((x) => x + 1) }, /* @__PURE__ */ React.createElement(Icon, { name: "fit", size: 14 }), "Fit"))), mode === "sld" ? /* @__PURE__ */ React.createElement(SystemSld, { sys, analysis, selection, setSelection, showTags }) : mode === "3d" ? /* @__PURE__ */ React.createElement(Site3D, { sys, analysis, selection, setSelection, animate, showTags }) : /* @__PURE__ */ React.createElement(SiteView, { sys, analysis, selection, setSelection, tool, onMove: move, onConnect: connect, showTags, animate, fitSignal })), /* @__PURE__ */ React.createElement("aside", { className: "panel inspector" }, selEq ? /* @__PURE__ */ React.createElement(EqInspector, { e: selEq, r: analysis.ok ? analysis.equipment[selEq.id] : null, update: updateEq, remove: removeEq, rename: renameEq, scShown: !!analysis.sc }) : selCon ? /* @__PURE__ */ React.createElement(
       ConInspector,
       {
         c: selCon,
@@ -4085,7 +4453,7 @@
   };
 
   // src/engine/pecalc/transformer.js
-  var MU0 = 4e-7 * Math.PI;
+  var MU02 = 4e-7 * Math.PI;
   var STEEL_DENSITY = 7650;
   var WINDING = { Cu: [17241e-12, 234.5], Al: [28264e-12, 225] };
   var CORE_LOSS_60HZ = [
@@ -4234,7 +4602,7 @@
     const nll = core_mass * specific_core_loss(bm) * inp.building_factor;
     const w_rad = duct + b_lv + b_hv;
     const kr = rogowski_factor(h, w_rad);
-    const x_pct = 2 * Math.PI * f * MU0 * (n_lv * iph_lv / et) * lmt_duct * (duct + (b_lv + b_hv) / 3) / (h / kr) * 100;
+    const x_pct = 2 * Math.PI * f * MU02 * (n_lv * iph_lv / et) * lmt_duct * (duct + (b_lv + b_hv) / 3) / (h / kr) * 100;
     const r_pct = load_loss / s * 100;
     const z_pct = Math.hypot(x_pct, r_pct);
     const x_over_r = x_pct / r_pct;
@@ -4257,8 +4625,8 @@
     const [k_mat, t_lim] = inp.conductor === "Cu" ? [106e3, 250] : [45700, 200];
     const denom = k_mat / (jsc ** 2 * inp.fault_duration_s) - 1;
     const t_fault = denom > 0 ? t1 + 2 * (t1 + t0) / denom : Infinity;
-    const b_peak = MU0 * n_hv * Math.sqrt(2) * kappa2 * (iph_hv / z_pu) / (h / kr);
-    const pressure = b_peak ** 2 / (2 * MU0);
+    const b_peak = MU02 * n_hv * Math.sqrt(2) * kappa2 * (iph_hv / z_pu) / (h / kr);
+    const pressure = b_peak ** 2 / (2 * MU02);
     const r_hv_mean = lmt_hv / (2 * Math.PI);
     const hoop = pressure * r_hv_mean / (n_hv * a_hv / h) / 1e6;
     const checks = [];
@@ -4388,7 +4756,7 @@
   }
 
   // src/ui/transformer.jsx
-  var { useState: useState5, useMemo: useMemo3 } = React;
+  var { useState: useState6, useMemo: useMemo4 } = React;
   var EXAMPLE = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
   function solve(inp, tune) {
     try {
@@ -4399,9 +4767,9 @@
     }
   }
   function TransformerWorkspace() {
-    const [inp, setInp] = useState5(() => transformerInput(EXAMPLE));
-    const [tune, setTune] = useState5(true);
-    const { result: r, error } = useMemo3(() => solve(inp, tune), [inp, tune]);
+    const [inp, setInp] = useState6(() => transformerInput(EXAMPLE));
+    const [tune, setTune] = useState6(true);
+    const { result: r, error } = useMemo4(() => solve(inp, tune), [inp, tune]);
     const set = (k, optional) => (v) => setInp((s) => v === void 0 && !optional ? s : { ...s, [k]: v === void 0 ? null : v });
     const num2 = (k, label, unit, o = {}) => /* @__PURE__ */ React.createElement(Field, { label, unit, hint: o.hint }, /* @__PURE__ */ React.createElement(NumField, { id: `xf-${k}`, value: inp[k] === null ? void 0 : inp[k], placeholder: o.ph, disabled: o.disabled, onCommit: set(k, o.optional) }));
     const pick = (k, label, opts) => /* @__PURE__ */ React.createElement(Field, { label }, /* @__PURE__ */ React.createElement("select", { id: `xf-${k}`, className: "num-input", value: inp[k], onChange: (e) => setInp((s) => ({ ...s, [k]: e.target.value })) }, opts.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))));
@@ -4529,13 +4897,13 @@
   ];
 
   // src/ui/App.jsx
-  var { useState: useState6 } = React;
+  var { useState: useState7 } = React;
   function App() {
-    const [active, setActive] = useState6(() => {
+    const [active, setActive] = useState7(() => {
       const h = (typeof location !== "undefined" ? location.hash : "").slice(1).split("-")[0];
       return WORKSPACES.some((w) => w.key === h) ? h : WORKSPACES.find((w) => w.default)?.key || WORKSPACES[0].key;
     });
-    const [opened, setOpened] = useState6(() => /* @__PURE__ */ new Set([active]));
+    const [opened, setOpened] = useState7(() => /* @__PURE__ */ new Set([active]));
     const open = (k) => {
       setActive(k);
       setOpened((s) => new Set(s).add(k));

@@ -12,6 +12,7 @@ import { runLoadFlow } from "./loadflow.js";
 import { shortCircuit } from "./shortcircuit.js";
 import AMPACITY from "./pecalc/data/ampacity_nec.json" with { type: "json" };
 import TABLE9 from "./pecalc/data/reactance_nec_table9.json" with { type: "json" };
+import { racOhmPerM, cableOdMm } from "./pecalc/conductors.js";
 
 export const SQRT3 = Math.sqrt(3);
 
@@ -44,8 +45,12 @@ export function areaMm2(size) {
   const k = Number(size); if (!isFinite(k) || k <= 0) throw new Error(`Unknown conductor size "${size}"`);
   return k * 0.506707;
 }
+// AC resistance per conductor at operating temperature, ohm per 1000 ft: IEC 60287-1-1 skin and
+// proximity factors from the ported pecalc conductor model, cables touching (spacing = cable OD).
+export function racPer1000ft(size, material = "Cu", tempC = 75) {
+  return racOhmPerM(size, material, tempC, 60, cableOdMm(size)) * 304.8;
+}
 // DC resistance at operating temperature, ohm per 1000 ft per conductor (IEC 60228 resistivities, α from IEC 60287).
-// Skin/proximity are neglected here; the Cable bus workspace does the full IEC 60287 Rac.
 export function rdcPer1000ft(size, material = "Cu", tempC = 75) {
   const rho20 = material === "Al" ? 2.8264e-8 : 1.7241e-8, alpha = material === "Al" ? 0.00403 : 0.00393;
   const r_per_m = (rho20 * (1 + alpha * (tempC - 20))) / (areaMm2(size) * 1e-6);
@@ -202,7 +207,7 @@ export function compileSystem(sys) {
     let rOhm, xOhm;
     const L = Math.max(c.length_ft, 1); // a zero-length run would make the Y-bus singular
     try {
-      rOhm = (rdcPer1000ft(c.size, c.material, c.insulation_c) * L) / 1000 / c.sets;
+      rOhm = (racPer1000ft(c.size, c.material, c.insulation_c) * L) / 1000 / c.sets;
       xOhm = (xlPer1000ft(c.size, c.kind === "cablebus" ? "aluminum" : c.raceway) * L) / 1000 / c.sets;
     } catch (err) { add("error", c.id, err.message); continue; }
     if (!kv) continue;
