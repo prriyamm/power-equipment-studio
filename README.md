@@ -5,11 +5,14 @@ transformer, switchgear and cable bus packages, with modern equipment-level visu
 It builds to **one self-contained HTML file** (`dist/index.html`) that runs with no backend.
 That file is published as a Claude Artifact.
 
-| Workspace | Status |
+| Workspace | What it does |
 |---|---|
-| Load flow: Newton-Raphson, one-line diagram, data tables, results, scenarios, IEEE 14-bus self-test | Ready |
-| System view: transformers → switchgear → cable bus → loads, drawn as equipment | In progress |
-| Cable bus, feeder & cable, switchgear bus, transformer design | Porting from `pecalc` |
+| **System** | The package as equipment: isometric site plan, orbitable 3D model, auto-generated one-line diagram. Live load flow, IEC 60909 short circuit, breaker switching with de-energized islands, switchgear lineup elevations and breaker schedules (NEC 240), arc-flash study (IEEE 1584-2018, PLACEHOLDER coefficients), project save/load, example library, undo/redo. |
+| **Load flow** | Newton-Raphson bus model, one-line editor, data tables, results, scenarios and comparison, IEEE 14-bus self-test, Q-limits, N−1 screening, short circuit. Byte-compatible with the Python `loadflow` CLI. |
+| **Cable bus** | Check and designer (port of pecalc): current sharing, table/datasheet/IEC 60287 ampacity, shield and enclosure losses, magnetic field map, fault forces, cross-section and iso enclosure view. |
+| **Feeder & cable** | Feeder sizing with parallel sets, NEC 110.14(C)/215, voltage drop, withstand, lug selection. |
+| **Switchgear bus** | Rac/Rdc and lamination sharing, temperature rise, short-circuit bracing, support span. |
+| **Transformer** | Preliminary core-type design, impedance tuning, losses, DOE efficiency, fault withstand, core-and-coil drawing. |
 
 ## Develop
 
