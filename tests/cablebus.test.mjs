@@ -239,6 +239,13 @@ test("CableBusDesigner: MV needs construction and checks blocks", () => {
   assert.ok(r.options.every((o) => o.block_stress_mpa !== null));
 });
 
+test("analyse rejects voltage <= 0 or non-finite (pecalc validate.voltage)", () => {
+  for (const v of [0, -600, NaN]) {
+    assert.throws(() => cb.analyse(cb.cableBusInput({ voltage_v: v })), /voltage_v must be/, `voltage_v=${v}`);
+  }
+  assert.throws(() => cb.analyse(cb.cableBusInput({ voltage_v: 0 })), { message: "voltage_v must be greater than 0 V, got 0" });
+});
+
 test("CableBusDesigner: a tested block rating can fail a design", () => {
   const r = ds.designOptions(ds.designRequest({ voltage_v: 600, current_a: 4000, fault_ka: 100, x_over_r: 30,
     block_rated_load_n: 500 }));

@@ -295,6 +295,9 @@ function _div(a, b) {
  * fill in the shield geometry on it. Returns the CableBusResult fields plus `passed`.
  */
 export function analyse(inp) {
+  // Same check and message as pecalc validate.voltage (power-equipment-engineering PR #11).
+  if (!Number.isFinite(Number(inp.voltage_v))) throw new Error(`voltage_v must be finite, got ${pyRepr(inp.voltage_v)}`);
+  if (!(inp.voltage_v > 0)) throw new Error(`voltage_v must be greater than 0 V, got ${pyRepr(inp.voltage_v)}`);
   const size = cond.normalizeSize(inp.size);
   inp.size = size;
   const cons = construction(inp);
