@@ -20,7 +20,11 @@ export const N_PER_M_TO_LBF_PER_FT = 0.0685218;
  * Approximation k = sqrt(2) (1.02 + 0.98 e^(-3 R/X)) (IEC 60909-0 eq. 55),
  * used for reporting; the force calculation itself is time-domain.
  */
+// Python raises ZeroDivisionError on X/R = 0 (in -3/x_over_r and -t/tau); JS would return NaN/finite garbage.
+const pyDiv0 = (x) => { if (x === 0) throw new Error("float division by zero"); };
+
 export function peakFactor(x_over_r, freq = 60.0) {
+  pyDiv0(x_over_r);
   return Math.sqrt(2) * (1.02 + 0.98 * Math.exp(-3 / x_over_r));
 }
 
@@ -41,6 +45,7 @@ export function faultForces(conductors, share, fault_ka_rms, x_over_r, opts = {}
     freq = 60.0, phases = ["A", "B", "C"], cycles = 1.0, steps_per_cycle = 96, angle_steps = 24,
     bodies = null,
   } = opts;
+  pyDiv0(x_over_r);
   const w = 2 * Math.PI * freq;
   const tau = x_over_r / w;
   const phi = Math.atan(x_over_r);

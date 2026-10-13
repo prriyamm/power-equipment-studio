@@ -9,7 +9,7 @@
  * each piece of equipment.
  * ========================================================================== */
 import { runLoadFlow } from "./loadflow.js";
-import { shortCircuit } from "./shortcircuit.js";
+import { shortCircuit, cMax } from "./shortcircuit.js";
 import AMPACITY from "./pecalc/data/ampacity_nec.json" with { type: "json" };
 import TABLE9 from "./pecalc/data/reactance_nec_table9.json" with { type: "json" };
 import { racOhmPerM, cableOdMm } from "./pecalc/conductors.js";
@@ -168,7 +168,9 @@ export function compileSystem(sys) {
       slackCount++;
       if (slackCount === 1) { b.type = "slack"; b.v = e.v_pu; b.angle = 0.0; }
       else add("error", e.id, `More than one utility source. Only one swing source is supported; use a generator for the others.`);
-      const z = base_mva / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
+      // IEC 60909-0 network feeder: Z_Q = c_Q·U_nQ²/S″_kQ, so a fault at the feeder bus reproduces the stated
+      // S″_kQ (the solver applies c again at the fault; without c_Q here the PCC fault came out c_Q × too high).
+      const z = (cMax(kv) * base_mva) / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
       scSources.push({ bus: bid, r, x: r * e.xr, id: e.id, kind: "utility" });
     } else if (e.type === "generator") {
       if (b.type !== "slack") { b.type = "PV"; b.v = e.v_pu; b.p_gen = (b.p_gen ?? 0) + e.p_kw / 1000; }

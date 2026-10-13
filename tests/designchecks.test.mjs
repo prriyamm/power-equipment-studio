@@ -24,3 +24,11 @@ test("an undersized cable bus run fails its check", () => {
   const d = designChecks(sys, analyseSystem(sys));
   assert.equal(d["CB-1"].passed, false);
 });
+
+test("regression: a cable bus fed from a transformer secondary is checked at the secondary voltage", () => {
+  // CB-1 runs T1.lv (480 V) -> SWGR-LV; CB-2 runs T2.lv (4.16 kV) -> SWGR-5. analysis.equipment.T1.kv is the
+  // HV-side 13.8 kV (a transformer's first terminal), which the check used: 13 800 V for a 480 V run.
+  const d = designChecks(EXAMPLE_SYSTEM, analyseSystem(EXAMPLE_SYSTEM));
+  assert.equal(d["CB-1"].result.input.voltage_v, 480);
+  assert.equal(d["CB-2"].result.input.voltage_v, 4160);
+});

@@ -57,3 +57,37 @@ test("opening a feeder breaker de-energizes everything downstream", () => {
   const base = analyseSystem(EXAMPLE_SYSTEM);
   assert.ok(r.totals.load_kw < base.totals.load_kw - 100);
 });
+
+test("regression: utility-bus fault reproduces the stated S″k (IEC 60909-0 Z_Q = c·Un²/S″kQ)", () => {
+  // Utility 500 MVA at 13.8 kV, fault at the utility's own bus.
+  //   IEC 60909-0: Z_Q = c_Q·Un²/S″kQ, I″k = c·Un/(√3·|Z_Q|) = S″kQ/(√3·Un) = 500/(√3·13.8) = 20.9185 kA.
+  //   Before the fix Z_Q = Un²/S″kQ (no c_Q), giving 1.1 × 20.9185 = 23.0103 kA.
+  const sys = { base_mva: 10, equipment: [
+    { id: "U", type: "utility", kv: 13.8, mva_sc: 500, xr: 15 },
+    { id: "S", type: "switchgear", kv: 13.8 }, { id: "L", type: "load", kw: 100 }],
+    connectors: [{ id: "a", kind: "direct", from: "U.out", to: "S.bus" }, { id: "b", kind: "direct", from: "S.bus", to: "L.in" }] };
+  const r = analyseSystem(sys);
+  const expected = 500 / (Math.sqrt(3) * 13.8); // 20.9185 kA
+  assert.ok(Math.abs(r.equipment.S.ik_ka - expected) < 1e-9 * expected, `${r.equipment.S.ik_ka} vs ${expected}`);
+  assert.ok(Math.abs(r.sc.buses[0].xr - 15) < 1e-9); // feeder X/R preserved
+});
+
+test("regression: finite utility + transformer LV fault by hand (IEC 60909 c_max, no K_T)", () => {
+  // Base 10 MVA. Utility 500 MVA, X/R 15 at 13.8 kV: |Z_Q| = 1.1·10/500 = 0.022 pu.
+  //   R_Q = 0.022/√(1+225) = 0.00146342, X_Q = 15·R_Q = 0.0219513.
+  // Transformer 2500 kVA, 5.75 %, X/R 7: |Z_T| = 0.0575·10/2.5 = 0.23 pu.
+  //   R_T = 0.23/√50 = 0.0325269, X_T = 0.227688.
+  // Z = 0.0339903 + j0.249640, |Z| = 0.251943 pu. Ibase(0.48 kV) = 10/(√3·0.48) = 12.0281 kA.
+  // I″k = 1.05·12.0281/0.251943 = 50.128 kA.
+  const sys = { base_mva: 10, equipment: [
+    { id: "U", type: "utility", kv: 13.8, mva_sc: 500, xr: 15 },
+    { id: "T", type: "transformer", kva: 2500, hv_kv: 13.8, lv_kv: 0.48, z_pct: 5.75, xr: 7 },
+    { id: "S", type: "switchgear", kv: 0.48 }],
+    connectors: [{ id: "a", kind: "direct", from: "U.out", to: "T.hv" }, { id: "b", kind: "direct", from: "T.lv", to: "S.bus" }] };
+  const r = analyseSystem(sys);
+  const zq = (1.1 * 10) / 500, rq = zq / Math.sqrt(226), zt = (0.0575 * 10) / 2.5, rt = zt / Math.sqrt(50);
+  const z = Math.hypot(rq + rt, 15 * rq + 7 * rt);
+  const expected = (1.05 * 10) / (Math.sqrt(3) * 0.48) / z;
+  assert.ok(Math.abs(expected - 50.128) < 0.01, `hand value ${expected}`);
+  assert.ok(Math.abs(r.equipment.S.ik_ka - expected) < 1e-9 * expected, `${r.equipment.S.ik_ka} vs ${expected}`);
+});

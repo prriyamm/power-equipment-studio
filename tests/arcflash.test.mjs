@@ -82,3 +82,28 @@ test("system study: Ibf is Ik divided by c, defaults assumed and flagged, overri
   const lv2 = arcFlashStudy(an, sys2).find((r) => r.id === "SWGR-LV");
   assert.equal(lv2.input.clearing_ms, 100); assert.equal(lv2.input.gap_mm, 25); assert.ok(!lv2.clearing_assumed);
 });
+
+test("regression: above 600 V the AFB is interpolated from per-level boundaries (1584-2018 AFB_600/2700/14300)", async () => {
+  // Independent closed form, using whatever coefficients the data file holds (PLACEHOLDER; this checks how the
+  // code applies them, not the coefficients). For one level with arcing current I:
+  //   E(D) = 12.552/50 · T · 10^(A + k12·lg D), A = k1 + k2 lg G + k3 I/(Ibf·P(Ibf)) + k11 lg Ibf + k13 lg I + lg(1/CF)
+  //   E(AFB) = 1.2 cal/cm² = 5.0208 J/cm²  ->  lg AFB = (lg(5.0208·50/(12.552·T)) − A)/k12
+  // Then AFB1 = (AFB2700 − AFB600)/2.1·(V − 2.7) + AFB2700, AFB2 = (AFB14300 − AFB2700)/11.6·(V − 14.3) + AFB14300,
+  //   AFB3 = AFB1·(2.7 − V)/2.1 + AFB2·(V − 0.6)/2.1; V ≤ 2.7 kV -> AFB3, else AFB2.
+  const { default: DATA } = await import("../src/engine/data/ieee1584_2018.json", { with: { type: "json" } });
+  const lg = Math.log10, poly = (c, x) => c.reduce((a, k) => a * x + k, 0);
+  const iarc = (lvl, cfg, ibf, gap) => { const k = DATA.iarc[lvl][cfg]; return 10 ** (k[0] + k[1] * lg(ibf) + k[2] * lg(gap)) * poly(k.slice(3), ibf); };
+  const afbLevel = (lvl, cfg, ibf, gap, T, I, cf) => {
+    const k = DATA.energy[lvl][cfg];
+    const A = k[0] + k[1] * lg(gap) + (k[2] * I) / (ibf * poly(k.slice(3, 10), ibf)) + k[10] * lg(ibf) + k[12] * lg(I) + lg(1 / cf);
+    return 10 ** ((lg((1.2 * 4.184 * 50) / (12.552 * T)) - A) / k[11]);
+  };
+  for (const V of [4.16, 13.8]) {
+    const inp = base(V, { ibf_ka: 20, clearing_ms: 200 });
+    const r = arcFlash(inp);
+    const a = [600, 2700, 14300].map((l) => afbLevel(String(l), "VCB", 20, inp.gap_mm, 200, iarc(String(l), "VCB", 20, inp.gap_mm), r.cf));
+    const b1 = ((a[1] - a[0]) / 2.1) * (V - 2.7) + a[1], b2 = ((a[2] - a[1]) / 11.6) * (V - 14.3) + a[2];
+    const want = V <= 2.7 ? (b1 * (2.7 - V)) / 2.1 + (b2 * (V - 0.6)) / 2.1 : b2;
+    assert.ok(Math.abs(r.scenarios.full.afb_mm - want) < 1e-6 * want, `${V} kV: ${r.scenarios.full.afb_mm} vs ${want}`);
+  }
+});
