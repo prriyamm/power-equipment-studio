@@ -85,8 +85,10 @@ export function createViewer(canvas, wrapEl, opts = {}) {
       const rect = canvas.getBoundingClientRect();
       const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
       const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, camera);
-      const hit = ray.intersectObjects(world.children, true).find((h) => h.object.userData.pick);
-      v.pickCb?.(hit ? hit.object.userData.pick : null);
+      // plain meshes carry userData.pick; instanced meshes carry one entry per instance in userData.picks
+      const pickOf = (h) => h.object.userData.pick || (h.instanceId != null ? h.object.userData.picks?.[h.instanceId] : null);
+      const hit = ray.intersectObjects(world.children, true).find(pickOf);
+      v.pickCb?.(hit ? pickOf(hit) : null);
     }
     drag = null;
   };

@@ -1,176 +1,156 @@
 /* 3D site view: the same equipment model rendered with three.js (global THREE, r128 UMD).
    Orbit with left drag, pan with right drag or shift-drag, zoom with the wheel.
-   Grid units map to world units: three.x = gx, three.y = height, three.z = gy. */
-const { useEffect, useRef, useState } = React;
-import { dims, siteRoutes } from "./systemGeometry.js";
-import { fmt } from "./common.jsx";
+   Grid units map to world units: three.x = gx, three.y = height, three.z = gy.
+
+   The procedural models come from ./siteModel.js as plain primitive records. Here they become one
+   InstancedMesh per (unit geometry, material) pair, so a 100-element package costs a few dozen draw calls.
+   Unit geometries and materials are created once per mount, shared by every rebuild, and disposed on unmount.
+   Result overlays (loading, bus voltage, fault current) only rewrite instance colours and labels; they come
+   from the analysis object the System workspace already holds, so nothing is re-solved here. */
+const { useEffect, useRef, useState, useMemo } = React;
 import { createViewer } from "./three/viewer.js";
+import { buildSiteModel, MAT_SPEC } from "./siteModel.js";
+import { deriveOverlay, overlayLegend, toHex, toCss, greyOut, shadeHex, OVERLAY_MODES } from "./systemOverlay.js";
+import { Btn } from "./common.jsx";
 
-const COLORS = {
-  eq: 0x6f7b87, door: 0x56626e, edge: 0x2a333c, tank: 0x4f6f5a, fin: 0x5b7e66, porcelain: 0x8b5a3a, brass: 0xc9a24f,
-  motor: 0x3f6894, bldg: 0x77808a, roof: 0x6b4f3c, window: 0x284a63, gen: 0xc9a248, tray: 0xb4bec7, pole: 0x6b5440,
-  phA: 0xe05a4f, phB: 0xe8c35a, phC: 0x5aa0e0, ok: 0x4cc38a, warn: 0xff8b4a, crit: 0xff5f5f, ground: 0x111a22, duct: 0x3b4a56,
-};
-const loadHex = (pct) => (pct == null ? 0x93a8b8 : pct > 100 ? COLORS.crit : pct > 80 ? COLORS.warn : COLORS.ok);
+const CSS = `
+.s3-hud { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none; max-width: calc(100% - 16px); }
+.s3-hud > * { pointer-events: auto; }
+.s3-bar { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; background: var(--tag-bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px; }
+.s3-legend { background: var(--tag-bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px 6px; width: 236px; max-width: 100%; font-size: 11px; color: var(--muted); }
+.s3-legend b { display: block; color: var(--fg); font-size: 11px; font-weight: 600; margin-bottom: 5px; }
+.s3-ramp { position: relative; height: 9px; border-radius: 3px; }
+.s3-band { position: absolute; top: -3px; bottom: -3px; border: 1px dashed var(--fg); border-radius: 3px; opacity: 0.55; }
+.s3-ticks { position: relative; height: 14px; font-family: var(--font-data); font-size: 9.5px; }
+.s3-ticks span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
+.s3-ticks span:first-child { transform: none; } .s3-ticks span:last-child { transform: translateX(-100%); }
+.s3-key { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.s3-sw { width: 12px; height: 9px; border-radius: 2px; flex: none; }
+.s3-note { margin-top: 3px; font-size: 10.5px; }
+.s3-flag { color: var(--crit); }
+.lbl3d .s3-ov { color: var(--fg); }
+.lbl3d .s3-flagtxt { color: var(--crit); font-weight: 600; }
+.lbl3d.s3-con { padding: 2px 6px 2px 7px; }
+`;
 
-function mats() {
-  const m = {};
-  const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: 0.18, ...o });
-  for (const [k, v] of Object.entries(COLORS)) m[k] = std(v);
-  m.brass = std(COLORS.brass, { metalness: 0.7, roughness: 0.35 });
-  m.tray = std(COLORS.tray, { metalness: 0.55, roughness: 0.4 });
-  m.cover = std(COLORS.tray, { metalness: 0.5, roughness: 0.45, transparent: true, opacity: 0.28 });
-  m.window = std(COLORS.window, { metalness: 0.1, roughness: 0.15, emissive: 0x0b2233 });
-  m.lampOn = new THREE.MeshBasicMaterial({ color: 0xff4040 });
-  m.lampOff = new THREE.MeshBasicMaterial({ color: 0x40d080 });
-  m.duct = std(COLORS.duct, { transparent: true, opacity: 0.55 });
-  return m;
-}
-
-/* -------------------------------------------------------------- builders */
-function boxAt(M, mat, x, y, z, w, h, d) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  mesh.position.set(x + w / 2, y + h / 2, z + d / 2);
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  return mesh;
-}
-function cylY(mat, x, y, z, r, h, seg = 18) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), mat);
-  m.position.set(x, y + h / 2, z); m.castShadow = true; return m;
-}
-function bushing(G, M, x, y, z, r, h, sheds, mat) {
-  G.add(cylY(mat, x, y, z, r, h));
-  for (let i = 1; i <= sheds; i++) G.add(cylY(mat, x, y + (i * h) / (sheds + 1), z, r * 1.7, 0.03));
-}
-
-function buildEquipment(e, M, energized) {
-  const G = new THREE.Group();
-  const { w, d, h } = dims(e); const x = e.gx, z = e.gy;
-  switch (e.type) {
-    case "switchgear": case "mcc": case "panel": {
-      G.add(boxAt(M, M.eq, x, 0, z, w, h, d));
-      const n = e.type === "panel" ? 1 : e.sections, sw = w / n, mv = e.kv > 1;
-      const rows = e.type === "mcc" ? 6 : mv ? 2 : 3;
-      for (let i = 0; i < n; i++) for (let j = 0; j < rows; j++) {
-        const v0 = 0.1 + (j * (h - 0.2)) / rows, vh = (h - 0.2) / rows - 0.05;
-        G.add(boxAt(M, M.door, x + i * sw + 0.05, v0, z + d, sw - 0.1, vh, 0.03));
-        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), energized ? M.lampOn : M.lampOff);
-        lamp.position.set(x + (i + 1) * sw - 0.15, v0 + vh * 0.75, z + d + 0.05); G.add(lamp);
-        if (e.type !== "mcc") G.add(boxAt(M, M.edge, x + i * sw + sw * 0.3, v0 + vh * 0.3, z + d + 0.03, sw * 0.4, vh * 0.3, 0.02));
-      }
-      G.add(boxAt(M, M.edge, x + 0.1, h, z + 0.2, w - 0.2, 0.04, 0.35));
-      break;
-    }
-    case "transformer": {
-      G.add(boxAt(M, M.tank, x, 0, z, w, h, d));
-      for (let i = 0; i < 7; i++) {
-        G.add(boxAt(M, M.fin, x + w, 0.25, z + 0.25 + (i * (d - 0.5)) / 6, 0.42, h - 0.55, 0.05));
-        G.add(boxAt(M, M.fin, x + 0.25 + (i * (w - 0.5)) / 6, 0.25, z + d, 0.05, h - 0.55, 0.36));
-      }
-      for (const f of [0.3, 0.75, 1.2]) bushing(G, M, x + 0.4, h, z + f + 0.15, 0.08, 0.75, 3, M.porcelain);
-      for (const f of [0.35, 0.8, 1.25]) G.add(cylY(M.brass, x + w - 0.4, h, z + f + 0.1, 0.1, 0.38));
-      G.add(boxAt(M, M.door, x + 0.35, h * 0.45, z + d - 0.01, 0.55, h * 0.27, 0.04));
-      break;
-    }
-    case "motor": {
-      const r = d * 0.42, cy = r + 0.18;
-      G.add(boxAt(M, M.eq, x + 0.15, 0, z + 0.05, w - 0.3, 0.16, d - 0.1));
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w - 0.45, 28), M.motor);
-      body.rotation.z = Math.PI / 2; body.position.set(x + 0.25 + (w - 0.45) / 2, cy, z + d / 2); body.castShadow = true; G.add(body);
-      for (let i = 0; i < 6; i++) { const rib = new THREE.Mesh(new THREE.TorusGeometry(r * 1.01, 0.018, 6, 28), M.motor); rib.rotation.y = Math.PI / 2; rib.position.set(x + 0.45 + i * 0.2, cy, z + d / 2); G.add(rib); }
-      const cowl = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.96, r * 0.96, 0.3, 24), M.edge); cowl.rotation.z = Math.PI / 2; cowl.position.set(x + 0.15, cy, z + d / 2); G.add(cowl);
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 10), M.brass); shaft.rotation.z = Math.PI / 2; shaft.position.set(x + w, cy, z + d / 2); G.add(shaft);
-      G.add(boxAt(M, M.motor, x + 0.7, cy + r - 0.05, z + d / 2 - 0.22, 0.45, 0.3, 0.44));
-      break;
-    }
-    case "load": {
-      G.add(boxAt(M, M.bldg, x, 0, z, w, h, d));
-      const shape = new THREE.Shape(); shape.moveTo(0, 0); shape.lineTo(d, 0); shape.lineTo(d / 2, 0.55); shape.lineTo(0, 0);
-      const roof = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: w + 0.1, bevelEnabled: false }), M.roof);
-      roof.rotation.y = Math.PI / 2; roof.position.set(x - 0.05, h, z + d); roof.castShadow = true; G.add(roof);
-      G.add(boxAt(M, M.door, x + w * 0.4, 0, z + d, w * 0.2, h * 0.7, 0.03));
-      for (const f of [0.12, 0.72]) G.add(boxAt(M, M.window, x + w * f, h * 0.45, z + d, w * 0.16, h * 0.3, 0.03));
-      break;
-    }
-    case "capacitor": {
-      G.add(boxAt(M, M.eq, x, 0, z, w, h, d));
-      for (const f of [0.3, 0.6, 0.9]) G.add(cylY(M.eq, x + f + 0.05, h, z + d / 2, 0.11, 0.35));
-      for (const v of [0.25, 0.4, 0.55, 0.7]) G.add(boxAt(M, M.edge, x + w * 0.15, h * v, z + d, w * 0.7, 0.04, 0.02));
-      break;
-    }
-    case "generator": {
-      G.add(boxAt(M, M.gen, x, 0, z, w, h, d));
-      G.add(cylY(M.edge, x + w - 0.5, h, z + d / 2, 0.1, 0.8));
-      break;
-    }
-    case "utility": {
-      const cx = x + 0.5, cz = z + 0.5, H = 4;
-      for (const dz of [-0.45, 0.45]) G.add(cylY(M.pole, cx, 0, cz + dz, 0.07, H, 10));
-      G.add(boxAt(M, M.pole, cx - 0.06, H - 0.36, cz - 0.75, 0.12, 0.12, 1.5));
-      for (const dz of [-0.55, 0, 0.55]) {
-        bushing(G, M, cx, H - 0.25, cz + dz, 0.05, 0.3, 2, M.porcelain);
-        const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(cx, H + 0.05, cz + dz), new THREE.Vector3(cx - 2.5, H + 0.1, cz + dz - 0.6), new THREE.Vector3(cx - 5, H + 0.9, cz + dz - 1.2));
-        G.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.012, 4, false), M.tray));
-      }
-      break;
-    }
-    default: G.add(boxAt(M, M.eq, x, 0, z, w, h, d));
+/* ------------------------------------------------------------ shared kit */
+function createKit() {
+  const prism = (() => {
+    const s = new THREE.Shape(); s.moveTo(-0.5, -0.5); s.lineTo(0.5, -0.5); s.lineTo(0, 0.5); s.lineTo(-0.5, -0.5);
+    const g = new THREE.ExtrudeGeometry(s, { depth: 1, bevelEnabled: false }); g.translate(0, 0, -0.5); return g;
+  })();
+  const geos = {
+    box: new THREE.BoxGeometry(1, 1, 1),
+    cyl: new THREE.CylinderGeometry(1, 1, 1, 10),
+    cyl28: new THREE.CylinderGeometry(1, 1, 1, 28),
+    sphere: new THREE.SphereGeometry(1, 10, 8),
+    dot: new THREE.SphereGeometry(1, 6, 4),
+    torus: new THREE.TorusGeometry(1, 0.045, 4, 18).rotateX(Math.PI / 2),
+    prism,
+    cone: new THREE.ConeGeometry(1, 1, 4),
+  };
+  for (const g of Object.values(geos)) { g.computeBoundingBox(); g.computeBoundingSphere(); }
+  // materials are white so the per-instance colour carries the part colour (and the overlay colour)
+  const mats = {};
+  for (const [k, spec] of Object.entries(MAT_SPEC)) {
+    mats[k] = spec.basic
+      ? new THREE.MeshBasicMaterial({ color: 0xffffff })
+      : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: spec.roughness ?? 0.62, metalness: spec.metalness ?? 0.18,
+        transparent: !!spec.transparent, opacity: spec.opacity ?? 1, emissive: spec.emissive ?? 0x000000, depthWrite: !spec.transparent });
   }
-  G.userData = { kind: "eq", id: e.id, top: new THREE.Vector3(x + w / 2, h + (e.type === "transformer" ? 0.9 : 0.3), z + d / 2) };
-  G.traverse((o) => { o.userData.pick = { kind: "eq", id: e.id }; });
-  return G;
+  mats.particle = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  mats.flag = new THREE.MeshBasicMaterial({ color: 0xff5f5f });
+  return {
+    geos, mats,
+    dispose() { for (const g of Object.values(geos)) g.dispose(); for (const m of Object.values(mats)) m.dispose(); },
+  };
 }
 
-function segmentBox(M, mat, a, b, W, H, yOff = 0) {
-  // axis-aligned segment from a to b (three coords), cross-section W×H
-  const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-  const len = Math.hypot(dx, dy, dz); if (len < 1e-6) return null;
-  const g = Math.abs(dy) > 1e-6 ? new THREE.BoxGeometry(W, len, H) : Math.abs(dx) > 1e-6 ? new THREE.BoxGeometry(len + W, H, W) : new THREE.BoxGeometry(W, H, len + W);
-  const m = new THREE.Mesh(g, mat);
-  m.position.set((a.x + b.x) / 2, (a.y + b.y) / 2 + yOff, (a.z + b.z) / 2); m.castShadow = true; m.receiveShadow = true;
-  return m;
-}
-const V = (p) => new THREE.Vector3(p[0], p[2], p[1]);
-
-function buildConnector(c, route, M, res) {
-  const G = new THREE.Group();
-  const pts = route.pts.map(V);
-  if (c.kind === "cablebus") {
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const vertical = Math.abs(a.y - b.y) > 1e-6;
-      if (vertical) { const s = segmentBox(M, M.tray, a, b, 0.42, 0.24); if (s) G.add(s); continue; }
-      const base = segmentBox(M, M.tray, new THREE.Vector3(a.x, a.y - 0.2, a.z), new THREE.Vector3(b.x, b.y - 0.2, b.z), 0.44, 0.03); if (base) G.add(base);
-      const horizX = Math.abs(a.x - b.x) > 1e-6;
-      for (const off of [-0.21, 0.21]) {
-        const o = horizX ? new THREE.Vector3(0, 0, off) : new THREE.Vector3(off, 0, 0);
-        const rail = segmentBox(M, M.tray, a.clone().add(o).setY(a.y - 0.1), b.clone().add(o).setY(b.y - 0.1), 0.03, 0.2); if (rail) { rail.scale.set(horizX ? 1 : 0.07, 1, horizX ? 0.07 : 1); G.add(rail); }
-      }
-      const cover = segmentBox(M, M.cover, a, b, 0.44, 0.02); if (cover) G.add(cover);
-      [M.phA, M.phB, M.phC].forEach((mat, k) => {
-        const off = (k - 1) * 0.11;
-        const o = horizX ? new THREE.Vector3(0, 0, off) : new THREE.Vector3(off, 0, 0);
-        const p0 = a.clone().add(o).setY(a.y - 0.12), p1 = b.clone().add(o).setY(b.y - 0.12);
-        const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(p0, p1), 1, 0.035, 8, false), mat); G.add(tube);
-      });
-    }
-  } else if (c.kind !== "direct") {
-    const g = pts.map((p) => p.clone().setY(0.02));
-    for (let i = 0; i < g.length - 1; i++) { const s = segmentBox(M, M.duct, g[i], g[i + 1], Math.min(0.18 + (c.sets ?? 1) * 0.05, 0.5), 0.04); if (s) G.add(s); }
-    const line = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(g.map((p) => p.clone().setY(0.06)), false, "catmullrom", 0), 64, 0.03, 6, false),
-      new THREE.MeshBasicMaterial({ color: loadHex(res?.loading_pct) }));
-    G.add(line);
+/* Instantiate the primitive list: one InstancedMesh per geometry|material. */
+function instantiate(kit, model) {
+  const groups = new Map();
+  for (const p of model.prims) {
+    const key = `${p.g}|${p.m}`;
+    let grp = groups.get(key); if (!grp) groups.set(key, (grp = { g: p.g, m: p.m, list: [] }));
+    grp.list.push(p);
   }
-  G.traverse((o) => { o.userData.pick = { kind: "con", id: c.id }; });
-  G.userData = { kind: "con", id: c.id };
-  return G;
+  const meshes = [], bounds = {};
+  const mtx = new THREE.Matrix4(), pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3(), dir = new THREE.Vector3(), box = new THREE.Box3(), col = new THREE.Color();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const grp of groups.values()) {
+    const geo = kit.geos[grp.g], mat = kit.mats[grp.m];
+    const im = new THREE.InstancedMesh(geo, mat, grp.list.length);
+    im.castShadow = !mat.transparent && grp.m !== "line"; im.receiveShadow = true;
+    im.frustumCulled = false; // instances spread across the site; the geometry's own sphere would cull them wrongly
+    const picks = new Array(grp.list.length);
+    grp.list.forEach((p, i) => {
+      pos.set(p.p[0], p.p[1], p.p[2]); scl.set(p.s[0], p.s[1], p.s[2]);
+      if (p.dir) quat.setFromUnitVectors(up, dir.set(p.dir[0], p.dir[1], p.dir[2]));
+      else if (p.rotY) quat.setFromAxisAngle(up, p.rotY); else quat.identity();
+      mtx.compose(pos, quat, scl); im.setMatrixAt(i, mtx);
+      im.setColorAt(i, col.setHex(p.c ?? MAT_SPEC[p.m].color));
+      picks[i] = { kind: p.kind, id: p.id };
+      box.copy(geo.boundingBox).applyMatrix4(mtx);
+      const k = p.kind + ":" + p.id; (bounds[k] ||= new THREE.Box3()).union(box);
+    });
+    im.instanceMatrix.needsUpdate = true;
+    im.userData = { picks, prims: grp.list };
+    meshes.push(im);
+  }
+  return { meshes, bounds };
+}
+
+/* Instance colours for the current overlay: part colour, overlay colour on painted parts, grey when de-energized. */
+function paint(built, ov) {
+  const col = new THREE.Color();
+  for (const im of built.meshes) {
+    const prims = im.userData.prims;
+    for (let i = 0; i < prims.length; i++) {
+      const p = prims[i], e = (p.kind === "eq" ? ov.equipment : ov.connectors)[p.id];
+      let hex = p.c ?? MAT_SPEC[p.m].color;
+      if (e?.off) hex = greyOut(hex);
+      else if (ov.mode !== "none" && p.paint && e?.color) hex = shadeHex(toHex(e.color), 0.82 * (p.shade ?? 1)); // a touch darker than the legend so lighting still reads
+      im.setColorAt(i, col.setHex(hex));
+    }
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+  }
+}
+
+function labelFor(kind, name, base, ovEntry, ov, showFault) {
+  const el = document.createElement("div"); el.className = "lbl3d" + (kind === "con" ? " s3-con" : "");
+  const b = document.createElement("b"); b.textContent = name; el.appendChild(b);
+  const line = (txt, cls) => { if (!txt) return; const s = document.createElement("span"); s.textContent = txt; if (cls) s.className = cls; el.appendChild(s); };
+  let tone = base.tone;
+  if (ovEntry?.off) { line(ovEntry.text); tone = ""; el.style.opacity = "0.75"; }
+  else if (ov.mode !== "none" && ovEntry?.text) {
+    line(ovEntry.text, ovEntry.flag ? "s3-flagtxt" : "s3-ov");
+    tone = ovEntry.state === "na" ? "" : ovEntry.state;
+    if (ovEntry.color) el.style.borderLeftColor = toCss(ovEntry.color);
+  } else line(base.line2);
+  if (showFault && ovEntry?.fault && !ovEntry.off) line(ovEntry.fault.text, ovEntry.fault.state === "crit" ? "s3-flagtxt" : "");
+  else if (!showFault && ov.mode === "none" && base.line3) line(base.line3);
+  el.dataset.tone = tone || "";
+  return el;
 }
 
 /* ------------------------------------------------------------ component */
-export function Site3D({ sys, analysis, selection, setSelection, animate, showTags }) {
+const initialOverlay = () => {
+  const h = typeof location !== "undefined" ? location.hash : "";
+  const m = /^#system-3d-(loading|voltage|fault)$/.exec(h);
+  return m ? { mode: m[1] === "fault" ? "none" : m[1], fault: m[1] === "fault" } : { mode: "none", fault: false };
+};
+
+export function Site3D({ sys, analysis, selection, setSelection, animate, showTags, fitSignal = 0 }) {
   const wrapRef = useRef(null), canvasRef = useRef(null), labelsRef = useRef(null);
   const st = useRef(null);
   const [failed, setFailed] = useState(typeof THREE === "undefined");
+  const [ovMode, setOvMode] = useState(() => initialOverlay().mode);
+  const [showFault, setShowFault] = useState(() => initialOverlay().fault);
+
+  // procedural model + overlay data (pure; reuse the workspace's analysis, no second solve)
+  const model = useMemo(() => buildSiteModel(sys, analysis), [sys, analysis]);
+  const ov = useMemo(() => deriveOverlay(sys, analysis, { mode: ovMode, fault: showFault }), [sys, analysis, ovMode, showFault]);
+  const legend = overlayLegend(ovMode, ov.band);
 
   // one-time viewer: renderer, camera, lights, controls (shared scaffolding in ./three/viewer.js)
   useEffect(() => {
@@ -178,94 +158,168 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
     let viewer;
     try {
       viewer = createViewer(canvasRef.current, wrapRef.current, {
-        background: 0x0a0f14, fog: [0x0a0f14, 45, 110], gridSize: 80, groundColor: COLORS.ground, labelsEl: labelsRef.current,
+        background: 0x0a0f14, fog: [0x0a0f14, 45, 110], gridSize: 80, groundColor: 0x111a22, labelsEl: labelsRef.current,
         orbit: { target: new THREE.Vector3(10, 0, 6), r: 34, theta: -0.75, phi: 0.95 },
       });
     } catch (err) { setFailed(true); return; }
-    const flows = new THREE.Group(); viewer.scene.add(flows);
-    const s = Object.assign(viewer, { flows, M: mats(), particles: [], selBox: null, animate: true });
+    const flows = new THREE.Group(), flags = new THREE.Group(); viewer.scene.add(flows); viewer.scene.add(flags);
+    const s = Object.assign(viewer, { flows, flags, kit: createKit(), built: null, particles: null, selBox: null, animate: true });
     st.current = s;
+    const m4 = new THREE.Matrix4(), tmp = new THREE.Vector3();
+    let tFlag = 0;
     s.onFrame((dt) => {
-      if (!s.animate) return;
-      for (const p of s.particles) {
+      tFlag += dt;
+      if (s.flags.children.length) for (const f of s.flags.children) { f.rotation.y += dt * 1.6; f.position.y = f.userData.y + Math.sin(tFlag * 3) * 0.08; }
+      const P = s.particles; if (!s.animate || !P) return;
+      for (let k = 0; k < P.list.length; k++) {
+        const p = P.list[k];
         p.t = (p.t + dt * p.speed) % 1;
         const L = p.total * p.t; let acc = 0;
         for (let i = 0; i < p.pts.length - 1; i++) {
-          const seg = p.pts[i].distanceTo(p.pts[i + 1]);
-          if (acc + seg >= L) { p.mesh.position.lerpVectors(p.pts[i], p.pts[i + 1], (L - acc) / Math.max(seg, 1e-9)); break; }
+          const seg = p.seg[i];
+          if (acc + seg >= L) { tmp.lerpVectors(p.pts[i], p.pts[i + 1], (L - acc) / Math.max(seg, 1e-9)); break; }
           acc += seg;
         }
+        m4.makeScale(0.07, 0.07, 0.07).setPosition(tmp); P.mesh.setMatrixAt(k, m4);
       }
+      P.mesh.instanceMatrix.needsUpdate = true;
     });
-    return () => { s.dispose(); };
+    return () => {
+      dropBuilt(s);
+      s.dispose();
+      s.kit.dispose();
+      st.current = null;
+    };
   }, []);
 
   useEffect(() => { if (st.current) st.current.onPick((p) => setSelection(p ? { kind: p.kind, id: p.id } : null)); }, [setSelection]);
   useEffect(() => { if (st.current) { st.current.animate = animate; st.current.showLabels = showTags; st.current.flows.visible = animate; } }, [animate, showTags]);
 
-  // rebuild meshes when the model or results change
+  // rebuild instanced meshes when the model changes
   useEffect(() => {
     const s = st.current; if (!s) return;
-    const dispose = (grp) => { grp.traverse((o) => { o.geometry?.dispose?.(); }); grp.clear(); };
-    dispose(s.world); dispose(s.flows); s.particles = [];
-    s.clearLabels();
-    const { eqMap, routes } = siteRoutes(sys);
-    const ok = analysis?.ok, res = analysis?.equipment || {}, cres = analysis?.connectors || {};
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const e of Object.values(eqMap)) {
-      const g = buildEquipment(e, s.M, !!ok && !res[e.id]?.deenergized); s.world.add(g);
-      const { w, d } = dims(e); minX = Math.min(minX, e.gx); maxX = Math.max(maxX, e.gx + w); minZ = Math.min(minZ, e.gy); maxZ = Math.max(maxZ, e.gy + d);
-      const r = ok ? res[e.id] : null;
-      const el = document.createElement("div"); el.className = "lbl3d";
-      const tone = !r || r.deenergized ? "" : (r.loading_pct > 100 || r.sc_duty_pct > 100) ? "crit" : (r.vflag !== "ok" || r.loading_pct > 80 || r.sc_duty_pct > 90) ? "warn" : "ok";
-      el.dataset.tone = tone;
-      const line2 = !r ? "" : r.deenergized ? "De-energized" : r.loading_pct != null ? `${r.v_pu.toFixed(3)} pu · ${fmt(r.loading_pct, 0)}%` : `${r.v_pu.toFixed(3)} pu`;
-      const line3 = r?.ik_ka != null && ["switchgear", "mcc", "panel", "utility"].includes(e.type) ? `I″k ${fmt(r.ik_ka, 1)} kA` : "";
-      el.innerHTML = `<b></b><span></span><span></span>`;
-      el.children[0].textContent = e.name || e.id; el.children[1].textContent = line2; el.children[2].textContent = line3;
-      s.addLabel(el, g.userData.top);
+    dropBuilt(s);
+    const built = instantiate(s.kit, model);
+    for (const im of built.meshes) s.world.add(im);
+    s.built = built;
+    // power-flow markers: a single InstancedMesh, matrices updated per frame
+    const list = [];
+    for (const f of model.flows) {
+      const pts = f.pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+      const seg = pts.slice(1).map((p, i) => p.distanceTo(pts[i]));
+      for (let i = 0; i < f.n; i++) list.push({ pts, seg, total: f.total, t: i / f.n, speed: f.speed, loading_pct: f.loading_pct });
     }
-    for (const c of sys.connectors) {
-      const rt = routes[c.id]; if (!rt || rt.direct) continue;
-      const r = ok ? cres[c.id] : null;
-      s.world.add(buildConnector({ ...c }, rt, s.M, r));
-      if (r && !r.open) {
-        let pts = rt.pts.map(V).map((p) => (c.kind === "cablebus" ? p.clone().setY(p.y + 0.05) : p.clone().setY(0.12)));
-        if (c.kind !== "cablebus") pts = pts.map((p) => p.clone().setY(0.12));
-        if (r.dir < 0) pts.reverse();
-        let total = 0; for (let i = 0; i < pts.length - 1; i++) total += pts[i].distanceTo(pts[i + 1]);
-        const n = Math.max(2, Math.round(total / 1.4)), speed = (0.25 + 0.9 * Math.min(1, (r.loading_pct ?? 30) / 100)) * (6 / Math.max(total, 1));
-        const mat = new THREE.MeshBasicMaterial({ color: loadHex(r.loading_pct) });
-        for (let i = 0; i < n; i++) {
-          const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), mat);
-          s.flows.add(mesh); s.particles.push({ mesh, pts, total, t: i / n, speed });
-        }
-      }
+    if (list.length) {
+      const mesh = new THREE.InstancedMesh(s.kit.geos.dot, s.kit.mats.particle, list.length);
+      mesh.frustumCulled = false;
+      const col = new THREE.Color(), m4 = new THREE.Matrix4();
+      list.forEach((p, i) => { mesh.setColorAt(i, col.setHex(particleHex(p.loading_pct))); m4.makeScale(0.07, 0.07, 0.07).setPosition(p.pts[0]); mesh.setMatrixAt(i, m4); });
+      s.flows.add(mesh); s.particles = { mesh, list };
     }
-    if (!s.framed && isFinite(minX)) {
-      s.orbit.target.set((minX + maxX) / 2, 0.8, (minZ + maxZ) / 2);
-      s.orbit.r = Math.max(18, 1.25 * Math.hypot(maxX - minX, maxZ - minZ));
-      s.sun.target.position.copy(s.orbit.target); s.sun.position.set(s.orbit.target.x - 18, 30, s.orbit.target.z - 10);
-      s.place(); s.framed = true;
-    }
-  }, [sys, analysis]);
+    if (!s.framed && frameSite(s, model.extent)) s.framed = true;
+  }, [model]);
 
-  // selection highlight
+  // the toolbar's Fit button (and opening a project) re-aims the camera at the whole site
+  const firstFit = useRef(true);
+  useEffect(() => {
+    if (firstFit.current) { firstFit.current = false; return; }
+    if (st.current) frameSite(st.current, model.extent);
+  }, [fitSignal]); // eslint-disable-line
+
+  // overlay: instance colours, labels, out-of-band flags (no geometry rebuild)
+  useEffect(() => {
+    const s = st.current; if (!s || !s.built) return;
+    paint(s.built, ov);
+    s.clearLabels();
+    const ok = analysis?.ok, res = analysis?.equipment || {};
+    const fm = (x, d) => (x == null ? "–" : x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }));
+    for (const e of sys.equipment) {
+      const at = model.anchors.eq[e.id]; if (!at) continue;
+      const r = ok ? res[e.id] : null;
+      const tone = !r || r.deenergized ? "" : (r.loading_pct > 100 || r.sc_duty_pct > 100) ? "crit" : (r.vflag !== "ok" || r.loading_pct > 80 || r.sc_duty_pct > 90) ? "warn" : "ok";
+      const line2 = !r ? "" : r.deenergized ? "De-energized" : r.loading_pct != null ? `${r.v_pu.toFixed(3)} pu · ${fm(r.loading_pct, 0)}%` : `${r.v_pu.toFixed(3)} pu`;
+      const line3 = r?.ik_ka != null && ["switchgear", "mcc", "panel", "utility"].includes(e.type) ? `I″k ${fm(r.ik_ka, 1)} kA` : "";
+      s.addLabel(labelFor("eq", e.name || e.id, { tone, line2, line3 }, ov.equipment[e.id], ov, showFault), new THREE.Vector3(...at));
+    }
+    if (ovMode !== "none") for (const c of sys.connectors) {
+      const at = model.anchors.con[c.id], oe = ov.connectors[c.id];
+      if (!at || !oe || (!oe.text && !oe.off)) continue;
+      s.addLabel(labelFor("con", c.id, { tone: "" }, oe, ov, false), new THREE.Vector3(...at));
+    }
+    // floating markers over anything outside the voltage band
+    for (const f of [...s.flags.children]) s.flags.remove(f);
+    if (ovMode === "voltage") for (const e of sys.equipment) {
+      const oe = ov.equipment[e.id], b = s.built.bounds["eq:" + e.id];
+      if (!oe?.flag || !b) continue;
+      const m = new THREE.Mesh(s.kit.geos.cone, s.kit.mats.flag);
+      m.scale.set(0.18, oe.flag === "low" ? -0.32 : 0.32, 0.18);
+      const c = b.getCenter(new THREE.Vector3());
+      m.userData.y = b.max.y + 0.45; m.position.set(c.x, m.userData.y, c.z);
+      s.flags.add(m);
+    }
+  }, [model, ov, showFault]); // eslint-disable-line
+
+  // selection highlight from the instanced bounds
   useEffect(() => {
     const s = st.current; if (!s) return;
-    if (s.selBox) { s.scene.remove(s.selBox); s.selBox = null; }
-    if (!selection) return;
-    const target = s.world.children.find((g) => g.userData.kind === (selection.kind === "eq" ? "eq" : "con") && g.userData.id === selection.id);
-    if (!target) return;
-    s.selBox = new THREE.BoxHelper(target, 0xd8b25a); s.scene.add(s.selBox);
-  }, [selection, sys, analysis]);
+    if (s.selBox) { s.scene.remove(s.selBox); s.selBox.geometry.dispose(); s.selBox.material.dispose(); s.selBox = null; }
+    if (!selection || !s.built) return;
+    const b = s.built.bounds[(selection.kind === "eq" ? "eq" : "con") + ":" + selection.id];
+    if (!b) return;
+    s.selBox = new THREE.Box3Helper(b.clone().expandByScalar(0.04), 0xd8b25a); s.scene.add(s.selBox);
+  }, [selection, model]);
 
   if (failed) return <div className="canvas-wrap grid place-items-center text-muted p-6 text-center">3D view needs WebGL, which this browser or frame does not provide. The isometric view shows the same model.</div>;
   return (
     <div ref={wrapRef} className="canvas-wrap site3d">
+      <style>{CSS}</style>
       <canvas ref={canvasRef} className="canvas3d" />
       <div ref={labelsRef} className="labels3d" />
+      <div className="s3-hud">
+        <div className="s3-bar" role="group" aria-label="Result overlay">
+          {OVERLAY_MODES.map((m) => <Btn key={m} active={ovMode === m} onClick={() => setOvMode(m)} title={m === "none" ? "Equipment colours" : m === "loading" ? "Colour by loading vs rating" : "Colour buses by per-unit voltage"}>{m === "none" ? "Plain" : m === "loading" ? "Loading" : "Voltage"}</Btn>)}
+          <Btn active={showFault} onClick={() => setShowFault(!showFault)} title="Show three-phase fault current labels (IEC 60909)">I″k</Btn>
+        </div>
+        {(legend || showFault || ov.summary.off > 0) && (
+          <div className="s3-legend">
+            {!ov.solved ? <><b>Overlay</b><div>No solved results: the overlay needs a converged load flow.</div></> : <>
+              {legend && <>
+                <b>{legend.title}</b>
+                <div className="s3-ramp" style={{ background: legend.gradient }}>
+                  {legend.band && <div className="s3-band" style={{ left: `${legend.band[0] * 100}%`, width: `${(legend.band[1] - legend.band[0]) * 100}%` }} />}
+                </div>
+                <div className="s3-ticks">{legend.ticks.map((t) => <span key={t.label} style={{ left: `${t.at * 100}%` }}>{t.label}</span>)}</div>
+                {legend.notes.map((n) => <div key={n} className="s3-note">{n}</div>)}
+                {ovMode === "voltage" && ov.summary.flagged > 0 && <div className="s3-note s3-flag">{ov.summary.flagged} item{ov.summary.flagged > 1 ? "s" : ""} outside the band (marked ▲/▼)</div>}
+                {ovMode === "loading" && ov.summary.overloaded > 0 && <div className="s3-note s3-flag">{ov.summary.overloaded} over 100 %</div>}
+              </>}
+              {showFault && <div className="s3-note">I″k: IEC 60909 three-phase bolted; gear shows duty vs its rating.</div>}
+              {ov.summary.off > 0 && <div className="s3-key"><span className="s3-sw" style={{ background: "rgb(92,98,104)" }} />De-energized / open ({ov.summary.off})</div>}
+            </>}
+          </div>
+        )}
+      </div>
       <div className="canvas-hud left"><span className="hidden sm:inline">Drag to orbit · right-drag or shift-drag to pan · scroll to zoom · click to select</span></div>
     </div>
   );
+}
+
+function frameSite(s, ex) {
+  if (!isFinite(ex.minX)) return false;
+  s.orbit.target.set((ex.minX + ex.maxX) / 2, 0.8, (ex.minZ + ex.maxZ) / 2);
+  s.orbit.r = Math.min(120, Math.max(18, 1.25 * Math.hypot(ex.maxX - ex.minX, ex.maxZ - ex.minZ)));
+  s.sun.target.position.copy(s.orbit.target); s.sun.position.set(s.orbit.target.x - 18, 30, s.orbit.target.z - 10);
+  s.place();
+  return true;
+}
+
+const particleHex = (pct) => (pct == null ? 0x93a8b8 : pct > 100 ? 0xff5f5f : pct > 80 ? 0xff8b4a : 0x4cc38a);
+
+/* Drop the per-build objects. Unit geometries and materials belong to the kit and survive rebuilds;
+   InstancedMesh.dispose frees the instance buffers. */
+function dropBuilt(s) {
+  if (s.built) { for (const im of s.built.meshes) { s.world.remove(im); im.dispose?.(); } s.built = null; }
+  if (s.particles) { s.flows.remove(s.particles.mesh); s.particles.mesh.dispose?.(); s.particles = null; }
+  for (const f of [...s.flags.children]) s.flags.remove(f);
+  s.clearLabels();
 }
