@@ -37,8 +37,8 @@ export function cableBusCheck(c, current_a, kv, fault_ka, xr) {
 
 export function gearBusCheck(e, fault_ka, xr) {
   const base = {
-    current_a: e.bus_a, voltage_v: e.kv * 1000, material: "Cu", bar_thickness_mm: e.bar_thickness_mm ?? 6.35,
-    phase_spacing_mm: e.phase_spacing_mm ?? (e.kv > 1 ? 250 : 150), orientation: "edge_to_edge", standard: e.kv > 1 ? "C37.20.2" : "UL 891",
+    current_a: e.bus_a, voltage_v: e.kv * 1000, material: e.bus_material ?? "Cu", bar_thickness_mm: e.bar_thickness_mm ?? 6.35,
+    phase_spacing_mm: e.phase_spacing_mm ?? (e.kv > 1 ? 250 : 150), orientation: e.bus_orientation ?? "edge_to_edge", standard: e.kv > 1 ? "C37.20.2" : "UL 891",
     fault_ka: fault_ka ?? null, x_over_r: Math.min(Math.max(xr ?? 15, 2), 60), support_span_m: e.support_span_m ?? 0.6,
     filaments_thickness: 2, filaments_width: 6, // coarse mesh: interactive speed inside the system study
   };

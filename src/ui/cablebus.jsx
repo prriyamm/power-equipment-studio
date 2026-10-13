@@ -13,6 +13,8 @@ import { bRmsUt, LIMITS_UT } from "../engine/pecalc/field.js";
 import { kvRows, checkRows } from "../engine/report.js";
 import { tableInfo } from "../engine/pecalc/ampacity.js";
 import { ReportButton } from "./reportButton.jsx";
+import { PushToSystem } from "./systemPush.jsx";
+import { cableBusDesign } from "../engine/designPush.js";
 
 const CSS = `
 .cb-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
@@ -625,11 +627,12 @@ function DesignerTab({ d, setD, onPick }) {
 /* ------------------------------------------------------------ workspace */
 function sizeKey(s) { try { return cond.normalizeSize(String(s)); } catch { return null; } }
 
-export function CableBusWorkspace() {
+export function CableBusWorkspace({ goTo }) {
   const [tab, setTab] = useState("check");
   const [f, setF] = useState(EXAMPLE);
   const [d, setD] = useState(DESIGN_EXAMPLE);
   const [fromSystem, setFromSystem] = useState(null);
+  const [link, setLink] = useState(null);            // System cable bus run this design is for
 
   useEffect(() => bus.on("cablebus:open", ({ connector, current_a, kv }) => {
     const c = connector || {};
@@ -649,6 +652,7 @@ export function CableBusWorkspace() {
       return n;
     });
     setFromSystem(c.id || "connector");
+    if (c.id) setLink({ kind: "con", id: c.id });
     setTab("check");
   }), []);
 
@@ -665,7 +669,8 @@ export function CableBusWorkspace() {
     setTab("check");
   };
 
-  const { res } = useMemo(() => (tab === "check" ? solve(f) : {}), [f, tab]);
+  const { res, error: solveError } = useMemo(() => (tab === "check" ? solve(f) : {}), [f, tab]);
+  const push = useMemo(() => (res ? { design: cableBusDesign(res) } : { error: tab === "check" ? solveError : "Open a design on the Check tab to apply it" }), [res, solveError, tab]);
   return (
     <div className="ws">
       <style>{CSS}</style>
@@ -676,7 +681,8 @@ export function CableBusWorkspace() {
           <Btn active={tab === "designer"} onClick={() => setTab("designer")}>Designer</Btn>
         </div>
         <span className="text-muted text-[12.5px]">{tab === "check" ? "Analyse a given design" : "Enumerate and rank options"}</span>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <PushToSystem module="cablebus" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {tab === "check" && res && <Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
           {tab === "check" && res && <ReportButton filename="cable-bus-calc" getReport={() => cableBusReport(f)} />}
           {tab === "check" && <Btn onClick={() => { setF(EXAMPLE); setFromSystem(null); }} title="Restore the 15 kV 2000 A example">Reset to example</Btn>}
