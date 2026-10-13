@@ -55,7 +55,8 @@ test("golden: vector set covers the required ranges", () => {
   assert.ok(ins.some((i) => i.orientation === "edge_to_edge") && ins.some((i) => i.orientation === "face_to_face"));
   assert.ok(ins.some((i) => i.fault_ka === 25) && ins.some((i) => i.fault_ka === 100));
   assert.ok(ok.some((v) => !v.result.passed) && ok.some((v) => v.result.passed));
-  assert.equal(G.vectors.filter((v) => v.error).length, 5);
+  // 11 since pecalc #10: fault_ka <= 0, voltage_v <= 0 and X/R <= 0 are rejected by the input validation.
+  assert.equal(G.vectors.filter((v) => v.error).length, 11);
 });
 
 test("golden: helpers match Python", () => {

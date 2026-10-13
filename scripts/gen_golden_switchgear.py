@@ -137,7 +137,10 @@ assert example is not None and "result" in example
 
 # Error cases.
 for bad in [{"material": "Fe"}, {"orientation": "diagonal"}, {"finish": "gold"},
-            {"fault_ka": 50.0, "support_condition": "cantilever"}, {"phase_spacing_mm": 0.0}]:
+            {"fault_ka": 50.0, "support_condition": "cantilever"}, {"phase_spacing_mm": 0.0},
+            # pecalc #10 input validation.
+            {"voltage_v": 0.0}, {"voltage_v": -600.0}, {"fault_ka": 50.0, "x_over_r": 0.0},
+            {"x_over_r": -2.0}, {"fault_ka": -5.0}]:
     add(bad, expect_error=True)
 
 helpers = {

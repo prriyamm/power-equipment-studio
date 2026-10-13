@@ -22,7 +22,7 @@ ROOT = os.environ.get("PECALC_ROOT", str(Path.home() / "Projects/power-equipment
 EXAMPLES = Path(os.environ.get("PECALC_EXAMPLES", str(Path(ROOT).parent / "examples")))
 sys.path.insert(0, ROOT)
 
-from pecalc.cablebus import CableBusInput, analyse, candidate_patterns  # noqa: E402
+from pecalc.cablebus import CableBusInput, analyse, candidate_patterns, datasheet_shield_derating  # noqa: E402
 from pecalc.cablebus_design import DesignRequest, design_options  # noqa: E402
 from pecalc.drawing import cablebus_svg  # noqa: E402
 
@@ -209,6 +209,32 @@ extras += [
     dict(mvb, fault_ka=40.0, enclosure_width_mm=800.0, enclosure_height_mm=150.0, shield_bonding="both_ends",
          length_m=61.0),
 ]
+# pecalc #9: phase-invariant voltage drop. The same physical bus with the phases relabelled must give the same
+# vd_pct (PR #9 table), also with both-ends-bonded shields.
+LV750 = dict(voltage_v=600.0, size="750", material="Cu", tiers=1)
+for p in ("ABC", "BCA", "CAB", "ACB"):
+    extras.append(dict(LV750, current_a=600.0, conductors_per_phase=1, length_m=150.0, pattern=p))
+for p in ("ABCCBA", "BCAACB", "CABBAC"):
+    extras.append(dict(LV750, current_a=1200.0, conductors_per_phase=2, length_m=100.0, pattern=p))
+for p in ("ABCCBA", "BCAACB", "CABBAC"):
+    extras.append(dict(mvb, shield_bonding="both_ends", conductors_per_phase=2, length_m=120.0, pattern=p))
+extras += [dict(LV750, current_a=600.0, conductors_per_phase=1, length_m=150.0, power_factor=0.8),
+           dict(LV750, current_a=600.0, conductors_per_phase=1, length_m=150.0, power_factor=1.0),
+           dict(LV750, current_a=1200.0, conductors_per_phase=2, length_m=100.0, frequency_hz=50.0, power_factor=0.95)]
+# pecalc #9: datasheet ampacity derated for shield circulating current with both-ends bonding (PR #9 example).
+DS = dict(voltage_v=15000.0, current_a=2000.0, conductors_per_phase=3, size="750", cable_od_mm=45.0,
+          cable_ampacity_a=900.0, shield_area_mm2=16.0, shield_mean_diameter_mm=38.0)
+extras += [
+    dict(DS, shield_bonding="single_point"),
+    dict(DS, shield_bonding="both_ends"),
+    dict(DS, shield_bonding="both_ends", cable_ampacity_lambda1_ref=0.1),
+    dict(DS, shield_bonding="both_ends", cable_ampacity_lambda1_ref=0.6),          # capped at 1
+    dict(DS, shield_bonding="both_ends", cable_ampacity_lambda1_ref=-0.1),         # error
+    dict(DS, shield_bonding="both_ends", shield_area_mm2=50.0, current_a=1500.0),  # small derating, no warning
+    dict(DS, shield_bonding="both_ends", conductors_per_phase=4, tiers=2, enclosure_width_mm=900.0,
+         enclosure_height_mm=300.0, fault_ka=40.0),
+    dict(DS, shield_bonding="none"),
+]
 for e in extras:
     vectors.append(run_analyse(e))
 
@@ -261,9 +287,19 @@ for rq in REQUESTS:
     except Exception as e:  # noqa: BLE001
         designs.append({"request": rq, "error": str(e), "error_type": type(e).__name__})
 
+# 8. datasheet_shield_derating (pecalc #9)
+derating = []
+for lam, ref in [(0.0, 0.0), (0.21, 0.0), (0.21, 0.1), (0.44, 0.0), (0.1, 0.21), (1.5, 0.0), (0.0, 0.3),
+                 (-0.1, 0.0), (0.2, -0.05)]:
+    try:
+        derating.append({"lambda1": lam, "lambda1_ref": ref, "factor": datasheet_shield_derating(lam, ref)})
+    except ValueError as e:
+        derating.append({"lambda1": lam, "lambda1_ref": ref, "error": str(e)})
+
 out = {"_meta": {"source": "pecalc.cablebus, cablebus_design, drawing (Python)",
                  "generator": "scripts/gen_golden_cablebus.py"},
-       "vectors": vectors, "example": example, "patterns": patterns, "designs": designs}
+       "vectors": vectors, "example": example, "patterns": patterns, "designs": designs,
+       "datasheet_shield_derating": derating}
 dest = Path(__file__).resolve().parent.parent / "tests/golden/cablebus.json"
 dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")
 n_err = sum("error" in v for v in vectors)

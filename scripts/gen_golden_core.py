@@ -31,6 +31,8 @@ from pecalc import field as fld  # noqa: E402
 from pecalc import forces as frc  # noqa: E402
 from pecalc import impedance as imp  # noqa: E402
 from pecalc import thermal as thm  # noqa: E402
+from pecalc import validate as val  # noqa: E402
+from pecalc import reactance_derived as rxd  # noqa: E402
 
 
 
@@ -320,7 +322,7 @@ def shares_for(cs, groups, f=60.0, soil=100.0):
     return out
 
 
-for xr in (1.0, 3.0, 8.0, 15.0, 30.0, 0.5):
+for xr in (1.0, 3.0, 8.0, 15.0, 30.0, 0.5, 0.0, -1.0):
     rec("peak_factor", {"x_over_r": xr, "freq": 60.0}, lambda xr=xr: frc.peak_factor(xr))
 flat3 = [{"x_mm": 0.0, "y_mm": 0.0, "group": "A", "r_ohm_per_m": 1e-4, "gmr_mm": 5.0},
          {"x_mm": 300.0, "y_mm": 0.0, "group": "B", "r_ohm_per_m": 1e-4, "gmr_mm": 5.0},
@@ -443,8 +445,44 @@ rec("free_air_ampacity", {"cable": cable_json("500", dict(insulation="MICA", ins
                           "ambient_c": 40.0, "installation": "isolated", "lambda1": 0.0, "freq": 60.0,
                           "spacing_mm": None},
     lambda: thm.free_air_ampacity(thm.CableConstruction("500", insulation="MICA", insulation_mm=1.4, jacket_mm=1.0), 40.0))
+# pecalc #10: EPR thermal resistivity follows the cable's rated voltage; voltage validation.
+for ins, rv in [("EPR", 600.0), ("EPR", 3000.0), ("EPR", 3001.0), ("EPR", 15000.0), ("XLPE", 600.0),
+                ("PVC", 600.0), ("UNKNOWN_INS", 600.0)]:
+    rec("insulation_resistivity", {"insulation": ins, "rated_voltage_v": rv},
+        lambda ins=ins, rv=rv: thm.insulation_resistivity(ins, rv))
+for size, kw in [("500", dict(insulation="EPR", insulation_mm=1.65, voltage_v=600.0)),
+                 ("500", dict(insulation="EPR", insulation_mm=4.45, voltage_v=15000.0)),
+                 ("500", dict(insulation="EPR", insulation_mm=1.65, voltage_v=600.0, rated_voltage_v=5000.0)),
+                 ("500", dict(insulation="EPR", insulation_mm=4.45, voltage_v=15000.0, rated_voltage_v=2400.0)),
+                 ("500", dict(insulation="EPR", insulation_mm=1.65, voltage_v=0.0)),
+                 ("500", dict(insulation="EPR", insulation_mm=1.65, voltage_v=600.0, rated_voltage_v=-1.0))]:
+    c = thm.CableConstruction(size, **kw)
+    ci = cable_json(size, kw)
+    for inst in ("isolated", "trefoil_touching"):
+        rec("free_air_ampacity", {"cable": ci, "ambient_c": 40.0, "installation": inst, "lambda1": 0.0,
+                                  "freq": 60.0, "spacing_mm": None},
+            lambda c=c, inst=inst: (lambda r: {**vars(r), "summary": r.summary()})(thm.free_air_ampacity(c, 40.0, inst)))
+    rec("dielectric_loss", {"cable": ci, "freq": 60.0}, lambda c=c: thm.dielectric_loss(c, 60.0))
 V["thermal_constants"] = enc({"THERMAL_RESISTIVITY": thm.THERMAL_RESISTIVITY, "DIELECTRIC": thm.DIELECTRIC,
-                              "AIR_CONSTANTS": thm.AIR_CONSTANTS})
+                              "AIR_CONSTANTS": thm.AIR_CONSTANTS, "EPR_LV_RESISTIVITY": thm.EPR_LV_RESISTIVITY,
+                              "EPR_LV_MAX_KV": thm.EPR_LV_MAX_KV})
+
+# ------------------------------------------------------------------ validate (pecalc #10)
+for fn in ("voltage", "power_factor", "clearing_time", "x_over_r"):
+    for value in (480.0, 1.0, 0.5, 1e-9, 0.0, -1.0, -480.0, 1.2, float("inf"), float("-inf"), float("nan"),
+                  "480", " 0.85 ", "abc", None, True):
+        rec("validate", {"fn": fn, "name": "some_input", "value": value},
+            lambda fn=fn, value=value: getattr(val, fn)("some_input", value))
+
+# --------------------------------------------------------- reactance_derived (pecalc #10)
+rec("reactance_derived_table", {}, rxd.derived_table)
+for s in rxd.DERIVED_SIZES:
+    rec("reactance_floor_per_1000ft", {"size": s}, lambda s=s: rxd.floor_per_1000ft(s))
+for rw in rxd.RACEWAYS:
+    for s in ["14", "1/0", "500", "600", "700", "750", "800", "900", "1000", "1250", "1500", "1750", "2000"]:
+        rec("reactance_per_1000ft", {"size": s, "raceway": rw}, lambda s=s, rw=rw: rxd.reactance_per_1000ft(s, rw))
+V["reactance_derived_constants"] = enc({"DERIVED_STATUS": rxd.DERIVED_STATUS, "DERIVED_METHOD": rxd.DERIVED_METHOD,
+                                        "RACEWAYS": list(rxd.RACEWAYS), "DERIVED_SIZES": list(rxd.DERIVED_SIZES)})
 
 out = HERE.parent / "tests" / "golden" / "core.json"
 out.parent.mkdir(parents=True, exist_ok=True)
