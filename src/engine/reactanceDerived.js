@@ -28,13 +28,19 @@
  * conductor geometry (bare diameter + typical 600 V insulation wall). At 1000 kcmil
  * it is about 0.025 Ω/1000 ft against Table 9's 0.037, so it only binds if a
  * steep extrapolation would otherwise run below what the geometry allows.
+ *
+ * pecalc PR #10 added the same derivation as pecalc/reactance_derived.py, and the
+ * feeder sizing port (pecalc/sizing.js) uses this module for it. The values must stay
+ * identical to the Python: tests/golden/core.json (reactance_derived_*) checks them.
  * ========================================================================== */
 import TABLE9 from "./pecalc/data/reactance_nec_table9.json" with { type: "json" };
 import { reactanceOhmPerM, cableOdMm } from "./pecalc/conductors.js";
+import { pyRound } from "./pecalc/util.js";
 
 export const DERIVED_META = {
   status: "DERIVED — UNVERIFIED (interpolated/extrapolated from NEC Table 9, not a published value)",
-  method: "Linear in ln(kcmil): interpolated between neighbouring Table 9 rows (700, 800, 900 kcmil); extrapolated from the 750 and 1000 kcmil rows (1250–2000 kcmil), floored at the touching-cable reactance from the conductor geometry.",
+  // Same text as pecalc reactance_derived.DERIVED_METHOD (printed in feeder sizing notes).
+  method: "Linear in ln(kcmil): interpolated between neighbouring Table 9 rows (700, 800, 900 kcmil); extrapolated from the 750 and 1000 kcmil rows (1250-2000 kcmil), floored at the touching-cable reactance from the conductor geometry.",
   units: "ohm per 1000 ft per conductor, 60 Hz",
   table9_status: TABLE9._meta.status,
 };
@@ -48,7 +54,7 @@ export function reactanceFloorPer1000ft(size) {
   return reactanceOhmPerM(size, cableOdMm(size)) * 304.8;
 }
 
-const r4 = (x) => Math.round(x * 1e4) / 1e4;
+const r4 = (x) => pyRound(x, 4); // Python round(x, 4), as pecalc reactance_derived does
 const lnLerp = (s, a, b, xa, xb) => xa + ((Math.log(+s) - Math.log(+a)) / (Math.log(+b) - Math.log(+a))) * (xb - xa);
 
 function build() {

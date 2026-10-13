@@ -86,6 +86,7 @@ export function TransformerWorkspace({ goTo }) {
                 {pick("kind", "Cooling type", [["liquid", "Liquid-filled"], ["dry", "Dry-type"]])}
                 {num("power_factor", "Load power factor", "pu")}
                 {num("source_mva", "Source fault level", "MVA", { optional: true, ph: "infinite bus", hint: "at HV terminals" })}
+                {num("source_x_over_r", "Source X/R", "", { disabled: !inp.source_mva, hint: "utility value; 10 is an UNVERIFIED typical" })}
                 {num("fault_duration_s", "Through-fault duration", "s")}
               </div>
             </Section>
