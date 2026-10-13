@@ -87,6 +87,7 @@ function toInput(f) {
     shield_bonding: mv ? f.shield_bonding : "none", covers_continuous: f.covers_continuous,
   };
   if (f.cable_ampacity_a) o.cable_ampacity_a = f.cable_ampacity_a;
+  if (f.cable_ampacity_lambda1_ref) o.cable_ampacity_lambda1_ref = f.cable_ampacity_lambda1_ref;
   if (f.cable_od_mm) o.cable_od_mm = f.cable_od_mm;
   if (f.fault_ka) o.fault_ka = f.fault_ka;
   if (mv || calc) {
@@ -485,6 +486,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
           <div className="cb-fields">
             {pick("ampacity_method", "Method", [["auto", "Auto"], ["table", "Code table (LV)"], ["datasheet", "Datasheet rating"], ["calculated", "Calculated (IEC 60287)"]])}
             {num("cable_ampacity_a", "Datasheet rating", "A / cable", { optional: true, ph: "none", hint: "free air, 40 °C" })}
+            {num("cable_ampacity_lambda1_ref", "Datasheet shield λ1", "", { optional: true, ph: "0", disabled: !f.cable_ampacity_a || f.shield_bonding !== "both_ends", hint: "shield loss factor the rating already includes (0 = single-point / cross-bonded)" })}
             {num("max_vd_pct", "Voltage drop limit", "%")}
           </div>
         </Section>
