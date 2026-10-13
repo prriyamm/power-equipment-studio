@@ -9,12 +9,30 @@ import { analyseSystem, EXAMPLE_SYSTEM } from "../src/engine/system.js";
 
 const base = (voc, over = {}) => {
   const d = CLASS_DEFAULTS[voc > 5 ? "mv15" : voc > 1 ? "mv5" : "lv_swgr"];
-  return { voc_kv: voc, ibf_ka: 25, gap_mm: d.gap_mm, working_mm: d.working_mm, config: "VCB", enclosure: d.enclosure, clearing_ms: 200, ...over };
+  return { voc_kv: voc, ibf_ka: 25, gap_mm: d.gap_mm, working_mm: d.working_mm, config: "VCB", enclosure: d.enclosure, clearing_ms: 200, allow_placeholder_data: true, ...over };
 };
 
 test("data status is surfaced and unverified", () => {
   assert.equal(DATA_STATUS, "PLACEHOLDER");
   assert.equal(arcFlash(base(0.48)).data_status, "PLACEHOLDER");
+});
+
+test("PLACEHOLDER coefficients are refused unless explicitly allowed", () => {
+  assert.throws(() => arcFlash(base(0.48, { allow_placeholder_data: false })), { name: "DataStatusError", message: /PLACEHOLDER/ });
+  assert.throws(() => arcFlash(base(13.8, { allow_placeholder_data: undefined })), { name: "DataStatusError" });
+  const an = analyseSystem(EXAMPLE_SYSTEM);
+  const refused = arcFlashStudy(an, EXAMPLE_SYSTEM);
+  assert.ok(refused.length > 0 && refused.every((r) => r.placeholder && r.error && r.class_label));
+  assert.ok(arcFlashStudy(an, EXAMPLE_SYSTEM, { allow_placeholder_data: true }).every((r) => !r.error));
+});
+
+test("Ibf validity range above 600 V is 0.2-65 kA at every voltage", () => {
+  const ibfWarn = (r) => r.warnings.some((w) => w.startsWith("Ibf"));
+  for (const v of [4.16, 13.8]) {
+    assert.ok(!ibfWarn(arcFlash(base(v, { ibf_ka: 50 }))), `${v} kV at 50 kA`);
+    assert.ok(ibfWarn(arcFlash(base(v, { ibf_ka: 70 }))), `${v} kV at 70 kA`);
+  }
+  assert.ok(!ibfWarn(arcFlash(base(0.48, { ibf_ka: 100 }))) && ibfWarn(arcFlash(base(0.48, { ibf_ka: 110 }))));
 });
 
 test("energy is linear in clearing time and monotone in Ibf", () => {
@@ -72,14 +90,14 @@ test("PPE thresholds and class selection", () => {
 
 test("system study: Ibf is Ik divided by c, defaults assumed and flagged, overrides honoured", () => {
   const an = analyseSystem(EXAMPLE_SYSTEM);
-  const rows = arcFlashStudy(an, EXAMPLE_SYSTEM);
+  const rows = arcFlashStudy(an, EXAMPLE_SYSTEM, { allow_placeholder_data: true });
   assert.equal(rows.length, 4);
   const lv = rows.find((r) => r.id === "SWGR-LV");
   assert.ok(Math.abs(lv.input.ibf_ka - an.equipment["SWGR-LV"].ik_ka / 1.05) < 1e-12);
   assert.equal(lv.input.clearing_ms, 300); assert.ok(lv.clearing_assumed); assert.match(lv.note, /assumed/);
   assert.equal(rows.find((r) => r.id === "SWGR-MV").input.clearing_ms, 200);
   const sys2 = { ...EXAMPLE_SYSTEM, equipment: EXAMPLE_SYSTEM.equipment.map((e) => (e.id === "SWGR-LV" ? { ...e, af_clearing_ms: 100, af_gap_mm: 25 } : e)) };
-  const lv2 = arcFlashStudy(an, sys2).find((r) => r.id === "SWGR-LV");
+  const lv2 = arcFlashStudy(an, sys2, { allow_placeholder_data: true }).find((r) => r.id === "SWGR-LV");
   assert.equal(lv2.input.clearing_ms, 100); assert.equal(lv2.input.gap_mm, 25); assert.ok(!lv2.clearing_assumed);
 });
 
