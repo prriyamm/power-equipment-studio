@@ -22,6 +22,11 @@ npm test          # node --test, engine golden tests
 npm run build     # -> dist/index.html
 ```
 
+Phone-width layout QA (needs a browser, so it is not part of `npm run check`): install Playwright outside the
+repo (`npm i playwright-core` in any scratch folder), then
+`PLAYWRIGHT_MODULE=<that folder> node scripts/qa-mobile.mjs [--reports] [--widths=375,390,768,1440] [--verbose]`.
+It opens every workspace view and fails on horizontal page scroll; see the header of the script for all checks.
+
 Open `dist/index.html` in a browser. React 18 and Tailwind load from CDNs; everything else is inline.
 
 ## Layout

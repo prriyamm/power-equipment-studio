@@ -8,7 +8,14 @@ const CSS = `
 .gl-back { position: fixed; inset: 0; background: color-mix(in srgb, #000 64%, transparent); z-index: 50; display: grid; place-items: center; padding: 16px; }
 .gl-modal { width: min(1180px, 100%); max-height: calc(100% - 16px); display: flex; flex-direction: column; overflow: hidden; }
 .gl-body { overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.gl-body > * { flex-shrink: 0; }
+.gl-elev-scroll { overflow-x: auto; max-width: 100%; }
 .gl-elev { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+@media (max-width: 640px) {
+  .gl-back { padding: 0; }
+  .gl-modal { height: 100%; max-height: 100%; border-radius: 0; border: 0; }
+  .gl-elev { min-width: 620px; }
+}
 .gl-sec { fill: var(--eq-r); stroke: var(--eq-edge); stroke-width: 1.2; }
 .gl-top { fill: var(--eq-l); stroke: var(--eq-edge); stroke-width: 1; }
 .gl-door { fill: var(--door); stroke: var(--eq-edge); stroke-width: 1; }
@@ -89,7 +96,7 @@ export function GearLineupModal({ sys, analysis, gearId, onClose }) {
               <Tile label="Footprint" value={`${L.geometry.width_in}"`} sub={`${L.geometry.sections} sections · ${L.geometry.h}" H × ${L.geometry.d}" D`} />
             </div>
           )}
-          <Elevation L={L} />
+          <div className="gl-elev-scroll"><Elevation L={L} /></div>
           <div className="table-wrap">
             <table className="grid-table">
               <thead><tr><th>Circuit</th><th>Role</th><th>To</th><th>Conductors</th><th className="r">Load<em>A</em></th><th className="r">Ampacity<em>A</em></th><th className="r">{L.gear.mv ? "Pickup" : "Trip"}<em>A</em></th><th className="r">Frame<em>A</em></th><th>Checks</th></tr></thead>

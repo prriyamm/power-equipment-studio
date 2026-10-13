@@ -68,7 +68,7 @@ export function TransformerWorkspace({ goTo }) {
       <header className="topbar">
         <div className="ws-title">Transformer</div>
         <span className="text-muted text-[12.5px]">Preliminary core-type design · 3-phase</span>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <PushToSystem module="transformer" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
           {r && <ReportButton filename="transformer-calc" getReport={() => transformerReport(r)} />}
@@ -282,6 +282,7 @@ function CoreCoil({ d, i }) {
   const lvx2 = cx[2] + dc / 2 + c1 + blv / 2;                    // outer limb, LV right
   return (
     <div className="xf-draw">
+      <div className="chart-scroll" style={{ "--chart-min": "480px" }}>
       <svg className="xf-svg" viewBox={`0 0 ${vw} ${vh}`} role="img"
         aria-label={`Core and coil, to scale: core diameter ${fmt(dc, 0)} mm, window ${fmt(hw, 0)} by ${fmt(ww, 0)} mm`}>
         <g transform={`translate(${ox} ${oy})`}>
@@ -298,6 +299,7 @@ function CoreCoil({ d, i }) {
           {dimH(cx[1] - dc / 2 - c1 - blv - duct - bhv, cx[1] - dc / 2 - c1, by + 3 * fs, `LV+HV ${fmt(c1 + blv + duct + bhv, 0)}`)}
         </g>
       </svg>
+      </div>
       <div className="xf-legend">
         <span><i className="xf-sw-core" />Core (limb width = circumscribed Ø)</span>
         <span><i className="xf-sw-lv" />LV {fmt(blv, 1)} mm</span>

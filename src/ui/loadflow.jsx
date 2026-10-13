@@ -531,7 +531,7 @@ function VoltageChart({ series, height = 220 }) {
   const ticks = []; for (let t = Math.ceil(lo * 20) / 20; t <= hi + 1e-9; t += 0.05) ticks.push(+t.toFixed(2));
   const base = y(lo);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Bus voltage profile">
+    <div className="chart-scroll" style={{ "--chart-min": "560px" }}><svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Bus voltage profile">
       <rect x={L} y={y(V_MAX)} width={W - L - R} height={y(V_MIN) - y(V_MAX)} className="band" />
       {ticks.map((t) => (
         <g key={t}>
@@ -551,7 +551,7 @@ function VoltageChart({ series, height = 220 }) {
         </g>
       ))}
       <text x={L} y={H - 0} className="tick" dy="-1">bus</text>
-    </svg>
+    </svg></div>
   );
 }
 

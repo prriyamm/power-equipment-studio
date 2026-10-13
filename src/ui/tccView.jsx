@@ -19,6 +19,10 @@ const CSS = `
 .tcc-dev .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
 .tcc-set { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .tcc-set label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); }
+@media (max-width: 640px) {
+  .tcc-tick { font-size: 14px; } .tcc-axis { font-size: 15px; } .tcc-lbl { font-size: 13.5px; }
+  .tcc-set label { font-size: 11.5px; }
+}
 `;
 const PALETTE = ["#5aa0e0", "#e8c35a", "#c07ae0", "#4cc38a", "#ff8b4a", "#e05a8f", "#63d6d6"];
 
@@ -123,6 +127,7 @@ export function CoordinationView({ sys, analysis, updateCon }) {
       </div>
       <div className="tcc-grid">
         <div className="min-w-0">
+          <div className="chart-scroll" style={{ "--chart-min": "580px" }}>
           <svg viewBox={`0 0 ${W} ${H}`} className="tcc-svg" role="img" aria-label="Time-current coordination curves">
             {grid}
             <rect x={L} y={T} width={W - L - R} height={H - T - B} fill="none" stroke="var(--line)" />
@@ -130,6 +135,7 @@ export function CoordinationView({ sys, analysis, updateCon }) {
             <text x={(L + W - R) / 2} y={H - 8} textAnchor="middle" className="tcc-axis">Current (A) at {P.refKv < 1 ? `${Math.round(P.refKv * 1000)} V` : `${P.refKv} kV`}</text>
             <text x={14} y={(T + H - B) / 2} textAnchor="middle" className="tcc-axis" transform={`rotate(-90 14 ${(T + H - B) / 2})`}>Time (s)</text>
           </svg>
+          </div>
         </div>
         <div className="flex flex-col gap-2 min-w-0">
           {P.devices.map((d, k) => (

@@ -100,7 +100,7 @@ export function SwitchgearWorkspace({ goTo }) {
       <header className="topbar">
         <div className="ws-title">Switchgear bus</div>
         <span className="text-muted text-[12.5px]">Switchboard main bus and risers · 3-phase</span>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <PushToSystem module="switchgear" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${nFail} check(s) fail`}</Pill>}
           {r && <ReportButton filename="switchgear-bus-calc" getReport={() => busReport(r)} />}
@@ -450,5 +450,5 @@ const CSS = `
 .sg-mark-now { background: var(--bg); box-shadow: 0 0 0 1px var(--fg); }
 .sg-scale-ticks { display: flex; justify-content: space-between; font-family: var(--font-data); font-size: 11px; color: var(--muted); }
 @media (max-width: 899px) { .sg-grid { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 420px) { .sg-fields { grid-template-columns: minmax(0, 1fr); } .sg-grid { padding: 10px 12px; } .sg-two { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 420px) { .sg-fields { grid-template-columns: minmax(0, 1fr); } .sg-grid { padding: 10px 16px; } .sg-two { grid-template-columns: minmax(0, 1fr); } }
 `;

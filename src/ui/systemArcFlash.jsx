@@ -23,6 +23,7 @@ const CSS = `
 .af-label .af-big { padding:8px 10px; text-align:center; font-size:12px; }
 .af-label .af-big b { display:block; font-size:26px; font-family: var(--font-data); }
 .af-label footer { padding:5px 10px; font-size:10px; background:#eee; color:#444; }
+@media (max-width: 640px) { .af-label footer { font-size:11px; } }
 `;
 
 export function ArcFlashSection({ sys, analysis, updateEq }) {

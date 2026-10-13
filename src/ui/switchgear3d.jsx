@@ -11,7 +11,8 @@ const PH_HEX = [0xe05a4f, 0xe8c35a, 0x5aa0e0];
 const PH_CSS = ["#e05a4f", "#e8c35a", "#5aa0e0"];
 
 const CSS = `
-.sg3-wrap { position: relative; height: 600px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.sg3-box { position: relative; height: 600px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.sg3-wrap { position: relative; height: 100%; overflow: hidden; }
 .sg3-wrap canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .sg3-wrap canvas:active { cursor: grabbing; }
 .sg3-lbl { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 1px; padding: 3px 8px 3px 9px; background: var(--tag-bg); border: 1px solid var(--line); border-left: 3px solid var(--faint); border-radius: 4px; white-space: nowrap; pointer-events: none; }
@@ -27,6 +28,13 @@ const CSS = `
 .sg3-ticks { display: flex; justify-content: space-between; font-family: var(--font-data); font-size: 10.5px; color: var(--muted); }
 .sg3-note { font-size: 10.5px; color: var(--faint); }
 .sg3-fail { display: grid; place-items: center; min-height: 200px; padding: 16px; text-align: center; color: var(--muted); }
+@media (max-width: 640px) { .sg3-lbl span, .sg3-ticks, .sg3-note { font-size: 11px; } }
+/* phone: overlays stack under the canvas instead of covering the model */
+@media (max-width: 640px) {
+  .sg3-box { height: auto; }
+  .sg3-wrap { height: 420px; }
+  .sg3-legend, .sg3-hud { position: static; width: auto; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 8px 12px; }
+}
 `;
 
 function packLayout(i) {
@@ -171,9 +179,9 @@ export function SwitchgearBus3D({ input, result, fallback }) {
   if (failed) return fallback || <div className="sg3-fail"><style>{CSS}</style>3D view needs WebGL, which this browser or frame does not provide.</div>;
   const pos = (v) => `${Math.max(0, Math.min(1, v)) * 100}%`;
   return (
-    <div ref={wrapRef} className="sg3-wrap">
+    <div className="sg3-box">
       <style>{CSS}</style>
-      <canvas ref={canvasRef} />
+      <div ref={wrapRef} className="sg3-wrap"><canvas ref={canvasRef} /></div>
       {meta && (
         <div className="sg3-legend">
           <div className="t">Bar temperature, °C</div>

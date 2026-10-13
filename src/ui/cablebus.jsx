@@ -42,7 +42,10 @@ const CSS = `
 .cb-pick { color: var(--accent); }
 @media (max-width: 1100px) { .cb-two { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 899px) { .cb-grid { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 420px) { .cb-fields { grid-template-columns: minmax(0, 1fr); } .cb-grid { padding: 10px 12px; } }
+@media (max-width: 899px) { .cb-field text { font-size: 54px; } }
+@media (max-width: 640px) { .cb-xs { overflow-x: auto; } .cb-xs > svg { min-width: 760px; } .cb-field text { font-size: 104px; } }
+@media (max-width: 640px) { .cb-chip { min-height: 40px; min-width: 48px; padding: 6px 12px; } }
+@media (max-width: 420px) { .cb-fields { grid-template-columns: minmax(0, 1fr); } .cb-grid { padding: 10px 16px; } }
 `;
 
 /* Starting state: the 15 kV, 2000 A, 3 x 750 kcmil Cu EPR per phase example. */
@@ -144,7 +147,7 @@ function SharingChart({ res }) {
   const bw = (W - L - R) / n;
   const y = (v) => T + (Hh - T - B) * (1 - v / maxV);
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${Hh}`} role="img" aria-label="Current per conductor">
+    <div className="chart-scroll" style={{ "--chart-min": "640px" }}><svg className="chart" viewBox={`0 0 ${W} ${Hh}`} role="img" aria-label="Current per conductor">
       {[0, 0.5, 1].map((t) => <g key={t}><line className="gridline" x1={L} x2={W - R} y1={y(maxV / 1.12 * t)} y2={y(maxV / 1.12 * t)} /><text className="tick" x={L - 6} y={y(maxV / 1.12 * t) + 3} textAnchor="end">{fmt(maxV / 1.12 * t, 0)}</text></g>)}
       {rows.map((r, i) => (
         <g key={r.index}>
@@ -158,7 +161,7 @@ function SharingChart({ res }) {
       <line className="limit" x1={L} x2={W - R} y1={y(equal)} y2={y(equal)} />
       <text className="tick accent" x={W - R} y={11} textAnchor="end">- - equal share {fmt(equal, 0)} A</text>
       <text className="tick" x={L} y={11}>conductor current, A rms (phase and tier)</text>
-    </svg>
+    </svg></div>
   );
 }
 
@@ -173,7 +176,7 @@ function CrossSection({ inp, res }) {
       .replace(/stroke='#222'/g, "stroke='#0a0f14'");
     return s;
   }, [inp, res]);
-  return <div className="cb-svgbox cb-svg" dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className="cb-svgbox cb-svg cb-xs" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 /* ------------------------------------------------------------ magnetic field map */
@@ -219,7 +222,7 @@ function FieldMap({ inp, res }) {
   return (
     <div>
       <div className="cb-svgbox">
-        <svg viewBox={`0 0 ${Wd} ${Ht}`} className="cb-svg" role="img" aria-label="Magnetic flux density around the enclosure">
+        <svg viewBox={`0 0 ${Wd} ${Ht}`} className="cb-svg cb-field" role="img" aria-label="Magnetic flux density around the enclosure">
           {cells.map(([i, j, b]) => <rect key={j * nx + i} x={i * cell * k} y={j * cell * k} width={cell * k + 0.6} height={cell * k + 0.6} fill={stepOf(b).color} />)}
           <rect x={X(xc - encW / 2)} y={Y(yc + encH / 2)} width={encW * k} height={encH * k} fill="none" stroke="#c3ced7" strokeWidth="5" strokeDasharray="22 12" />
           {rows.map((r) => <circle key={r.index} cx={X(r.x_mm)} cy={Y(r.y_mm)} r={Math.max(od / 2, 14) * k} fill={PH_COLOR[r.phase]} stroke="#0a0f14" strokeWidth="2" />)}
@@ -681,7 +684,7 @@ export function CableBusWorkspace({ goTo }) {
           <Btn active={tab === "designer"} onClick={() => setTab("designer")}>Designer</Btn>
         </div>
         <span className="text-muted text-[12.5px]">{tab === "check" ? "Analyse a given design" : "Enumerate and rank options"}</span>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <PushToSystem module="cablebus" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {tab === "check" && res && <Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
           {tab === "check" && res && <ReportButton filename="cable-bus-calc" getReport={() => cableBusReport(f)} />}
