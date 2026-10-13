@@ -4,12 +4,15 @@
  *
  * DATA STATUS: the coefficient tables in data/ieee1584_2018.json were entered from
  * memory and are UNVERIFIED; some sets are approximations (see _meta.placeholders).
- * Every result carries `data_status`. Nothing is refused; verify against a licensed
- * copy of the standard before using any number for labelling or PPE selection.
+ * Every result carries `data_status`. While the tables are PLACEHOLDER, arcFlash() refuses
+ * to run unless the caller passes allow_placeholder_data: true (same rule as the pecalc
+ * ampacity tables). Verify against a licensed copy of the standard before using any
+ * number for labelling or PPE selection.
  * ========================================================================== */
 import DATA from "./data/ieee1584_2018.json" with { type: "json" };
 import { cMax } from "./shortcircuit.js";
 import { NODE_KINDS } from "./system.js";
+import { DataStatusError } from "./pecalc/ampacity.js";
 
 export const DATA_STATUS = DATA._meta.status;
 export const CONFIGS = ["VCB", "VCBB", "HCB", "VOA", "HOA"];
@@ -135,9 +138,15 @@ export function arcFlash(inp) {
   const enc = inp.enclosure, t1 = inp.clearing_ms, t2 = inp.clearing_reduced_ms ?? t1;
   if (!CONFIGS.includes(cfg)) throw new Error(`Unknown electrode configuration "${cfg}"`);
   for (const [n, v] of [["voc_kv", voc], ["ibf_ka", ibf], ["gap_mm", gap], ["working_mm", dist], ["clearing_ms", t1]]) if (!(v > 0)) throw new Error(`${n} must be positive`);
+  if (DATA_STATUS === "PLACEHOLDER" && !inp.allow_placeholder_data) {
+    throw new DataStatusError(
+      "IEEE 1584-2018 coefficient tables are PLACEHOLDER data (see engine/data/ieee1584_2018.json). " +
+      "Enter the real coefficients first, or pass allow_placeholder_data: true to run anyway for testing.");
+  }
   const warnings = [];
   if (voc < 0.208 || voc > 15) warnings.push("Voc outside the 208 V to 15 kV model range.");
-  if (ibf < (voc <= 0.6 ? 0.5 : 0.2) || ibf > (voc <= 0.6 ? 106 : voc <= 2.7 ? 65 : 35)) warnings.push("Ibf outside the model validity range.");
+  // Model range: 208-600 V 0.5-106 kA, 601 V-15 kV 0.2-65 kA (IEEE 1584-2018 clause 4.2; from secondary sources, UNVERIFIED).
+  if (ibf < (voc <= 0.6 ? 0.5 : 0.2) || ibf > (voc <= 0.6 ? 106 : 65)) warnings.push("Ibf outside the model validity range.");
   if (voc <= 0.6 ? gap < 6.35 || gap > 76.2 : gap < 19.05 || gap > 254) warnings.push("Gap outside the model validity range.");
   if (dist < 305) warnings.push("Working distance below 305 mm is outside the model range.");
 
@@ -183,12 +192,15 @@ export function arcFlashStudy(analysis, sys, opts = {}) {
     const assumed = !(raw.af_clearing_ms > 0);
     const clearing = assumed ? (kv > 1 ? opts.mv_clearing_ms ?? DEFAULT_CLEARING_MS.mv : opts.lv_clearing_ms ?? DEFAULT_CLEARING_MS.lv) : raw.af_clearing_ms;
     const inp = { voc_kv: kv, ibf_ka: ibf, gap_mm: raw.af_gap_mm ?? d.gap_mm, working_mm: raw.af_working_mm ?? d.working_mm, config: raw.af_config ?? d.config,
-      enclosure: d.enclosure, clearing_ms: clearing, clearing_reduced_ms: raw.af_clearing_reduced_ms };
+      enclosure: d.enclosure, clearing_ms: clearing, clearing_reduced_ms: raw.af_clearing_reduced_ms, allow_placeholder_data: !!opts.allow_placeholder_data };
     try {
       const res = arcFlash(inp);
       rows.push({ id: raw.id, name: raw.name, type: raw.type, class: cls, class_label: d.label, input: inp, clearing_assumed: assumed,
         note: assumed ? "assumed — set the upstream device clearing time" : null, ...res });
-    } catch (err) { rows.push({ id: raw.id, name: raw.name, type: raw.type, class: cls, input: inp, error: err.message, data_status: DATA_STATUS }); }
+    } catch (err) {
+      rows.push({ id: raw.id, name: raw.name, type: raw.type, class: cls, class_label: d.label, input: inp, error: err.message,
+        placeholder: err.name === "DataStatusError", data_status: DATA_STATUS });
+    }
   }
   return rows;
 }

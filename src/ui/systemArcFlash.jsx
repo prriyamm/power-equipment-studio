@@ -27,16 +27,27 @@ const CSS = `
 `;
 
 export function ArcFlashSection({ sys, analysis, updateEq }) {
-  const rows = useMemo(() => (analysis?.ok ? arcFlashStudy(analysis, sys) : []), [analysis, sys]);
+  const [allowPlaceholder, setAllowPlaceholder] = useState(false);
+  const rows = useMemo(() => (analysis?.ok ? arcFlashStudy(analysis, sys, { allow_placeholder_data: allowPlaceholder }) : []), [analysis, sys, allowPlaceholder]);
   const [sel, setSel] = useState(null);
   if (!rows.length) return null;
   const cur = rows.find((r) => r.id === sel) || rows[0];
   const bad = (r) => !!r.error;
+  const refused = rows.some((r) => r.placeholder);
   return (
     <Section title="Arc flash · IEEE 1584-2018 incident energy"
       aside={<Pill tone="crit" title="Coefficient tables were entered from memory and some sets are approximations. Verify against a licensed copy of IEEE 1584-2018 before use.">Data {DATA_STATUS}</Pill>}>
       <style>{CSS}</style>
-      <div className="notice notice-crit mb-3">Placeholder coefficients: most IEEE 1584-2018 coefficient sets here were entered from memory or approximated. Results show the method and workflow only. Do not use them for labels or PPE selection until every coefficient is checked against a licensed copy of the standard.</div>
+      <div className="notice notice-crit mb-3">Placeholder coefficients: most IEEE 1584-2018 coefficient sets here were entered from memory or approximated. Results show the method and workflow only. Do not use them for labels or PPE selection until every coefficient is checked against a licensed copy of the standard.
+        {DATA_STATUS === "PLACEHOLDER" && (
+          <div className="mt-2">
+            {refused && <div className="mb-1"><b>Not calculated.</b> The study refuses PLACEHOLDER coefficients unless you allow them.</div>}
+            <label className="live-toggle">
+              <input id="af-placeholder" type="checkbox" checked={allowPlaceholder} onChange={(e) => setAllowPlaceholder(e.target.checked)} />
+              <span>Allow PLACEHOLDER data for testing (results are not IEEE 1584-2018 values)</span>
+            </label>
+          </div>
+        )}</div>
       <div className="af-body px-4 pb-3">
         <div>
           <div className="table-wrap"><table className="grid-table">
