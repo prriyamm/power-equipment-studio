@@ -20,9 +20,19 @@
 // tables in the tests]
 import * as cond from "./conductors.js";
 import { lookup, pyFixed } from "./util.js";
+import * as validate from "./validate.js";
 
 // Thermal resistivity K m/W (IEC 60287-2-1 Table 1).
 export const THERMAL_RESISTIVITY = { XLPE: 3.5, EPR: 5.0, PVC: 5.0, PE: 3.5, XHHW: 3.5, RW90: 3.5 };
+// EPR depends on the cable's rated voltage: 3.5 K m/W up to and including 3 kV, 5.0 above.
+// [UNVERIFIED: IEC 60287-2-1 Table 1 as reproduced in secondary sources; not checked against the standard]
+export const EPR_LV_RESISTIVITY = 3.5, EPR_LV_MAX_KV = 3.0;
+
+/** Insulation thermal resistivity (K m/W); EPR switches at 3 kV rated voltage. */
+export function insulationResistivity(insulation, rated_voltage_v) {
+  if (insulation === "EPR" && rated_voltage_v <= EPR_LV_MAX_KV * 1000) return EPR_LV_RESISTIVITY;
+  return lookup(THERMAL_RESISTIVITY, insulation);
+}
 // Relative permittivity and loss tangent (IEC 60287-1-1 Table 3).
 export const DIELECTRIC = {
   XLPE: [2.5, 0.001], EPR: [3.0, 0.005], PVC: [8.0, 0.1], XHHW: [2.5, 0.001], RW90: [2.5, 0.001],
@@ -38,15 +48,16 @@ export const AIR_CONSTANTS = {
 /**
  * CableConstruction (Python dataclass). Derived dimensions are getters, as the
  * Python properties are: dc_mm, di_mm, da_mm, de_mm, shield_mean_diameter_mm.
- * insulation_mm includes conductor and insulation screens for MV.
+ * insulation_mm includes conductor and insulation screens for MV. rated_voltage_v is the cable's
+ * voltage rating (null: use voltage_v); it selects the EPR thermal resistivity.
  */
 export function cableConstruction(size, opts = {}) {
   const {
     material = "Cu", insulation = "XLPE", insulation_mm = 1.65, shield_mm = 0.0, jacket_mm = 0.0,
-    jacket = "PVC", voltage_v = 600.0, max_temp_c = 90.0,
+    jacket = "PVC", voltage_v = 600.0, max_temp_c = 90.0, rated_voltage_v = null,
   } = opts;
   return {
-    size, material, insulation, insulation_mm, shield_mm, jacket_mm, jacket, voltage_v, max_temp_c,
+    size, material, insulation, insulation_mm, shield_mm, jacket_mm, jacket, voltage_v, max_temp_c, rated_voltage_v,
     get dc_mm() { return cond.diameterMm(this.size); },
     get di_mm() { return this.dc_mm + 2 * this.insulation_mm; },
     get da_mm() { return this.di_mm + 2 * this.shield_mm; },
@@ -62,6 +73,7 @@ export function ampacitySummary(r) {
 }
 
 export function dielectricLoss(c, freq = 60.0) {
+  validate.voltage("voltage_v", c.voltage_v);
   const [eps, tan_d] = Object.prototype.hasOwnProperty.call(DIELECTRIC, c.insulation)
     ? DIELECTRIC[c.insulation] : [2.5, 0.001];
   const cap = (eps / (18 * Math.log(c.di_mm / c.dc_mm))) * 1e-9; // F/m
@@ -76,7 +88,10 @@ export function dielectricLoss(c, freq = 60.0) {
  */
 export function freeAirAmpacity(c, ambient_c = 40.0, opts = {}) {
   const { installation = "isolated", lambda1 = 0.0, freq = 60.0, spacing_mm = null } = opts;
-  const rho_i = lookup(THERMAL_RESISTIVITY, c.insulation);
+  validate.voltage("voltage_v", c.voltage_v);
+  const rated_v = c.rated_voltage_v !== null && c.rated_voltage_v !== undefined ? c.rated_voltage_v : c.voltage_v;
+  validate.voltage("rated_voltage_v", rated_v);
+  const rho_i = insulationResistivity(c.insulation, rated_v);
   const t1 = (rho_i / (2 * Math.PI)) * Math.log(1 + (2 * c.insulation_mm) / c.dc_mm);
   const t2 = 0.0;
   const t3 = c.jacket_mm

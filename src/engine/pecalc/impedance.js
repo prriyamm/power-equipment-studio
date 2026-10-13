@@ -24,6 +24,7 @@
 // Complex values are {re, im}. The Python numpy fast path (used only for more
 // than 40 unknowns) is not ported: Gaussian elimination is used for every size.
 import { pyRepr, toC, cabs, csub, cmul, cdiv, cpolar } from "./util.js";
+import * as validate from "./validate.js";
 
 export const MU0_2PI = 2e-7;
 
@@ -170,7 +171,8 @@ export function solveSharing(conductors, groups, freq = 60.0, soil_ohm_m = 100.0
 
 /** Three balanced phase groups; names default to A, B, C. Returns an object of groups. */
 export function balancedThreePhase(i_rms, pf = 1.0, lagging = true, names = ["A", "B", "C"]) {
-  const phi = Math.acos(Math.max(-1.0, Math.min(1.0, pf))) * (lagging ? -1 : 1);
+  validate.powerFactor("power_factor", pf);
+  const phi = Math.acos(pf) * (lagging ? -1 : 1);
   const out = {};
   names.forEach((n, k) => { out[n] = group(n, "phase", cpolar(i_rms, phi + k * -2 * Math.PI / 3)); });
   return out;

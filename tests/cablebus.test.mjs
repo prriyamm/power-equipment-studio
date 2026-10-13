@@ -105,6 +105,14 @@ test("golden: vector set covers the required ranges", () => {
   assert.ok(G.vectors.some((v) => v.error), "expected-error vectors present");
 });
 
+test(`golden: datasheet_shield_derating (${G.datasheet_shield_derating.length} cases, pecalc #9)`, () => {
+  for (const d of G.datasheet_shield_derating) {
+    const run = () => cb.datasheetShieldDerating(d.lambda1, d.lambda1_ref);
+    if (d.error) assert.throws(run, (e) => e.message === d.error);
+    else close(run(), d.factor, REL, `derating(${d.lambda1}, ${d.lambda1_ref})`);
+  }
+});
+
 test(`golden: candidate_patterns (${G.patterns.length} cases)`, () => {
   for (const p of G.patterns) {
     if (p.error) assert.throws(() => cb.candidatePatterns(p.n, p.tiers), (e) => e.message === p.error);

@@ -10664,61 +10664,7 @@
    "inputs": {
     "fault_ka": 0.0
    },
-   "result": {
-    "input": {
-     "current_a": 2000.0,
-     "voltage_v": 600.0,
-     "standard": "UL 891",
-     "material": "Cu",
-     "bar_thickness_mm": 6.35,
-     "bar_width_mm": 101.6,
-     "bars_per_phase": 2,
-     "bar_gap_mm": null,
-     "phase_spacing_mm": 150.0,
-     "orientation": "face_to_face",
-     "finish": "tin",
-     "ambient_c": 40.0,
-     "internal_air_rise_c": 0.0,
-     "max_rise_c": 65.0,
-     "frequency_hz": 60.0,
-     "filaments_thickness": null,
-     "filaments_width": null,
-     "fault_ka": 0.0,
-     "x_over_r": 15.0,
-     "support_span_m": 0.6,
-     "support_condition": "continuous",
-     "yield_mpa": null,
-     "support_rating_n": null
-    },
-    "rac_over_rdc": 1.2831,
-    "lamination_share_pct": [
-     99.5,
-     102.3
-    ],
-    "loss_w_per_m_per_phase": 81.53,
-    "rise_c": 31.1,
-    "rated_current_at_limit_a": 3002,
-    "peak_force_n_per_m": null,
-    "bending_stress_mpa": null,
-    "support_load_n": null,
-    "max_span_m": null,
-    "checks": [
-     {
-      "name": "Temperature rise at rated current",
-      "clause": "UL 891 [limit UNVERIFIED]",
-      "value": 31.1,
-      "limit": 65.0,
-      "unit": "C",
-      "passed": true,
-      "note": "ambient 40.0 C + internal air 0.0 C, finish tin"
-     }
-    ],
-    "notes": [
-     "Rac/Rdc 1.283 from the filament model (2 x 11 filaments per bar, skin depth 9.3 mm).",
-     "Temperature rise uses still-air natural convection and radiation; enclosure air rise must be given (internal_air_rise_c). Confirm by test per the product standard."
-    ],
-    "passed": true
-   }
+   "error": "fault_ka must be greater than 0 kA, got 0.0"
   },
   {
    "inputs": {
@@ -10822,6 +10768,37 @@
     "phase_spacing_mm": 0.0
    },
    "error": "Conductors 0 and 44 share a position"
+  },
+  {
+   "inputs": {
+    "voltage_v": 0.0
+   },
+   "error": "voltage_v must be greater than 0 V, got 0.0"
+  },
+  {
+   "inputs": {
+    "voltage_v": -600.0
+   },
+   "error": "voltage_v must be greater than 0 V, got -600.0"
+  },
+  {
+   "inputs": {
+    "fault_ka": 50.0,
+    "x_over_r": 0.0
+   },
+   "error": "x_over_r must be greater than 0, got 0.0"
+  },
+  {
+   "inputs": {
+    "x_over_r": -2.0
+   },
+   "error": "x_over_r must be greater than 0, got -2.0"
+  },
+  {
+   "inputs": {
+    "fault_ka": -5.0
+   },
+   "error": "fault_ka must be greater than 0 kA, got -5.0"
   }
  ],
  "example": {

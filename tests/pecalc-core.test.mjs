@@ -13,6 +13,8 @@ import * as imp from "../src/engine/pecalc/impedance.js";
 import * as frc from "../src/engine/pecalc/forces.js";
 import * as fld from "../src/engine/pecalc/field.js";
 import * as thm from "../src/engine/pecalc/thermal.js";
+import * as validate from "../src/engine/pecalc/validate.js";
+import * as rxd from "../src/engine/reactanceDerived.js";
 import { cabs, cdiv } from "../src/engine/pecalc/util.js";
 
 const golden = JSON.parse(readFileSync(new URL("./golden/core.json", import.meta.url), "utf8"));
@@ -124,6 +126,18 @@ const DISPATCH = {
       { installation: i.installation, lambda1: i.lambda1, freq: i.freq, spacing_mm: i.spacing_mm });
     return { ...r, summary: thm.ampacitySummary(r) };
   },
+  insulation_resistivity: (i) => thm.insulationResistivity(i.insulation, i.rated_voltage_v),
+
+  validate: (i) => ({ voltage: validate.voltage, power_factor: validate.powerFactor,
+    clearing_time: validate.clearingTime, x_over_r: validate.xOverR })[i.fn](i.name, i.value),
+
+  // pecalc reactance_derived.py is mirrored by src/engine/reactanceDerived.js (shared, not duplicated).
+  reactance_derived_table: () => rxd.DERIVED_XL,
+  reactance_floor_per_1000ft: (i) => rxd.reactanceFloorPer1000ft(i.size),
+  reactance_per_1000ft: (i) => {
+    const r = rxd.reactancePer1000ft(cond.normalizeSize(i.size), i.raceway);
+    return r === null ? null : [r.xl, r.derived];
+  },
 };
 const ITERATIVE = new Set(["free_air_ampacity"]);
 
@@ -163,8 +177,10 @@ test("golden constants match the JS tables", () => {
   cmp({ MU0_2PI: imp.MU0_2PI }, V.impedance_constants, 0);
   cmp({ N_PER_M_TO_LBF_PER_FT: frc.N_PER_M_TO_LBF_PER_FT }, V.forces_constants, 0);
   cmp({ LIMITS_UT: fld.LIMITS_UT, MU0_2PI: fld.MU0_2PI }, V.field_constants, 0);
-  cmp({ THERMAL_RESISTIVITY: thm.THERMAL_RESISTIVITY, DIELECTRIC: thm.DIELECTRIC, AIR_CONSTANTS: thm.AIR_CONSTANTS },
-    V.thermal_constants, 0);
+  cmp({ THERMAL_RESISTIVITY: thm.THERMAL_RESISTIVITY, DIELECTRIC: thm.DIELECTRIC, AIR_CONSTANTS: thm.AIR_CONSTANTS,
+    EPR_LV_RESISTIVITY: thm.EPR_LV_RESISTIVITY, EPR_LV_MAX_KV: thm.EPR_LV_MAX_KV }, V.thermal_constants, 0);
+  cmp({ DERIVED_STATUS: rxd.DERIVED_META.status, DERIVED_METHOD: rxd.DERIVED_META.method, RACEWAYS: rxd.RACEWAYS,
+    DERIVED_SIZES: rxd.DERIVED_SIZES }, V.reactance_derived_constants, 0);
 });
 
 test("every golden vector function is exercised", () => {
@@ -316,12 +332,13 @@ test("sanity: complex helpers", () => {
   assert.equal(cabs({ re: 3, im: 4 }), 5);
 });
 
-test("regression: X/R = 0 raises like the Python (ZeroDivisionError), instead of returning NaN-tainted forces", () => {
-  // Python: peak_factor -> math.exp(-3 / 0) and fault_forces -> -t / tau with tau = 0/w both raise.
-  // The JS returned peakFactor(0) = √2·1.02 = 1.4425 and a NaN first peak with finite forces.
-  assert.throws(() => frc.peakFactor(0), /division by zero/);
+test("regression: X/R <= 0 raises like the Python (validate.x_over_r), instead of returning NaN-tainted forces", () => {
+  // Python (pecalc #10): peak_factor and fault_forces validate X/R > 0 before dividing by it.
+  // The JS once returned peakFactor(0) = √2·1.02 = 1.4425 and a NaN first peak with finite forces.
+  assert.throws(() => frc.peakFactor(0), { message: "x_over_r must be greater than 0, got 0.0" });
+  assert.throws(() => frc.peakFactor(-3), { message: "x_over_r must be greater than 0, got -3.0" });
   const c = [{ group: "A", x_mm: 0, y_mm: 0 }, { group: "B", x_mm: 100, y_mm: 0 }];
-  assert.throws(() => frc.faultForces(c, [1, 1], 10, 0), /division by zero/);
+  assert.throws(() => frc.faultForces(c, [1, 1], 10, 0), /x_over_r must be greater than 0/);
   // Sanity: a normal X/R still matches IEC 60909 κ·√2: X/R 15 -> √2·(1.02 + 0.98·e^-0.2) = 2.57716
   assert.ok(Math.abs(frc.peakFactor(15) - Math.SQRT2 * (1.02 + 0.98 * Math.exp(-0.2))) < 1e-12);
 });

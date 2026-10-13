@@ -76,6 +76,22 @@ extras = [
     {"kva": 1500.0, "j_lv_a_mm2": 8.0, "j_hv_a_mm2": 8.0},   # thermal check fails
     {"kva": 1500.0, "window_ratio": 0.3},                       # window too short / winding does not fit
     {"kva": 1500.0, "kind": "froggy"}, {"kva": 1500.0, "conductor": "Fe"},
+    # pecalc #10: source impedance added as a phasor with its own X/R.
+    {"kva": 1500.0, "source_mva": 50.0, "source_x_over_r": 1.0},
+    {"kva": 1500.0, "source_mva": 50.0},
+    {"kva": 1500.0, "source_mva": 500.0, "source_x_over_r": 25.0},
+    {"kva": 2500.0, "source_mva": 150.0, "source_x_over_r": 4.5, "kind": "dry"},
+    # pecalc #10: DOE test point by primary (HV) voltage: liquid 50 %, dry <= 600 V primary 35 %, else 50 %.
+    {"kva": 1500.0, "kind": "dry", "hv_v": 13800.0, "lv_v": 480.0, "doe_min_efficiency_pct": 99.0},
+    {"kva": 1500.0, "kind": "liquid", "hv_v": 13800.0, "lv_v": 480.0, "doe_min_efficiency_pct": 99.0},
+    {"kva": 75.0, "kind": "dry", "hv_v": 480.0, "lv_v": 208.0, "doe_min_efficiency_pct": 98.0},
+    {"kva": 150.0, "kind": "dry", "hv_v": 600.0, "lv_v": 208.0, "doe_min_efficiency_pct": 98.5},
+    {"kva": 150.0, "kind": "dry", "hv_v": 601.0, "lv_v": 208.0, "doe_min_efficiency_pct": 98.5},
+    # pecalc #10 input validation.
+    {"kva": 1500.0, "lv_v": 0.0}, {"kva": 1500.0, "hv_v": -1.0}, {"kva": 1500.0, "power_factor": 0.0},
+    {"kva": 1500.0, "power_factor": 1.2}, {"kva": 1500.0, "fault_duration_s": -1.0},
+    {"kva": 1500.0, "source_x_over_r": 0.0}, {"kva": 1500.0, "source_mva": 0.0}, {"kva": 1500.0, "source_mva": -10.0},
+    {"kva": 0.0}, {"kva": -75.0},
 ]
 for e in extras:
     vectors.append(run("design", e))

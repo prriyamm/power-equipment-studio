@@ -16,7 +16,8 @@ import { LIMITS_UT, bRmsUt } from "./field.js";
 import { faultForces } from "./forces.js";
 import { conductor, balancedThreePhase, group, solveSharing, sharePct, groupLossWPerM } from "./impedance.js";
 import { cableConstruction, freeAirAmpacity, ampacitySummary } from "./thermal.js";
-import { pyRound, pyFixed, pyRepr, lookup, cabs, cdiv } from "./util.js";
+import { pyRound, pyFixed, pyRepr, lookup, cabs, cdiv, cpolar, csub, cscale } from "./util.js";
+import * as validate from "./validate.js";
 import NEC from "./data/ampacity_nec.json" with { type: "json" };
 import CEC from "./data/ampacity_cec.json" with { type: "json" };
 
@@ -73,6 +74,10 @@ const _DEFAULTS = {
   ampacity_method: "auto",    // auto | table | datasheet | calculated
   cable_ampacity_a: null,     // datasheet free-air rating per cable
   cable_ampacity_ambient_c: 40.0,
+  // Shield loss factor lambda1 already included in the datasheet rating. Datasheet ratings for
+  // single-point or cross-bonded shields carry no circulating loss, so the default is 0.
+  // Used to derate the datasheet rating when shields are bonded at both ends.
+  cable_ampacity_lambda1_ref: 0.0,
   insulation: "XLPE",
   insulation_mm: null,        // incl. conductor/insulation screens for MV
   shield_mm: 0.0,
@@ -283,6 +288,79 @@ export function perCableAmpacity(inp) {
     `data ${info.status}) x ambient factor ${pyFixed(f, 3)} (${pyFixed(inp.ambient_c, 0)} C)`];
 }
 
+/**
+ * Factor applied to a datasheet ampacity for shield circulating-current loss.
+ *
+ * Method: IEC 60287-1-1 section 2.3 (sheath/screen loss factor lambda1) applied
+ * through the steady-state rating equation of IEC 60287-1-1 section 1.4.1.1,
+ * which is the same heat balance as Neher-McGrath (AIEE 1957, "ycs" shield
+ * loss term):
+ *
+ *     I = sqrt[(dtheta - Wd(...)) / (R T1 + n R (1 + lambda1) T2
+ *                                     + n R (1 + lambda1 + lambda2)(T3 + T4))]
+ *
+ * For an unarmoured cable in air (lambda2 = 0, T2 = 0) with the external
+ * thermal resistance T3 + T4 dominant, I is proportional to
+ * 1 / sqrt(1 + lambda1), so a rating made with loss factor lambda1_ref
+ * becomes, with the actual loss factor lambda1_actual:
+ *
+ *     I_derated = I_datasheet * sqrt((1 + lambda1_ref) / (1 + lambda1_actual))
+ *
+ * Assumptions:
+ * - lambda1_actual is the circulating-current loss factor from the sharing
+ *   solve (shield loss / core loss for the same cable); eddy loss lambda1''
+ *   is neglected, as it is in IEC 60287 for both-ends-bonded single-core
+ *   cables except large segmental conductors.
+ * - Neglecting T1 (insulation) and the dielectric loss term overstates the
+ *   reduction slightly, so the factor is conservative.
+ * - The factor is capped at 1: a datasheet rating is never raised.
+ * - lambda1_ref is the loss factor the datasheet already assumes: 0 for
+ *   single-point or cross-bonded ratings (the usual basis), unless the
+ *   manufacturer states otherwise.
+ * [Equation form from memory; verify clause numbers against IEC 60287-1-1:2006.]
+ */
+export function datasheetShieldDerating(lambda1_actual, lambda1_ref = 0.0) {
+  if (lambda1_actual < 0 || lambda1_ref < 0) throw new Error("Shield loss factors lambda1 must be >= 0");
+  return Math.min(1.0, Math.sqrt((1 + lambda1_ref) / (1 + lambda1_actual)));
+}
+
+/**
+ * Voltage drop per phase, in % of that phase's own sending-end voltage.
+ *
+ * Each phase group p carries I_p at power factor pf, so its sending-end
+ * voltage is V_s,p = (V_LL / sqrt 3) at angle (arg I_p + phi), phi = acos(pf)
+ * (current lagging). The drop phasor dV_p = (group drop per m) x length comes
+ * from the sharing solve, which includes mutual coupling, unequal sharing and
+ * induced shield / enclosure currents. Per phase:
+ *
+ *     exact  = (|V_s,p| - |V_s,p - dV_p|) / |V_s,p| x 100
+ *     approx = Re(dV_p . conj(V_s,p)) / |V_s,p|^2 x 100
+ *
+ * The approximate form is the projection of the drop onto the source voltage,
+ * i.e. the usual I (R cos phi + X sin phi) L estimate (IEEE Std 141 /
+ * NEC Chapter 9 Table 9 Note 2 form) [from memory]. Measuring every phase
+ * against its own source voltage makes the result independent of how the
+ * phases are labelled.
+ *
+ * Returns {phase: [exact %, approx %]} in the solver's phase order.
+ */
+export function phaseVoltageDrops(res, voltage_v, power_factor, length_m, lagging = true) {
+  const v_ph = voltage_v / Math.sqrt(3);
+  const phi = Math.acos(Math.max(-1.0, Math.min(1.0, power_factor))) * (lagging ? 1 : -1);
+  const out = {};
+  for (const [p, d] of Object.entries(res.group_drop_v_per_m)) {
+    const i_p = res.groups[p].current;
+    if (!(i_p.re || i_p.im)) continue;
+    const vs = cpolar(v_ph, Math.atan2(i_p.im, i_p.re) + phi);
+    const dv = cscale(d, length_m);
+    const avs = cabs(vs);
+    const exact = ((avs - cabs(csub(vs, dv))) / avs) * 100;
+    const approx = ((dv.re * vs.re + dv.im * vs.im) / avs ** 2) * 100; // Re(dv * conj(vs))
+    out[p] = [exact, approx];
+  }
+  return out;
+}
+
 // --- main -------------------------------------------------------------------
 
 function _div(a, b) {
@@ -295,6 +373,7 @@ function _div(a, b) {
  * fill in the shield geometry on it. Returns the CableBusResult fields plus `passed`.
  */
 export function analyse(inp) {
+  validate.voltage("voltage_v", inp.voltage_v);
   const size = cond.normalizeSize(inp.size);
   inp.size = size;
   const cons = construction(inp);
@@ -332,6 +411,14 @@ export function analyse(inp) {
   const pitch = inp.spacing_mm || 2 * od;
   const labels = {};
   cs.forEach((c, i) => { labels[c.label] = i; });
+
+  // Circulating-current shield loss factor of cable i (0 without both-ends bonding).
+  const shieldLambda1 = (i) => {
+    const core_loss = res.losses_w_per_m[i];
+    const s = labels[`S-${cs[i].label}`];
+    return s !== undefined && core_loss ? pyRound(res.losses_w_per_m[s] / core_loss, 4) : 0.0;
+  };
+
   let a_term = null;
   let ampacityFor = null, a_cable = null, basis_fixed = null;
   if (method === "calculated") {
@@ -339,9 +426,7 @@ export function analyse(inp) {
     const installation = pitch - od >= 0.75 * od ? "isolated" : "flat_touching";
     const cache = new Map();
     ampacityFor = (i) => {
-      const core_loss = res.losses_w_per_m[i];
-      const s = labels[`S-${cs[i].label}`];
-      const lam = s !== undefined && core_loss ? pyRound(res.losses_w_per_m[s] / core_loss, 4) : 0.0;
+      const lam = shieldLambda1(i);
       if (!cache.has(lam)) {
         cache.set(lam, freeAirAmpacity(cons, inp.ambient_c,
           { installation, lambda1: lam, freq: inp.frequency_hz, spacing_mm: pitch }));
@@ -356,6 +441,8 @@ export function analyse(inp) {
     if (method === "table") a_term = amp.tableAmpacity(inp.code, "free_air", inp.material, size, inp.terminal_temp_c);
   }
 
+  const derate_ds = method === "datasheet" && with_shields;
+  const ds_factors = [];
   const rows = [];
   let worst = null;
   cs.forEach((c, i) => {
@@ -366,6 +453,13 @@ export function analyse(inp) {
       const ar = ampacityFor(i);
       a_i = ar.ampacity_a;
       basis_i = ampacitySummary(ar);
+    } else if (derate_ds) {
+      const lam = shieldLambda1(i);
+      const k = datasheetShieldDerating(lam, inp.cable_ampacity_lambda1_ref);
+      ds_factors.push([k, lam]);
+      a_i = a_cable * k;
+      basis_i = `${basis_fixed} x shield derating ${pyFixed(k, 3)} (lambda1 ${pyFixed(lam, 3)} vs datasheet ` +
+        `${pyFixed(inp.cable_ampacity_lambda1_ref, 3)}, IEC 60287-1-1 2.3)`;
     } else {
       a_i = a_cable;
       basis_i = basis_fixed;
@@ -383,13 +477,14 @@ export function analyse(inp) {
   const max_loading = worst[0].loading_pct;
   const basis = worst[1];
 
-  // Voltage drop: worst phase, sending-end phase voltage as reference.
-  const v_ph = inp.voltage_v / Math.sqrt(3);
-  let vd_pct = -Infinity;
-  for (const d of Object.values(res.group_drop_v_per_m)) {
-    const m = Math.hypot(v_ph - d.re * inp.length_m, -(d.im * inp.length_m));
-    vd_pct = Math.max(vd_pct, ((v_ph - m) / v_ph) * 100);
+  // Voltage drop: each phase against its own sending-end voltage; the worst phase is checked.
+  const vd_by_phase = phaseVoltageDrops(res, inp.voltage_v, inp.power_factor, inp.length_m);
+  let vd_phase = null;
+  for (const p of Object.keys(vd_by_phase)) {
+    if (vd_phase === null || vd_by_phase[p][0] > vd_by_phase[vd_phase][0]) vd_phase = p;
   }
+  if (vd_phase === null) throw new Error("max() arg is an empty sequence"); // Python ValueError
+  const vd_pct = vd_by_phase[vd_phase][0];
   const cond_loss = groupLossWPerM(res, "phase") * inp.length_m;
   let shield_loss = 0, encl_loss = 0;
   cs.forEach((c, i) => {
@@ -442,7 +537,8 @@ export function analyse(inp) {
     check("Most heavily loaded conductor within termination rating", clauses.terminal, max_cur, a_term,
       "A", max_cur <= a_term, `${inp.terminal_temp_c} C column, no ambient correction`);
   }
-  check("Voltage drop (worst phase)", clauses.vd, vd_pct, inp.max_vd_pct, "%", vd_pct <= inp.max_vd_pct);
+  check("Voltage drop (worst phase)", clauses.vd, vd_pct, inp.max_vd_pct, "%", vd_pct <= inp.max_vd_pct,
+    `phase ${vd_phase}, each phase against its own sending-end voltage`);
 
   let f_nm = null, f_lbf = null, support = null;
   if (inp.fault_ka) {
@@ -465,9 +561,31 @@ export function analyse(inp) {
       `shield loss ${pyFixed(shield_loss / 1000, 2)} kW (${pyFixed((shield_loss / Math.max(cond_loss, 1e-9)) * 100, 1)} % of ` +
       "conductor loss). Single-point or cross bonding removes most of this.");
   }
+  if (derate_ds) {
+    // Python min() over (factor, lambda1) tuples: smallest factor, then smallest lambda1.
+    const [k_min, lam_max] = ds_factors.reduce((m, t) => (t[0] < m[0] || (t[0] === m[0] && t[1] < m[1]) ? t : m));
+    const k_hi = Math.max(...ds_factors.map(([f]) => f));
+    notes.push(
+      "Datasheet ampacity derated for shield circulating current (shields bonded both ends): " +
+      "I = I_datasheet x sqrt((1 + lambda1_ref) / (1 + lambda1)), IEC 60287-1-1 2.3 shield loss factor in " +
+      "the IEC 60287 / Neher-McGrath rating equation. Assumes the datasheet rating already includes " +
+      `lambda1_ref = ${pyFixed(inp.cable_ampacity_lambda1_ref, 3)} (0 = single-point or cross-bonded rating), ` +
+      "external thermal resistance dominant, eddy loss and dielectric loss term neglected (conservative), " +
+      `factor capped at 1. Per-cable lambda1 from the sharing solve; worst lambda1 ${pyFixed(lam_max, 3)}, ` +
+      `factor ${pyFixed(k_min, 3)} (range ${pyFixed(k_min, 3)}-${pyFixed(k_hi, 3)}). [UNVERIFIED method ` +
+      "simplification; check against the cable maker's both-ends-bonded rating where available.]");
+    if (k_min < 0.9) {
+      notes.push("WARNING: shield circulating current derates the datasheet ampacity by " +
+        `${pyFixed((1 - k_min) * 100, 1)} % (> 10 %). Consider single-point or cross bonding, or a ` +
+        "manufacturer rating for both-ends bonding.");
+    }
+  }
   if (inp.voltage_v > 2000 && inp.shield_bonding === "none") {
     notes.push("MV cable selected with shield_bonding 'none': set 'single_point' or 'both_ends' to state the design.");
   }
+  notes.push("Voltage drop by phase, exact / approximate I(R cos phi + X sin phi) form, each against its own " +
+    "sending-end phase voltage: " + Object.keys(vd_by_phase).sort()
+    .map((p) => `${p} ${pyFixed(vd_by_phase[p][0], 2)} / ${pyFixed(vd_by_phase[p][1], 2)} %`).join(", ") + ".");
   if (method === "table") notes.push(`${inp.code} table data status: ${amp.tableInfo(inp.code, "free_air").status}.`);
   if (inp.enclosure_width_mm) {
     notes.push(`Enclosure (${inp.enclosure_alloy}, sides${inp.covers_continuous ? " + covers" : " only"}): ` +

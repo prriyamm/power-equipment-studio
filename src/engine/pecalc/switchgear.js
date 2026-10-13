@@ -21,6 +21,7 @@
 import { N_PER_M_TO_LBF_PER_FT, faultForces } from "./forces.js";
 import { conductor, balancedThreePhase, solveSharing } from "./impedance.js";
 import { pyRound, pyFixed, cdiv, lookup } from "./util.js";
+import * as validate from "./validate.js";
 
 export const SIGMA = 5.670e-8;
 // Resistivity at 20 C (ohm m) and temperature coefficient. [UNVERIFIED: handbook
@@ -153,6 +154,11 @@ export function analyseBus(inp) {
   if (!has(BAR_MATERIALS, inp.material)) throw new Error("material must be Cu or Al");
   if (inp.orientation !== "face_to_face" && inp.orientation !== "edge_to_edge") throw new Error("orientation must be face_to_face or edge_to_edge");
   if (!has(EMISSIVITY, inp.finish)) throw new Error(`finish must be one of [${Object.keys(EMISSIVITY).sort().map((s) => `'${s}'`).join(", ")}]`);
+  validate.voltage("voltage_v", inp.voltage_v);
+  validate.xOverR("x_over_r", inp.x_over_r);
+  if (inp.fault_ka !== null && inp.fault_ka !== undefined && inp.fault_ka <= 0) {
+    throw new Error(`fault_ka must be greater than 0 kA, got ${validate.reprValue(inp.fault_ka)}`);
+  }
   const [rho20, alpha] = BAR_MATERIALS[inp.material];
   const notes = [];
   const air0 = inp.ambient_c + inp.internal_air_rise_c;

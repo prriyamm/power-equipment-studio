@@ -18,6 +18,7 @@
    The design is a starting point for detailed design and FEA, not a final one.
 
    Result objects use the same snake_case field names as the Python dataclasses. */
+import * as validate from "./validate.js";
 
 export const MU0 = 4e-7 * Math.PI;
 export const STEEL_DENSITY = 7650.0; // kg/m3, grain-oriented electrical steel
@@ -50,6 +51,18 @@ function pyRound(x, n = 0) {
 // Python repr-style number for messages: whole numbers print as floats ("5.0").
 const pyNum = (x) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
 const pct0 = (x) => `${(x * 100).toFixed(0)}%`;
+// Python format(x, "g") (six significant digits) and format(x, ".2f") (half-even on exact ties).
+const pyG = (x) => {
+  if (!Number.isFinite(x)) return Number.isNaN(x) ? "nan" : x > 0 ? "inf" : "-inf";
+  const exp = x === 0 ? 0 : Math.floor(Math.log10(Math.abs(Number(x.toPrecision(6)))));
+  if (exp < -4 || exp >= 6) {
+    const [m, e] = x.toExponential(5).split("e");
+    return `${m.replace(/0+$/, "").replace(/\.$/, "")}e${e[0] === "-" ? "-" : "+"}${e.replace(/^[+-]/, "").padStart(2, "0")}`;
+  }
+  const t = x.toPrecision(6);
+  return t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
+};
+const pyFixed2 = (x) => pyRound(x, 2).toFixed(2);
 const given = (v) => v !== null && v !== undefined;
 
 export function transformerInput(overrides = {}) {
@@ -82,6 +95,7 @@ export function transformerInput(overrides = {}) {
     z_tolerance_pct: 7.5,       // of the specified value [UNVERIFIED: C57.12.00 two-winding tolerance]
     power_factor: 0.9,
     source_mva: null,           // available fault MVA at HV terminals (null: infinite bus)
+    source_x_over_r: 10.0,      // utility source X/R at the HV terminals [UNVERIFIED typical; enter the utility's value]
     fault_duration_s: 2.0,      // through-fault thermal duration
     conductor_proof_mpa: 100.0, // 0.2 % proof stress of winding conductor [UNVERIFIED: annealed Cu]
     doe_min_efficiency_pct: null, // from 10 CFR 431.196 for this kVA/BIL (enter from the rule)
@@ -91,6 +105,27 @@ export function transformerInput(overrides = {}) {
     if (overrides[k] !== undefined) inp[k] = overrides[k];
   }
   return inp;
+}
+
+// DOE test load point by equipment class. Efficiency standards: 10 CFR 431.196 (a) low-voltage dry-type,
+// (b) liquid-immersed, (c) medium-voltage dry-type; class definitions in 10 CFR 431.192 (low-voltage
+// dry-type: primary voltage <= 600 V). The per-unit test load (35 % LVDT, 50 % liquid and MVDT) is set by
+// the test procedure, Appendix A to Subpart K of Part 431. [UNVERIFIED: paragraph numbers from memory]
+export const DOE_TEST_POINT_CITATION = "10 CFR 431.192 / 431.196 / Part 431 Subpart K App. A [UNVERIFIED paragraph]";
+
+/** [DOE equipment class, per-unit test load]. Classified by the primary (input) voltage. */
+export function doe_test_point(kind, primary_v) {
+  if (kind === "liquid") return ["liquid-immersed", 0.50];
+  if (primary_v <= 600) return ["low-voltage dry-type", 0.35];
+  return ["medium-voltage dry-type", 0.50];
+}
+
+/** Utility source impedance on the transformer base, {re, im} pu: |Z| = kVA/1000 / MVA_sc at angle atan(X/R). */
+export function source_impedance_pu(kva, source_mva, x_over_r) {
+  if (!source_mva) return { re: 0, im: 0 };
+  const mag = kva / 1000 / source_mva;
+  const r = mag / Math.hypot(1.0, x_over_r);
+  return { re: r, im: r * x_over_r };
 }
 
 export function next_standard_kva(load_kva, growth = 1.0) {
@@ -121,6 +156,15 @@ const _phase = (v_ll, conn) => (conn === "delta" ? v_ll : v_ll / Math.sqrt(3));
 export function design(inp) {
   if (inp.kind !== "liquid" && inp.kind !== "dry") throw new Error("kind must be liquid or dry");
   if (!(inp.conductor in WINDING)) throw new Error("conductor must be Cu or Al");
+  validate.voltage("hv_v", inp.hv_v);
+  validate.voltage("lv_v", inp.lv_v);
+  validate.powerFactor("power_factor", inp.power_factor);
+  validate.clearingTime("fault_duration_s", inp.fault_duration_s);
+  validate.xOverR("source_x_over_r", inp.source_x_over_r);
+  if (given(inp.source_mva) && inp.source_mva <= 0) {
+    throw new Error(`source_mva must be greater than 0 MVA (or None for an infinite bus), got ${validate.reprValue(inp.source_mva)}`);
+  }
+  if (inp.kva <= 0) throw new Error(`kva must be greater than 0, got ${validate.reprValue(inp.kva)}`);
   const f = inp.frequency_hz, s = inp.kva * 1000;
   const kv_hv = inp.hv_v / 1000;
   const vph_lv = _phase(inp.lv_v, inp.lv_connection), vph_hv = _phase(inp.hv_v, inp.hv_connection);
@@ -182,18 +226,21 @@ export function design(inp) {
     const out = s * load * inp.power_factor;
     return out / (out + nll + load_loss * load ** 2) * 100;
   };
-  // DOE 10 CFR 431.196 test point: 50 % load (liquid, or dry above 600 V), else 35 %.
-  const doe_load = (inp.kind === "liquid" || inp.lv_v > 600) ? 0.5 : 0.35;
+  const [doe_class, doe_load] = doe_test_point(inp.kind, inp.hv_v);
   const doe_temp = inp.kind === "liquid" ? 55.0 : 75.0;
   const ll_doe = load_loss * (t0 + doe_temp) / (t0 + t_ref); // I2R-dominated correction [approximation]
   const eff_doe = s * doe_load / (s * doe_load + nll + ll_doe * doe_load ** 2) * 100;
   const sin_phi = Math.sqrt(1 - inp.power_factor ** 2);
   const reg = r_pct * inp.power_factor + x_pct * sin_phi + (x_pct * inp.power_factor - r_pct * sin_phi) ** 2 / 200;
 
-  // Short circuit at LV terminals.
-  const z_pu = z_pct / 100 + (inp.source_mva ? inp.kva / 1000 / inp.source_mva : 0);
+  // Short circuit at LV terminals: source and transformer impedances added as phasors
+  // (each with its own X/R), on the transformer kVA base.
+  const z_src = source_impedance_pu(inp.kva, inp.source_mva, inp.source_x_over_r);
+  const z_tot = { re: r_pct / 100 + z_src.re, im: x_pct / 100 + z_src.im };
+  const z_pu = Math.hypot(z_tot.re, z_tot.im);
+  const xr_tot = z_tot.im / z_tot.re;
   const isc_lv = i_line_lv / z_pu;
-  const kappa = 1.02 + 0.98 * Math.exp(-3 / x_over_r);
+  const kappa = 1.02 + 0.98 * Math.exp(-3 / xr_tot);
   const i_peak = Math.sqrt(2) * kappa * isc_lv;
   // Thermal: IEC 60076-5 adiabatic winding temperature after the fault.
   const t1 = t_ref;
@@ -222,9 +269,9 @@ export function design(inp) {
       `target ${pyNum(inp.target_z_pct)} % +/- ${pyNum(inp.z_tolerance_pct)} %`);
   }
   if (inp.doe_min_efficiency_pct) {
-    check("Efficiency at DOE test point", "10 CFR 431.196 (value entered by user)", eff_doe,
-      inp.doe_min_efficiency_pct, "%", eff_doe >= inp.doe_min_efficiency_pct,
-      `${pct0(doe_load)} load, load loss at ${doe_temp.toFixed(0)} C`);
+    check("Efficiency at DOE test point", `10 CFR 431.196 (value entered by user); ${DOE_TEST_POINT_CITATION}`,
+      eff_doe, inp.doe_min_efficiency_pct, "%", eff_doe >= inp.doe_min_efficiency_pct,
+      `${doe_class}, ${pct0(doe_load)} load, load loss at ${doe_temp.toFixed(0)} C`);
   }
   check(`Winding temperature after ${String(inp.fault_duration_s)} s through-fault`, "IEC 60076-5 method; " +
     "C57.12.00 limit [UNVERIFIED]", t_fault, t_lim, "C", t_fault <= t_lim,
@@ -235,11 +282,15 @@ export function design(inp) {
   const notes = [
     `Preliminary design only (empirical K = ${pyNum(inp.k_et)}, Kw = ${kw.toFixed(3)}, core fill ${pyNum(inp.core_fill)}); ` +
     "refine with detailed design and FEA, and confirm by test (IEEE C57.12.90 / C57.12.91).",
-    `DOE test point: ${pct0(doe_load)} load, load loss corrected to ${doe_temp.toFixed(0)} C; enter the 10 CFR 431.196 ` +
+    `DOE test point: ${doe_class} (HV winding taken as the primary), ${pct0(doe_load)} load, load loss corrected to ${doe_temp.toFixed(0)} C; enter the 10 CFR 431.196 ` +
     "minimum efficiency for this kVA and BIL (tables not loaded).",
     "Inner (LV) winding radial buckling and axial forces are not checked yet.",
   ];
   if (!inp.source_mva) notes.push("Secondary fault current assumes an infinite source (no utility impedance).");
+  else {
+    notes.push(`Secondary fault current: source ${pyG(inp.source_mva)} MVA at X/R ${pyG(inp.source_x_over_r)} added to ` +
+      `the transformer impedance as phasors; combined X/R ${pyFixed2(xr_tot)}.`);
+  }
 
   const r = (v, n = 1) => pyRound(v, n);
   const effs = {};
@@ -267,6 +318,7 @@ export function design(inp) {
     },
     short_circuit: {
       lv_fault_ka_rms: r(isc_lv / 1000, 2), lv_fault_peak_ka: r(i_peak / 1000, 2),
+      total_z_pu: r(z_pu, 5), total_x_over_r: r(xr_tot, 2),
       winding_temp_after_fault_c: r(t_fault), hv_hoop_stress_mpa: r(hoop, 1),
     },
     checks,
@@ -297,6 +349,8 @@ export function design_for_impedance(inp, lo = 1.2, hi = 8.0) {
 
 // camelCase names (repo convention) alongside the Python-style names.
 export const nextStandardKva = next_standard_kva;
+export const doeTestPoint = doe_test_point;
+export const sourceImpedancePu = source_impedance_pu;
 export const specificCoreLoss = specific_core_loss;
 export const rogowskiFactor = rogowski_factor;
 export const designForImpedance = design_for_impedance;

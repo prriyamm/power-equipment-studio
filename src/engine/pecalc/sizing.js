@@ -6,13 +6,18 @@
 import * as amp from "./ampacity.js";
 import * as cond from "./conductors.js";
 import { selectLugs, lugInput } from "./lugs.js";
-import { pyRound, pyFixed, lookup } from "./util.js";
-import REACTANCE from "./data/reactance_nec_table9.json" with { type: "json" };
+import * as validate from "./validate.js";
+import { pyRound, pyFixed, pyRepr, lookup } from "./util.js";
+import { reactancePer1000ft, RACEWAYS, DERIVED_SIZES, DERIVED_META } from "../reactanceDerived.js";
 import NEC from "./data/ampacity_nec.json" with { type: "json" };
 import CEC from "./data/ampacity_cec.json" with { type: "json" };
+import SMALL_CONDUCTORS from "./data/nec_240_4d_small_conductors.json" with { type: "json" };
 
 const TABLES = { NEC, CEC };
 export const FT_PER_M = 1 / cond.FT;
+
+/** Python format(x, "g") for the whole-number limits printed in notes. */
+const pyG = (x) => (Number.isInteger(x) ? String(x) : String(Number(x.toPrecision(6))));
 
 /** Python str(float): integers keep a trailing ".0". */
 const pyFloat = (x) => (Number.isInteger(x) && Math.abs(x) < 1e16 ? x.toFixed(1) : String(x));
@@ -56,14 +61,31 @@ export const loadA = (inp) => inp.continuous_a + inp.noncontinuous_a;
 const mkCheck = (name, clause, value, limit, unit, passed, note = "") =>
   ({ name, clause, value, limit, unit, passed, note });
 
-/** Returns [ohm per metre, basis]. */
+/** Python tuple repr, e.g. ('pvc', 'aluminum', 'steel'). */
+const pyTuple = (xs) => `(${xs.map(pyRepr).join(", ")})`;
+
+/** Returns [ohm per metre, basis]. Raceway reactance: NEC Table 9, or a DERIVED value for the sizes
+ * Table 9 does not list (pecalc reactance_derived.py = src/engine/reactanceDerived.js). */
 function _reactanceOhmPerM(inp, size) {
   if (inp.installation === "raceway") {
-    const x_kft = lookup(REACTANCE, inp.conduit)[size];
-    if (x_kft !== undefined && x_kft !== null) return [x_kft / 1000 / cond.FT, "NEC Ch. 9 Table 9"];
+    if (!RACEWAYS.includes(inp.conduit)) throw new Error(`conduit must be one of ${pyTuple(RACEWAYS)}`);
+    const found = reactancePer1000ft(cond.normalizeSize(size), inp.conduit);
+    if (found !== null) {
+      const basis = found.derived ? `DERIVED from NEC Ch. 9 Table 9 [${DERIVED_META.status}]` : "NEC Ch. 9 Table 9";
+      return [found.xl / 1000 / cond.FT, basis];
+    }
   }
-  // Cables touching in trefoil (tray / free air) or sizes beyond Table 9.
+  // Cables touching in trefoil (tray / free air).
   return [cond.reactanceOhmPerM(size, cond.cableOdMm(size), inp.frequency_hz), "geometric (trefoil, touching)"];
+}
+
+/** NEC 240.4(D) limit in A, or null when 240.4(D) does not list the size (data/nec_240_4d_small_conductors.json).
+ * [UNVERIFIED data] */
+export function smallConductorLimitA(material, size) {
+  const rows = material !== "_meta" && Object.prototype.hasOwnProperty.call(SMALL_CONDUCTORS, material)
+    ? SMALL_CONDUCTORS[material] : {};
+  const v = rows[cond.normalizeSize(size)];
+  return v === undefined || v === null ? null : Number(v);
 }
 
 /** ICEA P-32-382 adiabatic withstand: (I/A)^2 t = K log10((T2+T0)/(T1+T0)).
@@ -92,7 +114,11 @@ export function evaluate(inp, size, sets) {
   }
 
   const a_ins = amp.tableAmpacity(code, inp.installation, mat, size, inp.insulation_temp_c);
-  const a_term = amp.tableAmpacity(code, inp.installation, mat, size, inp.terminal_temp_c);
+  // NEC 110.14(C): termination limits use the 60/75 C column of Table 310.16 whatever the
+  // installation; free-air (Table 310.17) ampacity applies to the conductor only.
+  // CEC Rule 4-006 is left on the installation's own table [UNVERIFIED which CEC table applies].
+  const term_install = code === "NEC" ? "raceway" : inp.installation;
+  const a_term = amp.tableAmpacity(code, term_install, mat, size, inp.terminal_temp_c);
   if (a_ins === null || a_term === null) throw new Error(`No ${code} ${inp.installation} ampacity for ${mat} ${size}`);
 
   const f_amb = amp.ambientFactor(inp.ambient_c, inp.insulation_temp_c);
@@ -105,10 +131,21 @@ export function evaluate(inp, size, sets) {
   if (code === "NEC") {
     const cont_mult = inp.hundred_percent_rated ? 1.0 : 1.25;
     const required_term = (cont_mult * inp.continuous_a + inp.noncontinuous_a) / sets;
+    const term_table = amp.tableInfo(code, term_install).table_name;
     checks.push(mkCheck("Terminal-column ampacity >= 125 % continuous + non-continuous",
       `${clauses.continuous}(a), ${clauses.terminal}`,
       a_term, pyRound(required_term, 1), "A", a_term >= required_term,
-      `${inp.terminal_temp_c} C column, no derating`));
+      `${term_table} ${inp.terminal_temp_c} C column, no derating`));
+    // NEC 240.4(D): the overcurrent device for 18-10 AWG may not exceed the listed rating.
+    // The device must be at least 125 % continuous + non-continuous (215.3; 100 % if listed),
+    // so that minimum rating is checked against the limit. Small sizes cannot be paralleled.
+    const limit = smallConductorLimitA(mat, size);
+    if (limit !== null) {
+      const ocpd_min = cont_mult * inp.continuous_a + inp.noncontinuous_a;
+      checks.push(mkCheck("Minimum OCPD rating <= small-conductor limit", "NEC 240.4(D) [data UNVERIFIED]",
+        pyRound(ocpd_min, 1), limit, "A", ocpd_min <= limit,
+        `${cond.sizeLabel(size)} ${mat}: max overcurrent device ${pyG(limit)} A`));
+    }
     checks.push(mkCheck("Derated ampacity >= load", `${clauses.continuous}(b)`,
       pyRound(derated, 1), pyRound(per_set_load, 1), "A", derated >= per_set_load,
       `${pyFixed(a_ins, 0)} A x ${pyFixed(f_amb, 3)} ambient x ${pyFixed(f_ccc, 2)} grouping`));
@@ -159,6 +196,20 @@ export function sizeFeeder(input) {
   if (!Object.prototype.hasOwnProperty.call(cond.MATERIALS, inp.material)) throw new Error("material must be 'Cu' or 'Al'");
   const load = loadA(inp);
   if (load <= 0) throw new Error("load current must be positive");
+  validate.voltage("voltage_v", inp.voltage_v);
+  validate.powerFactor("power_factor", inp.power_factor);
+  if (inp.fault_clearing_s !== null && inp.fault_clearing_s !== undefined) {
+    validate.clearingTime("fault_clearing_s", inp.fault_clearing_s);
+  }
+  if (inp.fault_ka !== null && inp.fault_ka !== undefined && inp.fault_ka <= 0) {
+    throw new Error(`fault_ka must be greater than 0 kA, got ${validate.reprValue(inp.fault_ka)}`);
+  }
+  if (!amp.INSTALLATIONS.includes(inp.installation)) {
+    throw new Error(`installation must be one of ${pyTuple(amp.INSTALLATIONS)}`);
+  }
+  if (inp.installation === "raceway" && !RACEWAYS.includes(inp.conduit)) {
+    throw new Error(`conduit must be one of ${pyTuple(RACEWAYS)}`);
+  }
   if (inp.voltage_v > 2000) {
     throw new Error("This module covers 0-2000 V conductors; medium-voltage tables are not loaded yet");
   }
@@ -185,11 +236,24 @@ export function sizeFeeder(input) {
 
   const notes = [`Ampacity table: ${inp.code} ${info.table_name} (${info.edition}) - data status ${status}.`];
   if (status !== "VERIFIED") notes.push(`WARNING: ${info.source}`);
-  notes.push("Overcurrent device selection and protection (NEC 240.4 / CEC 14-104) are not checked here.");
+  if (inp.code === "NEC") {
+    notes.push("NEC 240.4(D) small-conductor limits are checked against the minimum overcurrent device " +
+      "rating (data UNVERIFIED); the rest of 240.4 and device selection are not checked here.");
+    if (inp.installation === "free_air") {
+      notes.push("Terminations checked against Table 310.16 at the terminal temperature (NEC 110.14(C)); " +
+        "conductor ampacity from Table 310.17.");
+    }
+  } else {
+    notes.push("Overcurrent device selection and protection (CEC 14-104) are not checked here.");
+  }
   if (!options.length) notes.push("No conductor size passes every check within the allowed number of sets.");
+  const best = options.length ? options[0] : null;
+  if (best && inp.installation === "raceway" && DERIVED_SIZES.includes(best.size)) {
+    notes.push(`WARNING: reactance for ${best.size_label} in ${inp.conduit} conduit is not in NEC Table 9; ` +
+      `value used is ${DERIVED_META.status}. Method: ${DERIVED_META.method}`);
+  }
   let lugs = null;
-  if (options.length) {
-    const best = options[0];
+  if (best) {
     lugs = selectLugs(lugInput({
       code: inp.code, size: best.size, material: inp.material, sets_per_phase: best.sets,
       phases: inp.phases, circuit_current_a: load, equipment_terminal_temp_c: inp.terminal_temp_c,
