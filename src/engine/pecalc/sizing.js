@@ -92,10 +92,8 @@ export function smallConductorLimitA(material, size) {
  * [UNVERIFIED: K = 0.0297 Cu / 0.0125 Al with A in cmil, I in A] */
 function _shortCircuitCheck(inp, size, sets) {
   if (!(inp.fault_ka && inp.fault_clearing_s)) return null;
-  const [k, t0] = inp.material === "Cu" ? [0.0297, 234.0] : [0.0125, 228.0];
-  const area = cond.AREA_CMIL[size] * sets;
-  const withstand_a = area * Math.sqrt(
-    (k * Math.log10((inp.insulation_sc_limit_c + t0) / (inp.insulation_temp_c + t0))) / inp.fault_clearing_s);
+  const withstand_a = cond.adiabaticWithstandA(inp.material, cond.AREA_CMIL[size] * sets, inp.insulation_temp_c,
+    inp.insulation_sc_limit_c, inp.fault_clearing_s);
   return mkCheck("Short-circuit withstand (all sets)", "ICEA P-32-382", pyRound(withstand_a / 1000, 1),
     inp.fault_ka, "kA", withstand_a / 1000 >= inp.fault_ka,
     `${pyFloat(inp.fault_clearing_s)} s clearing, ${inp.insulation_temp_c}->${pyFloat(inp.insulation_sc_limit_c)} C`);

@@ -235,6 +235,20 @@ extras += [
          enclosure_height_mm=300.0, fault_ka=40.0),
     dict(DS, shield_bonding="none"),
 ]
+# pecalc #12: ICEA P-32-382 conductor short-circuit withstand (needs fault_ka and fault_clearing_s).
+extras += [
+    dict(LV, fault_ka=50.0, fault_clearing_s=0.5),                                  # 228.94 kA, pass
+    dict(LV, size="4/0", conductors_per_phase=1, current_a=300.0, fault_ka=20.0, fault_clearing_s=1.0),  # fail
+    dict(LV, material="Al", size="500", conductors_per_phase=4, tiers=2, fault_ka=65.0, fault_clearing_s=0.25,
+         insulation_temp_c=75, terminal_temp_c=75, insulation_sc_limit_c=150.0),
+    dict(LV, fault_ka=100.0, fault_clearing_s=0.033, x_over_r=25.0),
+    dict(LV, fault_ka=42.0),                                                        # no clearing time: skipped
+    dict(LV, fault_clearing_s=0.5),                                                 # no fault current: skipped
+    dict(LV, fault_ka=50.0, fault_clearing_s=0.0),                                  # error
+    dict(LV, fault_ka=50.0, fault_clearing_s=-0.1),                                 # error
+    dict(DS, shield_bonding="both_ends", fault_ka=40.0, fault_clearing_s=0.5),
+    dict(mvb, fault_ka=40.0, fault_clearing_s=2.0, material="Al", size="500", conductors_per_phase=2),
+]
 for e in extras:
     vectors.append(run_analyse(e))
 

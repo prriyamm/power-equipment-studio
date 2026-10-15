@@ -121,6 +121,16 @@ export function racOhmPerM(size, material, temp_c = 75.0, freq = 60.0, spacing_m
   return rdc * (1 + ys + yp);
 }
 
+/**
+ * ICEA P-32-382 adiabatic short-circuit withstand current, A.
+ * (I/A)^2 t = K log10((T2 + T0) / (T1 + T0)), so I = A sqrt(K log10((T2 + T0) / (T1 + T0)) / t), A in cmil, t in s.
+ * [UNVERIFIED: K = 0.0297 Cu / 0.0125 Al with A in cmil, I in A; T0 = 234 Cu / 228 Al]
+ */
+export function adiabaticWithstandA(material, area_cmil, initial_c, final_c, time_s) {
+  const [k, t0] = material === "Cu" ? [0.0297, 234.0] : [0.0125, 228.0];
+  return area_cmil * Math.sqrt((k * Math.log10((final_c + t0) / (initial_c + t0))) / time_s);
+}
+
 /** Geometric mean radius, approximated as 0.7788 r (solid-round value). */
 export function gmrMm(size) { return (0.7788 * diameterMm(size)) / 2; }
 

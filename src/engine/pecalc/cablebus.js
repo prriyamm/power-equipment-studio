@@ -88,6 +88,8 @@ const _DEFAULTS = {
   shield_mean_diameter_mm: null,
   shield_temp_c: 80.0,
   fault_ka: null,
+  fault_clearing_s: null,     // optional; enables the conductor short-circuit withstand check
+  insulation_sc_limit_c: 250.0, // XLPE/EPR; use 150 for thermoplastic
   x_over_r: 15.0,
   support_span_m: 0.9144,     // block / support spacing along the run (36 in)
   max_vd_pct: 3.0,
@@ -374,6 +376,9 @@ function _div(a, b) {
  */
 export function analyse(inp) {
   validate.voltage("voltage_v", inp.voltage_v);
+  if (inp.fault_clearing_s !== null && inp.fault_clearing_s !== undefined) {
+    validate.clearingTime("fault_clearing_s", inp.fault_clearing_s);
+  }
   const size = cond.normalizeSize(inp.size);
   inp.size = size;
   const cons = construction(inp);
@@ -554,6 +559,20 @@ export function analyse(inp) {
       `${pyFixed(fr.peak_current_ka, 1)} kA; worst conductor force ${pyFixed(f_nm, 0)} N/m ` +
       `(${pyFixed(f_lbf, 0)} lbf/ft); load on one support over a ${pyFixed(inp.support_span_m, 3)} m span ~ ` +
       `${pyFixed(support, 0)} lbf (static; compare with tested block strength).`);
+    if (inp.fault_clearing_s) {
+      // ICEA P-32-382 adiabatic withstand of all paralleled conductors of one phase (equal fault sharing).
+      const area = cond.AREA_CMIL[size] * inp.conductors_per_phase;
+      const withstand_ka = cond.adiabaticWithstandA(inp.material, area, inp.insulation_temp_c,
+        inp.insulation_sc_limit_c, inp.fault_clearing_s) / 1000;
+      check("Conductor short-circuit withstand", "ICEA P-32-382", withstand_ka, inp.fault_ka, "kA",
+        withstand_ka >= inp.fault_ka,
+        `${inp.conductors_per_phase} x ${cond.sizeLabel(size)} ${inp.material} per phase, ` +
+        `${pyFloat(inp.fault_clearing_s)} s clearing, ${inp.insulation_temp_c}->${pyFloat(inp.insulation_sc_limit_c)} C, ` +
+        "equal fault sharing among paralleled conductors assumed");
+    } else {
+      notes.push("Conductor short-circuit withstand not checked: give fault_clearing_s.");
+    }
+    notes.push("Not checked: shield short-circuit withstand; mutual heating between stacked tiers.");
   }
 
   if (with_shields) {
