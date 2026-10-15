@@ -261,3 +261,32 @@ test("drawing: SVG has 12 cables + 3 legend dots and the block material", () => 
   assert.equal(svg.split("<circle").length - 1 - 3, 12);
   assert.ok(svg.includes("GPO-3"));
 });
+
+test("drawing (Check tab path): one support block per tier and a tier-pitch dimension per tier gap", () => {
+  const blockRects = (svg) => svg.split("\n").filter((l) => l.startsWith("<rect") && l.includes("fill='#e9b9a1'") && l.includes("rx='3'"));
+  for (const tiers of [1, 2, 3]) {
+    // enclosure sized as the Check form's auto-size does (src/ui/cablebus.jsx toInput)
+    const base = { voltage_v: 600, current_a: 3000, conductors_per_phase: 6, tiers, size: "750" };
+    const r0 = cb.analyse(LVBUS(base)), od = r0.cable_od_mm, pitch = r0.pitch_mm;
+    const inp = LVBUS({ ...base, enclosure_width_mm: Math.ceil(((18 / tiers - 1) * pitch + od + 50) / 10) * 10,
+      enclosure_height_mm: Math.ceil(((tiers - 1) * pitch + od + 70) / 10) * 10 });
+    const res = cb.analyse(inp);
+    const plain = cablebusSvg(inp, res);
+    const svg = cablebusSvg(inp, res, { tier_dims: true }); // as CrossSection / report figure call it
+    const nTiers = new Set(res.conductors.map((c) => c.y_mm)).size;
+    assert.equal(nTiers, tiers);
+    assert.equal(blockRects(svg).length, tiers, `${tiers} tier(s): block rects`);
+    assert.equal(blockRects(plain).length, tiers);
+    assert.equal(svg.split("<circle").length - 1 - 3, 18);
+    const labels = [...svg.matchAll(/>(\d+) mm<\/text>/g)].map((m) => Number(m[1]));
+    assert.equal((svg.match(/>tier pitch</g) || []).length, tiers - 1, `${tiers} tier(s): tier pitch labels`);
+    assert.equal(labels.length, tiers - 1);
+    for (const v of labels) assert.equal(v, Math.round(res.tier_pitch_mm));
+    assert.ok(!plain.includes("tier pitch"));
+    if (tiers === 1) assert.equal(svg, plain, "single tier: opt-in adds nothing");
+    // each block is centred on its tier: block mid-height equals the cable centre line
+    const cys = [...new Set([...svg.matchAll(/<circle cx='[\d.]+' cy='([\d.]+)' r='[\d.]+' fill='#(?:d64545|2f6fd6|2e9d5b)' stroke/g)].map((m) => m[1]))].map(Number).sort((a, b) => a - b);
+    const mids = blockRects(svg).map((l) => { const y = Number(/ y='([\d.]+)'/.exec(l)[1]), h = Number(/ height='([\d.]+)'/.exec(l)[1]); return y + h / 2; }).sort((a, b) => a - b);
+    mids.forEach((m, k) => assert.ok(Math.abs(m - cys[k]) < 0.2, `block ${k} centred on tier`));
+  }
+});
