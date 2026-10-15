@@ -91,3 +91,45 @@ test("regression: finite utility + transformer LV fault by hand (IEC 60909 c_max
   assert.ok(Math.abs(expected - 50.128) < 0.01, `hand value ${expected}`);
   assert.ok(Math.abs(r.equipment.S.ik_ka - expected) < 1e-9 * expected, `${r.equipment.S.ik_ka} vs ${expected}`);
 });
+
+test("O10: NEC 110.14(C) terminal limit on LV connector ampacity", async () => {
+  const { connectorAmpacity } = await import("../src/engine/system.js");
+  const cab = { kind: "cable", size: "500", material: "Cu", sets: 1, insulation_c: 90 };
+  // 500 kcmil Cu 90 °C insulation: 430 A in the 90 °C column, limited to the 75 °C column (380 A) at LV
+  const a = connectorAmpacity(cab, 0.48);
+  assert.equal(a.insulation_a, 430);
+  assert.equal(a.terminal_c, 75);
+  assert.equal(a.per_set_a, 380);
+  // marked 90 °C terminals lift the limit; marked 60 °C lowers it
+  assert.equal(connectorAmpacity({ ...cab, terminal_c: 90 }, 0.48).per_set_a, 430);
+  assert.equal(connectorAmpacity({ ...cab, terminal_c: 60 }, 0.48).per_set_a, tableAmpacity("cable", "500", "Cu", 60));
+  // 14-1 AWG defaults to 60 °C terminals
+  const small = connectorAmpacity({ ...cab, size: "4" }, 0.48);
+  assert.equal(small.terminal_c, 60);
+  assert.equal(small.per_set_a, tableAmpacity("cable", "4", "Cu", 60));
+  // 75 °C insulation is already the lesser column
+  assert.equal(connectorAmpacity({ ...cab, insulation_c: 75 }, 0.48).per_set_a, 380);
+  // cable bus: same terminal rule, terminal column from the free-air table (as pecalc cablebus.js)
+  const cb = connectorAmpacity({ kind: "cablebus", size: "500", material: "Cu", sets: 1, insulation_c: 90 }, 0.48);
+  assert.equal(cb.per_set_a, tableAmpacity("cablebus", "500", "Cu", 75));
+  assert.ok(cb.per_set_a < tableAmpacity("cablebus", "500", "Cu", 90));
+  // MV (> 2 kV): unchanged, insulation column
+  assert.equal(connectorAmpacity(cab, 13.8).per_set_a, 430);
+  assert.equal(connectorAmpacity(cab, 13.8).terminal_c, null);
+  // a user ampacity override wins
+  assert.equal(connectorAmpacity({ ...cab, ampacity_a: 400 }, 0.48).per_set_a, 400);
+});
+
+test("O10: system loading uses the terminal-limited ampacity (500 kcmil Cu 90 °C, 2 sets = 760 A)", () => {
+  const sys = { base_mva: 10, equipment: [
+    { id: "U", type: "utility", kv: 13.8, mva_sc: 500, xr: 15 },
+    { id: "T", type: "transformer", kva: 1500, hv_kv: 13.8, lv_kv: 0.48, z_pct: 5.75, xr: 7 },
+    { id: "S", type: "switchgear", kv: 0.48 }, { id: "L", type: "load", kw: 400, pf: 0.9 }],
+    connectors: [{ id: "a", kind: "direct", from: "U.out", to: "T.hv" }, { id: "b", kind: "direct", from: "T.lv", to: "S.bus" },
+      { id: "F", kind: "cable", from: "S.bus", to: "L.in", size: "500", material: "Cu", sets: 2, length_ft: 100, insulation_c: 90 }] };
+  const r = analyseSystem(sys);
+  assert.ok(r.ok, r.message);
+  assert.equal(r.connectors.F.ampacity_a, 760);
+  assert.equal(r.connectors.F.terminal_c, 75);
+  assert.ok(Math.abs(r.connectors.F.loading_pct - (100 * r.connectors.F.i_a) / 760) < 1e-9);
+});

@@ -41,7 +41,16 @@ test("parse errors are clear", () => {
   b = base(); b.connectors[0].to = "garbage"; err(b, /EQUIPMENT-ID\.terminal/);
   b = base(); b.connectors[1].id = b.connectors[0].id; err(b, /Duplicate connector id/);
   b = base(); b.connectors[0].kind = "wire"; err(b, /Unknown connector kind "wire"/);
+  b = base(); b.connectors[0].terminal_c = 85; err(b, /"terminal_c" must be 60, 75, 90 or null/);
   b = base(); b.equipment[0].gx = "3"; err(b, /"gx" must be a number/);
   b = base(); b.equipment[0].mva_sc = "big"; err(b, /"mva_sc" must be a number/);
   b = base(); delete b.equipment; err(b, /"equipment" must be an array/);
+});
+
+test("terminal_c (NEC 110.14(C) terminal marking) round-trips and is omitted when unset", () => {
+  const sys = JSON.parse(JSON.stringify(EXAMPLE_SYSTEM));
+  sys.connectors.find((c) => c.kind === "cable").terminal_c = 90;
+  const back = parseSystem(serializeSystem(sys));
+  assert.equal(back.connectors.find((c) => c.kind === "cable").terminal_c, 90);
+  assert.ok(!serializeSystem(EXAMPLE_SYSTEM).includes("terminal_c"));
 });

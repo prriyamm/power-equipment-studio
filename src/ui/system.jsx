@@ -3,7 +3,7 @@
    with live load-flow and short-circuit results on every piece. */
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
 import {
-  analyseSystem, EQUIPMENT, CONNECTORS, NODE_KINDS, EXAMPLE_SYSTEM, CONDUCTOR_SIZES, tableAmpacity, AMPACITY_STATUS, motorKw,
+  analyseSystem, EQUIPMENT, CONNECTORS, NODE_KINDS, EXAMPLE_SYSTEM, CONDUCTOR_SIZES, tableAmpacity, connectorAmpacity, AMPACITY_STATUS, motorKw,
 } from "../engine/system.js";
 import { Btn, Pill, Section, Field, NumField, Tile, Icon, cx, fmt, clone } from "./common.jsx";
 import { bus } from "./bus.js";
@@ -578,7 +578,12 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc, dc
 
 function ConInspector({ c, r, update, remove, kvAt, goCableBus, goFeeder, dc, dcStale }) {
   const full = { ...CONNECTORS[c.kind].defaults, ...c };
-  const table = c.kind === "direct" ? null : tableAmpacity(c.kind, full.size, full.material, full.insulation_c);
+  // NEC 110.14(C): the allowable ampacity is the lesser of the insulation and terminal columns (LV only).
+  // The solved run knows its own bus kV; before a solve the from-end kV stands in.
+  const ca = c.kind === "direct" ? null : connectorAmpacity({ ...full, ampacity_a: undefined }, kvAt);
+  const termC = r && !r.open && c.ampacity_a == null ? r.terminal_c : ca?.terminal_c;
+  const table = ca == null || ca.insulation_a == null ? null
+    : termC != null ? Math.min(ca.insulation_a, tableAmpacity(c.kind, full.size, full.material, termC) ?? Infinity) : ca.insulation_a;
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-2">
@@ -594,8 +599,9 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus, goFeeder, dc, dc
           <Field label="Sets per phase"><NumField id="con-sets" value={c.sets} placeholder={String(full.sets)} onCommit={(v) => update(c.id, { sets: v })} /></Field>
           <Field label="Length" unit="ft"><NumField id="con-len" value={c.length_ft} placeholder={String(full.length_ft)} onCommit={(v) => update(c.id, { length_ft: v })} /></Field>
           <Field label="Conductor temp" unit="°C"><select id="con-temp" className="num-input" value={full.insulation_c} onChange={(ev) => update(c.id, { insulation_c: Number(ev.target.value) })}>{[60, 75, 90].map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
+          <Field label="Terminal rating" unit="°C" hint="NEC 110.14(C): equipment marking; default 60 °C ≤ 100 A or 14–1 AWG, else 75 °C. Not applied above 2 kV."><select id="con-term" className="num-input" value={full.terminal_c ?? ""} onChange={(ev) => update(c.id, { terminal_c: ev.target.value === "" ? undefined : Number(ev.target.value) })}><option value="">Code default</option>{[60, 75, 90].map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
           {c.kind === "cable" && <Field label="Raceway"><select id="con-race" className="num-input" value={full.raceway} onChange={(ev) => update(c.id, { raceway: ev.target.value })}><option value="steel">Steel conduit</option><option value="aluminum">Aluminum conduit</option><option value="pvc">PVC conduit</option></select></Field>}
-          <Field label="Ampacity / set" unit="A" hint={`Table ${c.kind === "cablebus" ? "310.17" : "310.16"}: ${table ?? "—"} A (${AMPACITY_STATUS})`}><NumField id="con-amp" value={c.ampacity_a} placeholder={table != null ? String(table) : "—"} onCommit={(v) => update(c.id, { ampacity_a: v })} /></Field>
+          <Field label="Ampacity / set" unit="A" hint={`Table ${c.kind === "cablebus" ? "310.17" : "310.16"}: ${table ?? "—"} A${termC != null ? ` (${full.insulation_c} °C insulation, ${termC} °C terminals)` : ""} (${AMPACITY_STATUS})`}><NumField id="con-amp" value={c.ampacity_a} placeholder={table != null ? String(table) : "—"} onCommit={(v) => update(c.id, { ampacity_a: v })} /></Field>
         </>}
       </div>
       {r && !r.open && (
