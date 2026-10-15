@@ -541,6 +541,7 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc, dc
         {EQ_FIELDS[e.type].map(([k, l, u]) => (
           <Field key={k} label={l} unit={u}><NumField id={`eq-${k}`} value={e[k]} placeholder={String(full[k])} onCommit={(v) => update(e.id, { [k]: v })} /></Field>
         ))}
+        {e.type === "utility" && <Field label="SC level basis" hint="IEC: S″kQ includes c (IEC 60909). ANSI: plain E/Z bolted value."><select id="eq-scbasis" className="num-input" value={full.sc_basis} onChange={(ev) => update(e.id, { sc_basis: ev.target.value })}><option value="IEC">IEC (S″kQ)</option><option value="ANSI">ANSI (E/Z)</option></select></Field>}
         {e.type === "motor" && <Field label="Fault contribution"><select id="eq-contrib" className="num-input" value={full.contributes ? "yes" : "no"} onChange={(ev) => update(e.id, { contributes: ev.target.value === "yes" })}><option value="yes">Included</option><option value="no">Excluded</option></select></Field>}
       </div>
       {r?.deenergized && <div className="notice notice-info">No supply reaches {e.id}. Close the feeder breaker or tie upstream to energize it.</div>}

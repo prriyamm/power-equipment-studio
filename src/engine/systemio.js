@@ -29,6 +29,7 @@ export function toProject(sys) {
 }
 export const serializeSystem = (sys) => JSON.stringify(toProject(sys), null, 2) + "\n";
 
+const SC_BASES = ["IEC", "ANSI"];
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 const STRUCTURAL = /Unknown equipment type|Duplicate equipment id|does not exist|has no terminal|connects a terminal to itself/;
 
@@ -55,6 +56,7 @@ export function parseSystem(text) {
       if (typeof full[k] !== typeof def) throw new Error(`${e.id}: "${k}" must be a ${typeof def}.`);
       if (typeof def === "number" && !isFinite(full[k])) throw new Error(`${e.id}: "${k}" must be a finite number.`);
     }
+    if (e.type === "utility" && !SC_BASES.includes(full.sc_basis)) throw new Error(`${e.id}: "sc_basis" must be one of ${SC_BASES.map((x) => `"${x}"`).join(", ")}.`);
     if (full.name === undefined) full.name = e.id;
     return full;
   });

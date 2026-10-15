@@ -45,3 +45,17 @@ test("parse errors are clear", () => {
   b = base(); b.equipment[0].mva_sc = "big"; err(b, /"mva_sc" must be a number/);
   b = base(); delete b.equipment; err(b, /"equipment" must be an array/);
 });
+
+test("utility sc_basis: default IEC is omitted on save, ANSI round-trips, other values are rejected", () => {
+  assert.equal(EQUIPMENT.utility.defaults.sc_basis, "IEC");
+  assert.equal(base().equipment.find((e) => e.type === "utility").sc_basis, undefined);
+  const sys = { ...EXAMPLE_SYSTEM, equipment: EXAMPLE_SYSTEM.equipment.map((e) => (e.type === "utility" ? { ...e, sc_basis: "ANSI" } : e)) };
+  const text = serializeSystem(sys);
+  assert.equal(JSON.parse(text).equipment.find((e) => e.type === "utility").sc_basis, "ANSI");
+  const back = parseSystem(text);
+  assert.equal(back.equipment.find((e) => e.type === "utility").sc_basis, "ANSI");
+  assert.equal(serializeSystem(back), text);
+  const b = base(); const u = b.equipment.find((e) => e.type === "utility");
+  u.sc_basis = "NEMA"; err(b, /"sc_basis" must be one of "IEC", "ANSI"/);
+  u.sc_basis = 1; err(b, /"sc_basis" must be a string/);
+});
