@@ -23,6 +23,7 @@ const strip = (obj, defaults, keep) => {
 export function toProject(sys) {
   return {
     format: FORMAT, version: VERSION, name: sys.name ?? "Untitled package", base_mva: sys.base_mva ?? 10,
+    ...(sys.code ? { code: sys.code } : {}),
     equipment: (sys.equipment || []).map((e) => strip(e, EQUIPMENT[e.type]?.defaults || {}, ["id", "type", "name", "gx", "gy"])),
     connectors: (sys.connectors || []).map((c) => strip(c, CONNECTORS[c.kind]?.defaults || {}, ["id", "kind", "from", "to"])),
   };
@@ -30,6 +31,7 @@ export function toProject(sys) {
 export const serializeSystem = (sys) => JSON.stringify(toProject(sys), null, 2) + "\n";
 
 const SC_BASES = ["IEC", "ANSI"];
+const CODES = ["NEC", "CEC"];          // project electrical code for the code compliance checks (absent = NEC)
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 const STRUCTURAL = /Unknown equipment type|Duplicate equipment id|does not exist|has no terminal|connects a terminal to itself/;
 
@@ -43,6 +45,7 @@ export function parseSystem(text) {
   if (d.name !== undefined && typeof d.name !== "string") throw new Error('"name" must be a string.');
   const base_mva = d.base_mva ?? 10;
   if (typeof base_mva !== "number" || !(base_mva > 0)) throw new Error('"base_mva" must be a positive number.');
+  if (d.code !== undefined && !CODES.includes(d.code)) throw new Error(`"code" must be one of ${CODES.map((x) => `"${x}"`).join(", ")}.`);
   if (!Array.isArray(d.equipment)) throw new Error('"equipment" must be an array.');
   if (!Array.isArray(d.connectors)) throw new Error('"connectors" must be an array.');
 
@@ -72,7 +75,7 @@ export function parseSystem(text) {
     if (full.terminal_c != null && ![60, 75, 90].includes(full.terminal_c)) throw new Error(`${c.id}: "terminal_c" must be 60, 75, 90 or null (code default).`);
     return full;
   });
-  const sys = { name: d.name ?? "Untitled package", base_mva, equipment, connectors };
+  const sys = { name: d.name ?? "Untitled package", base_mva, ...(d.code ? { code: d.code } : {}), equipment, connectors };
   const bad = compileSystem(sys).issues.find((x) => x.level === "error" && STRUCTURAL.test(x.msg));
   if (bad) throw new Error(bad.msg);
   return sys;

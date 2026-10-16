@@ -1,0 +1,127 @@
+{
+ "_meta": {
+  "source": "NFPA 70 (NEC) 2023 Table 450.3(A), Table 450.3(B), 240.87, 110.16(B); CSA C22.1 (CEC) Rules 26-250, 26-252, 26-254",
+  "status": "UNVERIFIED",
+  "note": "Every value below is UNVERIFIED. The free NFPA 70 viewer (link.nfpa.org free access) requires an NFPA account sign-in, which this build could not do, so no value was read in primary text. NEC values come from public secondary sources (cited per table) checked against the maintainer's recall; CEC values come from a trade column quoting the 2018 CEC, plus recall where marked. Check every value against NFPA 70-2023 and the CEC edition your jurisdiction adopted before setting any status to VERIFIED. Percentages are of the transformer rated current (kVA / (sqrt(3) x kV)).",
+  "research_notes": "research-standards 03-transformer-shortcircuit-protection.md, 04-lv-switchgear.md, 07-studies-sc-tcc-arcflash.md"
+ },
+ "nec_450_3_a": {
+  "_meta": {
+   "code": "NEC",
+   "edition": "NFPA 70-2023",
+   "clause": "NEC 450.3(A), Table 450.3(A) (transformers over 1000 V nominal)",
+   "status": "UNVERIFIED",
+   "confidence": "MED for the supervised primary-only row (300 % breaker / 250 % fuse) from ECM and eepower summaries; LOW (recall) for the impedance rows, the 6 % / 10 % breakpoints and the secondary columns.",
+   "source_url": "https://www.ecmweb.com/national-electrical-code/code-basics/article/20887357/article-450-transformers-and-transformer-vaults ; https://eepower.com/technical-articles/transformer-overcurrent-protection/",
+   "note": "2023 NEC moved the split between 450.3(A) and (B) from 600 V to 1000 V (recall; verify). Values are maximum rating or setting in percent of rated current. 'breaker' covers a circuit breaker or its relay pickup setting; 'fuse' a fuse rating. Table notes as modelled: Note 1 next higher standard rating or setting allowed; Note 2 up to six secondary devices grouped (sum of ratings) is not modelled; supervised location = conditions of maintenance and supervision ensure only qualified persons monitor and service the installation."
+  },
+  "voltage_threshold_v": 1000,
+  "any_location": [
+   { "z_max_pct": 6, "primary": { "breaker": 600, "fuse": 300 }, "secondary_over_1000v": { "breaker": 300, "fuse": 250 }, "secondary_1000v_or_less": { "breaker": 125, "fuse": 125 } },
+   { "z_max_pct": 10, "primary": { "breaker": 400, "fuse": 300 }, "secondary_over_1000v": { "breaker": 250, "fuse": 225 }, "secondary_1000v_or_less": { "breaker": 125, "fuse": 125 } }
+  ],
+  "supervised_primary_only": { "breaker": 300, "fuse": 250 },
+  "supervised": [
+   { "z_max_pct": 6, "primary": { "breaker": 600, "fuse": 300 }, "secondary_over_1000v": { "breaker": 300, "fuse": 250 }, "secondary_1000v_or_less": { "breaker": 250, "fuse": 250 } },
+   { "z_max_pct": 10, "primary": { "breaker": 400, "fuse": 300 }, "secondary_over_1000v": { "breaker": 250, "fuse": 225 }, "secondary_1000v_or_less": { "breaker": 250, "fuse": 250 } }
+  ],
+  "next_higher_standard_allowed": true
+ },
+ "nec_450_3_b": {
+  "_meta": {
+   "code": "NEC",
+   "edition": "NFPA 70-2023",
+   "clause": "NEC 450.3(B), Table 450.3(B) (transformers 1000 V nominal and less)",
+   "status": "UNVERIFIED",
+   "confidence": "MED for 125 % primary-only (9 A or more), 250 % primary / 125 % secondary and the next-higher-rating note (ECM, eepower); LOW (recall) for the 167 % and 300 % small-current rows.",
+   "source_url": "https://www.ecmweb.com/national-electrical-code/code-basics/article/20887357/article-450-transformers-and-transformer-vaults ; https://eepower.com/technical-articles/transformer-overcurrent-protection/",
+   "note": "Rows are chosen by the rated current of the winding. Note 1 (next higher standard rating per 240.6(A)) applies only to the 125 % rows at 9 A or more. Note 3 (coordinated thermal overload protection allows 6x / 4x primary) is not modelled. Primary-only protection does not protect the secondary conductors; see 240.21(C)."
+  },
+  "voltage_threshold_v": 1000,
+  "primary_only": [
+   { "min_a": 9, "pct": 125, "next_higher": true },
+   { "min_a": 2, "pct": 167, "next_higher": false },
+   { "min_a": 0, "pct": 300, "next_higher": false }
+  ],
+  "primary_and_secondary": {
+   "primary_pct": 250,
+   "secondary": [
+    { "min_a": 9, "pct": 125, "next_higher": true },
+    { "min_a": 0, "pct": 167, "next_higher": false }
+   ]
+  }
+ },
+ "cec_26_250": {
+  "_meta": {
+   "code": "CEC",
+   "edition": "CSA C22.1 (2018 text per source; confirm adopted edition)",
+   "clause": "CEC Rule 26-250 (transformer circuits over 750 V)",
+   "status": "UNVERIFIED",
+   "confidence": "MED (IAEI column quoting the 2018 CEC).",
+   "source_url": "https://iaeimagazine.org/columns/canadian/overcurrent-o-c-protection-and-conductor-sizing-for-the-dry-type-transformers/",
+   "note": "Primary overcurrent device rated or set at no more than 150 % (fuse) or 300 % (breaker) of rated primary current. A next-higher-rating allowance is not modelled for this rule."
+  },
+  "voltage_threshold_v": 750,
+  "primary": { "breaker": 300, "fuse": 150 }
+ },
+ "cec_26_252": {
+  "_meta": {
+   "code": "CEC",
+   "edition": "CSA C22.1",
+   "clause": "CEC Rule 26-252 (transformers over 750 V)",
+   "status": "UNVERIFIED",
+   "confidence": "NOT FOUND",
+   "source_url": "",
+   "note": "Secondary-side requirements for transformers over 750 V were not found in public sources. The tool does not evaluate the secondary device under CEC for transformers over 750 V; it reports that the check needs the code text."
+  }
+ },
+ "cec_26_254": {
+  "_meta": {
+   "code": "CEC",
+   "edition": "CSA C22.1 (2018 text per source; confirm adopted edition)",
+   "clause": "CEC Rule 26-254 (transformer circuits 750 V or less)",
+   "status": "UNVERIFIED",
+   "confidence": "MED for the 125 % primary limit (IAEI). LOW (recall) for the next-higher-rating allowance and for the 26-254(3) value (primary up to 300 % when the secondary device is at most 125 %); the IAEI column says only that 26-254(3) relaxes the 125 % limit.",
+   "source_url": "https://iaeimagazine.org/columns/canadian/overcurrent-o-c-protection-and-conductor-sizing-for-the-dry-type-transformers/ ; https://electricalindustry.ca/?p=61856",
+   "note": "Where the primary device exceeds 125 %, Rule 26-256(4) requires the connected conductors to be protected per Rules 14-100 and 14-104 (not modelled)."
+  },
+  "voltage_threshold_v": 750,
+  "primary_only_pct": 125,
+  "primary_only_next_higher": true,
+  "with_secondary": { "primary_pct": 300, "secondary_pct": 125 }
+ },
+ "nec_240_87": {
+  "_meta": {
+   "code": "NEC",
+   "edition": "NFPA 70-2023",
+   "clause": "NEC 240.87 (arc energy reduction)",
+   "status": "UNVERIFIED",
+   "confidence": "HIGH for the 1200 A threshold on the highest continuous trip setting (consistent vendor sources, research 04); MED for the method list (secondary sources and a forum post quoting the code); the instantaneous override item is from research 04 and recall.",
+   "source_url": "https://forums.mikeholt.com/threads/nec-240-87-instantaneous-trip.102837/post-1629316",
+   "note": "Applies where the highest continuous current trip setting for which the installed breaker is rated or can be adjusted is at or above the threshold. 240.87(A) documentation of the method and (C) performance testing of the method are reminders only."
+  },
+  "threshold_a": 1200,
+  "methods": [
+   { "key": "zsi", "label": "Zone-selective interlocking" },
+   { "key": "differential", "label": "Differential relaying" },
+   { "key": "ermsw", "label": "Energy-reducing maintenance switch with local status indicator" },
+   { "key": "active", "label": "Energy-reducing active arc-flash mitigation system" },
+   { "key": "inst", "label": "Instantaneous trip set below the available arcing current", "needs_arcing_current": true },
+   { "key": "override", "label": "Instantaneous override set below the available arcing current", "needs_arcing_current": true },
+   { "key": "equivalent", "label": "An approved equivalent means" }
+  ]
+ },
+ "nec_110_16_b": {
+  "_meta": {
+   "code": "NEC",
+   "edition": "NFPA 70-2023",
+   "clause": "NEC 110.16(B) (service equipment arc-flash label)",
+   "status": "UNVERIFIED",
+   "confidence": "MED-HIGH for the 1000 A threshold (EC&M, research 07; 1200 A in earlier editions). Label content conflict: the task brief lists nominal voltage, available fault current, clearing time and date; research 07 reports (MED) that 2023 replaced the prescriptive list with a label per acceptable industry practice plus the date. 2023 may also cover feeder-supplied equipment of 1000 A or more (MED); this tool checks service equipment only.",
+   "source_url": "https://www.ecmag.com/magazine/articles/article-detail/arc-flash-hazard-warning-and-labeling-what-the-2023-nec-has-to-say-on-these-requirements",
+   "note": "Other than dwelling units. The label must be permanent and meet 110.21(B)."
+  },
+  "threshold_a": 1000,
+  "label_fields": ["Nominal system voltage", "Available fault current at the service overcurrent device", "Clearing time of the service overcurrent device at that fault current", "Date the label was applied"]
+ }
+}
