@@ -17,6 +17,7 @@ import { ReportButton, reportFigures } from "./reportButton.jsx";
 import { PushToSystem } from "./systemPush.jsx";
 import { cableBusDesign } from "../engine/designPush.js";
 import { connectorTerminalC } from "../engine/system.js";
+import { SheathSection, sheathReport } from "./cablebusSheath.jsx";
 
 const CSS = `
 .cb-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
@@ -55,6 +56,7 @@ const EXAMPLE = {
   length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: 90, ampacity_method: "auto",
   cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15,
   enclosure_on: true, enc_w: 800, enc_h: 150, covers_continuous: false, max_vd_pct: 3,
+  shield_section_ft: undefined, shield_voltage_limit_v: undefined,
 };
 const DESIGN_EXAMPLE = {
   voltage_v: 15000, current_a: 2000, material: "Cu", length_ft: 200, ambient_c: 40, insulation: "EPR",
@@ -91,6 +93,10 @@ function toInput(f) {
   if (f.cable_od_mm) o.cable_od_mm = f.cable_od_mm;
   if (f.fault_ka) o.fault_ka = f.fault_ka;
   if (f.fault_clearing_s) o.fault_clearing_s = f.fault_clearing_s;
+  if (mv && f.shield_bonding !== "none") {
+    if (f.shield_section_ft) o.shield_section_length_m = f.shield_section_ft * FT;
+    if (f.shield_voltage_limit_v) o.shield_voltage_limit_v = f.shield_voltage_limit_v;
+  }
   if (mv || calc) {
     o.insulation = f.insulation; o.insulation_mm = f.insulation_mm ?? cond.insulationMm(f.size);
     o.shield_mm = f.shield_mm; o.jacket_mm = f.jacket_mm;
@@ -121,6 +127,7 @@ function cableBusReport(f, host) {
   const { inp, res } = solve(f);
   if (!res) return null;
   const i = res.input, info = tableInfo(i.code, "free_air");
+  const sr = sheathReport(res);
   return {
     title: "Cable bus check", module: "cablebus", subtitle: `${i.voltage_v} V, ${i.current_a} A, ${i.conductors_per_phase} x ${i.size} ${i.material} per phase`,
     inputs: kvRows(i, { voltage_v: "V", current_a: "A", length_m: "m", ambient_c: "C", fault_ka: "kA", fault_clearing_s: "s", max_vd_pct: "%", x_over_r: "" }),
@@ -129,13 +136,14 @@ function cableBusReport(f, host) {
       { label: "Voltage drop", value: res.vd_pct, unit: "%" }, { label: "Conductor loss", value: res.conductor_loss_w, unit: "W" },
       { label: "Shield loss", value: res.shield_loss_w, unit: "W" }, { label: "Enclosure loss", value: res.enclosure_loss_w, unit: "W" },
       { label: "Fault force", value: res.fault_force_lbf_per_ft, unit: "lbf/ft" }, { label: "Support load", value: res.support_load_lbf, unit: "lbf" },
+      ...sr.results,
     ],
     checks: checkRows(res.checks),
     tables: [{ title: "Conductor currents", columns: ["Phase", "Tier", "x (mm)", "Current (A)", "% of equal share", "Ampacity (A)", "Loading %"],
-      rows: res.conductors.map((c) => [c.phase, c.tier, c.x_mm, c.current_a, c.share_pct, c.ampacity_a, c.loading_pct]) }],
+      rows: res.conductors.map((c) => [c.phase, c.tier, c.x_mm, c.current_a, c.share_pct, c.ampacity_a, c.loading_pct]) }, ...sr.tables],
     figures: [...(i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res, { tier_dims: true }) }] : []), ...reportFigures(host)],
-    notes: res.notes,
-    dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
+    notes: [...res.notes, ...sr.notes],
+    dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }, ...sr.dataStatus],
   };
 }
 
@@ -398,6 +406,8 @@ function Results({ inp, res }) {
         <ChecksTable checks={res.checks} format={std} />
       </Section>
 
+      <SheathSection res={res} />
+
       <div className="cb-two">
         <Section title="Cross-section" aside={<span className="text-faint text-[12px]">to scale · pitch {fmt(res.pitch_mm, 0)} mm{res.input.tiers > 1 ? ` · tier pitch ${fmt(res.tier_pitch_mm, 0)} mm` : ""} · OD {fmt(res.cable_od_mm, 1)} mm</span>}>
           <CrossSection inp={inp} res={res} />
@@ -469,6 +479,8 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
             <div className="cb-wide">
               {pick("shield_bonding", "Shield bonding", [["none", "None stated"], ["single_point", "Single point"], ["both_ends", "Both ends (circulating current)"]])}
             </div>
+            {num("shield_section_ft", "Bonded section", "ft", { optional: true, ph: "whole run", disabled: !mv || f.shield_bonding === "none", hint: "single-point: grounded at one end of each section" })}
+            {num("shield_voltage_limit_v", "Standing-voltage limit", "V", { optional: true, ph: "set owner limit", disabled: !mv || f.shield_bonding === "none", hint: "utility / owner value; no verified public limit" })}
           </div>
         </Section>
         <Section title="Ampacity">

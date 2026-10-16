@@ -249,6 +249,33 @@ extras += [
     dict(DS, shield_bonding="both_ends", fault_ka=40.0, fault_clearing_s=0.5),
     dict(mvb, fault_ka=40.0, fault_clearing_s=2.0, material="Al", size="500", conductors_per_phase=2),
 ]
+# Shield standing voltage with single-point bonding and the bonding comparison (sheath). Flat ABC hand case:
+# 100 mm centres, shield mean radius 20 mm, 1000 A at unity pf -> outer shields 154.269 V/km, middle 121.349 V/km.
+SH = dict(voltage_v=15000.0, current_a=1000.0, power_factor=1.0, conductors_per_phase=1, pattern="ABC",
+          cable_od_mm=40.0, spacing_mm=100.0, cable_ampacity_a=1200.0, shield_mean_diameter_mm=40.0,
+          shield_area_mm2=16.0, length_m=100.0)
+extras += [
+    dict(SH, shield_bonding="single_point"),                                          # normal load only
+    dict(SH, shield_bonding="single_point", fault_ka=20.0),                           # with through-fault
+    dict(SH, shield_bonding="both_ends"),                                             # both-ends unchanged + sheath
+    dict(SH, shield_bonding="single_point", shield_voltage_limit_v=25.0),             # limit pass
+    dict(SH, shield_bonding="single_point", shield_voltage_limit_v=10.0),             # limit fail
+    dict(SH, shield_bonding="single_point", shield_section_length_m=30.0, fault_ka=20.0, shield_voltage_limit_v=10.0),
+    dict(SH, shield_bonding="both_ends", fault_ka=20.0, shield_voltage_limit_v=10.0),  # comparison only, no check
+    dict(SH, shield_bonding="single_point", frequency_hz=50.0, power_factor=0.85),
+    dict(SH, shield_bonding="single_point", shield_area_mm2=None),                    # both-ends not compared
+    dict(SH, shield_bonding="single_point", shield_mean_diameter_mm=None, shield_area_mm2=None),  # not computed
+    dict(SH, shield_bonding="none", shield_voltage_limit_v=25.0),
+    dict(SH, shield_bonding="single_point", shield_section_length_m=0.0),              # error
+    dict(SH, shield_bonding="single_point", shield_section_length_m=150.0),            # error
+    dict(SH, shield_bonding="single_point", shield_voltage_limit_v=-1.0),              # error
+    dict(mvb, shield_bonding="single_point", length_m=60.0, fault_ka=40.0, enclosure_width_mm=800.0,
+         enclosure_height_mm=150.0, shield_voltage_limit_v=25.0),                    # 15 kV 2000 A job
+    dict(mvb, shield_bonding="both_ends", length_m=200.0, fault_ka=40.0, shield_section_length_m=50.0),
+    dict(mvb, shield_bonding="single_point", conductors_per_phase=6, tiers=2, current_a=4000.0, length_m=150.0,
+         enclosure_width_mm=900.0, enclosure_height_mm=300.0, shield_voltage_limit_v=50.0),
+    dict(DS, shield_bonding="single_point", fault_ka=40.0, shield_voltage_limit_v=25.0),
+]
 for e in extras:
     vectors.append(run_analyse(e))
 

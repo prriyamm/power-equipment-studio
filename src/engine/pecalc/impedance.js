@@ -169,6 +169,27 @@ export function solveSharing(conductors, groups, freq = 60.0, soil_ohm_m = 100.0
   return { currents, group_drop_v_per_m, losses_w_per_m, conductors, groups };
 }
 
+/**
+ * Longitudinal voltage per metre induced on open-circuited probe conductors (V/m).
+ *
+ * A probe that carries no current (e.g. a shield bonded at one point only) sees
+ * E_p = sum_k z_pk I_k, where z_pk is the same Carson mutual impedance impedanceMatrix() uses for
+ * the sharing solve (concentric core/shield pairs use the shield's mean radius). The sign
+ * convention is the series drop; the induced EMF is -E_p, so magnitudes are identical.
+ */
+export function openCircuitVoltages(sources, currents, probes, freq = 60.0, soil_ohm_m = 100.0) {
+  const z = impedanceMatrix([...sources, ...probes], freq, soil_ohm_m);
+  const n = sources.length;
+  return probes.map((_, p) => {
+    let acc = { re: 0, im: 0 };
+    for (let k = 0; k < n; k++) {
+      const t = cmul(z[n + p][k], toC(currents[k]));
+      acc = { re: acc.re + t.re, im: acc.im + t.im };
+    }
+    return acc;
+  });
+}
+
 /** Three balanced phase groups; names default to A, B, C. Returns an object of groups. */
 export function balancedThreePhase(i_rms, pf = 1.0, lagging = true, names = ["A", "B", "C"]) {
   validate.powerFactor("power_factor", pf);

@@ -311,3 +311,43 @@ test("drawing (Check tab path): one support block per tier and a tier-pitch dime
     mids.forEach((m, k) => assert.ok(Math.abs(m - cys[k]) < 0.2, `block ${k} centred on tier`));
   }
 });
+
+// Shield standing voltage with single-point bonding (port of calculations/tests/test_sheath.py).
+// Flat ABC, 100 mm centres, shield mean radius 20 mm, 1000 A at unity pf, 60 Hz, 100 m.
+// |E_B| = w 2e-7 I ln(s/r) = 7.539822e-5 x 1000 x ln 5 = 0.121349 V/m;
+// |E_A| = 7.539822e-5 x |I_B ln(r/s) + I_C ln(r/2s)| = 7.539822e-5 x 2046.050 = 0.154269 V/m.
+const SH = { voltage_v: 15000.0, current_a: 1000.0, power_factor: 1.0, conductors_per_phase: 1, pattern: "ABC",
+  cable_od_mm: 40.0, spacing_mm: 100.0, cable_ampacity_a: 1200.0, shield_mean_diameter_mm: 40.0,
+  shield_area_mm2: 16.0, length_m: 100.0 };
+const runSh = (o) => cb.analyse(cb.cableBusInput({ ...SH, ...o }));
+
+test("sheath: flat hand check, fault scaling, sections and limit", () => {
+  const sh = runSh({ shield_bonding: "single_point" }).sheath;
+  const e = Object.fromEntries(sh.shields.map((s) => [s.label, s.e_v_per_km]));
+  assert.ok(Math.abs(e["S-A00"] - 154.269) < 0.002 && Math.abs(e["S-C02"] - 154.269) < 0.002);
+  assert.ok(Math.abs(e["S-B01"] - 121.349) < 0.002);
+  assert.equal(sh.standing_v, 15.43);
+  assert.equal(sh.worst_shield, "S-A00");
+  assert.equal(sh.passed, null);
+  assert.equal(runSh({ shield_bonding: "single_point", fault_ka: 20.0 }).sheath.standing_v_fault, 308.54);
+  const sec = runSh({ shield_bonding: "single_point", shield_section_length_m: 25.0 }).sheath;
+  assert.equal(sec.standing_v, 3.86);
+  assert.equal(sec.sections, 4);
+  const fail = runSh({ shield_bonding: "single_point", shield_voltage_limit_v: 10.0 });
+  assert.equal(fail.sheath.passed, false);
+  assert.equal(fail.passed, false);
+  assert.equal(fail.sheath.max_section_m_for_limit, 64.8);
+  assert.throws(() => runSh({ shield_bonding: "single_point", shield_section_length_m: 150.0 }), /no longer than/);
+});
+
+test("sheath: both-ends results unchanged apart from the sheath field", () => {
+  const o = { shield_bonding: "both_ends", fault_ka: 20.0 };
+  const full = runSh(o);
+  const bare = cb.analyse(cb.cableBusInput({ ...SH, ...o }), false);
+  const strip = (r) => { const { sheath, ...rest } = r; return rest; };
+  assert.deepEqual(strip(full), strip(bare));
+  assert.equal(full.sheath.modes.both_ends.shield_loss_w, full.shield_loss_w);
+  assert.equal(full.sheath.standing_v, 15.43);
+  assert.ok(!full.checks.some((c) => /standing voltage/.test(c.name)));
+  assert.equal(runSh({ shield_bonding: "none" }).sheath, null);
+});
