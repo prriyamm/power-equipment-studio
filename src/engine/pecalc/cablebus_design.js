@@ -140,7 +140,7 @@ export function designOptions(req) {
         considered += 1;
         const inp = { ...base, field_distances_m: [...base.field_distances_m], conductors_per_phase: n, tiers,
           cable_od_mm: od, enclosure_width_mm: fit[0] * INCH, enclosure_height_mm: fit[1] * INCH };
-        const r = analyse(inp);
+        const r = analyse(inp, false);
         const case_inputs = { ...inp, field_distances_m: [...inp.field_distances_m] }; // asdict(inp), after analyse
         const failed = r.checks.filter((c) => !c.passed).map((c) => c.name);
         if (r.max_loading_pct > req.max_loading_pct) failed.push(`Loading above ${pyG(req.max_loading_pct)} %`);
@@ -182,7 +182,7 @@ export function designOptions(req) {
       ? BLOCK_MATERIALS[req.block_material] : null;
     const allow = mat ? mat.tensile / req.block_safety_factor : null;
     for (const c of ranked) {
-      const r = analyse(cableBusInput({ ...c.case_inputs, fault_ka: req.fault_ka }));
+      const r = analyse(cableBusInput({ ...c.case_inputs, fault_ka: req.fault_ka }), false);
       const load = r.fault_force_n_per_m * req.support_span_m; // N on one block at the worst cable
       const ligament = Math.min(r.pitch_mm - r.cable_od_mm, r.cable_od_mm);
       const stress = load / (req.block_thickness_mm * ligament); // N/mm2 = MPa

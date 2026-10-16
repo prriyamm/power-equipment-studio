@@ -14,7 +14,8 @@ import * as amp from "./ampacity.js";
 import * as cond from "./conductors.js";
 import { LIMITS_UT, bRmsUt } from "./field.js";
 import { faultForces } from "./forces.js";
-import { conductor, balancedThreePhase, group, solveSharing, sharePct, groupLossWPerM } from "./impedance.js";
+import { conductor, balancedThreePhase, group, solveSharing, sharePct, groupLossWPerM, openCircuitVoltages }
+  from "./impedance.js";
 import { cableConstruction, freeAirAmpacity, ampacitySummary } from "./thermal.js";
 import { pyRound, pyFixed, pyRepr, lookup, cabs, cdiv, cpolar, csub, cscale } from "./util.js";
 import * as validate from "./validate.js";
@@ -87,6 +88,12 @@ const _DEFAULTS = {
   shield_area_mm2: null,
   shield_mean_diameter_mm: null,
   shield_temp_c: 80.0,
+  // Single-point bonding: length of one bonded (minor) section; the shield is grounded at one end of
+  // each section and the standing voltage builds up to the open end. null = the whole run.
+  shield_section_length_m: null,
+  // Owner / utility limit for the open-end standing voltage at normal load. No verified public value
+  // exists (IEEE 575 practice ~25 V is a LOW-confidence secondary figure), so there is no default.
+  shield_voltage_limit_v: null,
   fault_ka: null,
   fault_clearing_s: null,     // optional; enables the conductor short-circuit withstand check
   insulation_sc_limit_c: 250.0, // XLPE/EPR; use 150 for thermoplastic
@@ -363,6 +370,160 @@ export function phaseVoltageDrops(res, voltage_v, power_factor, length_m, laggin
   return out;
 }
 
+// --- shield standing voltage and bonding comparison --------------------------
+
+export const SHEATH_LIMIT_NOTE = "No verified public limit is loaded: a secondary source attributes ~25 V at normal load to " +
+  "IEEE 575 practice (LOW confidence, clause not found), so it is not used as a default. Set the " +
+  "utility / owner limit (shield_voltage_limit_v) to get a pass/fail.";
+const _SP_KEYS = ["e_v_per_km", "standing_v", "standing_v_fault", "worst_shield", "max_section_m_for_limit", "passed",
+  "shields"];
+
+/**
+ * Induced voltage per metre on each open (single-point bonded) phase-cable shield.
+ *
+ * One current-free probe per phase conductor, concentric with it at the shield mean
+ * radius. E_i = sum_k z(shield_i, k) I_k over every current-carrying conductor (cores
+ * and, if modelled, enclosure filaments), using the impedance module's Carson mutual
+ * impedances (openCircuitVoltages). Returns [[core index, E in V/m (complex)]].
+ */
+export function shieldStandingVoltages(cs, currents, shield_radius_mm, freq) {
+  const cores = [];
+  cs.forEach((c, i) => { if (PHASES.includes(c.group)) cores.push(i); });
+  const probes = cores.map((i) => conductor({ x_mm: cs[i].x_mm, y_mm: cs[i].y_mm, group: "SHIELD", r_ohm_per_m: 0.0,
+    gmr_mm: shield_radius_mm, label: `S-${cs[i].label}`, tube_radius_mm: shield_radius_mm }));
+  const e = openCircuitVoltages(cs, currents, probes, freq);
+  return cores.map((i, k) => [i, e[k]]);
+}
+
+function _shieldRadiusMm(inp, cons) {
+  const d = inp.shield_mean_diameter_mm || (cons !== null && cons.shield_mm ? cons.shield_mean_diameter_mm : null);
+  return d ? d / 2 : null;
+}
+
+/** Open-end standing voltage over one bonded section: normal load and balanced through-fault. */
+function _standing(inp, cs, res, radius, section_m) {
+  const k_fault = inp.fault_ka ? (inp.fault_ka * 1000) / inp.current_a : null;
+  const shields = [], mags = [];
+  for (const [i, e] of shieldStandingVoltages(cs, res.currents, radius, inp.frequency_hz)) {
+    const m = cabs(e);
+    const v = m * section_m;
+    mags.push(m);
+    shields.push({ label: `S-${cs[i].label}`, phase: cs[i].group, x_mm: pyRound(cs[i].x_mm, 1),
+      y_mm: pyRound(cs[i].y_mm, 1), e_v_per_km: pyRound(m * 1000, 3), standing_v: pyRound(v, 2),
+      standing_v_fault: k_fault === null ? null : pyRound(v * k_fault, 2) });
+  }
+  const e_max = Math.max(...mags);
+  // First shield within 1e-9 of the maximum, so mirror-image ties resolve the same way in every port.
+  const worst = shields[mags.findIndex((m) => m >= e_max * (1 - 1e-9))];
+  const v_max = e_max * section_m;
+  const lim = inp.shield_voltage_limit_v;
+  const noLim = lim === null || lim === undefined;
+  return {
+    e_v_per_km: pyRound(e_max * 1000, 3), standing_v: pyRound(v_max, 2),
+    standing_v_fault: k_fault === null ? null : pyRound(v_max * k_fault, 2),
+    worst_shield: worst.label,
+    max_section_m_for_limit: noLim ? null : pyRound(lim / e_max, 1),
+    passed: noLim ? null : v_max <= lim, shields,
+  };
+}
+
+function _modeSummary(rows, shield_i, shield_loss, lam_max, sp) {
+  return {
+    shield_current_a: pyRound(shield_i, 1), shield_loss_w: pyRound(shield_loss, 1),
+    max_lambda1: pyRound(lam_max, 4), min_ampacity_a: Math.min(...rows.map((r) => r.ampacity_a)),
+    max_loading_pct: Math.max(...rows.map((r) => r.loading_pct)),
+    standing_v: sp ? sp.standing_v : null, standing_v_fault: sp ? sp.standing_v_fault : null,
+  };
+}
+
+function _recommendation(sh, inp) {
+  const sp = sh.modes.single_point, be = sh.modes.both_ends;
+  if (sh.standing_v === null) {
+    return "Single-point standing voltage not computed (give the shield mean diameter or the cable " +
+      "construction with a shield thickness). Cross-bonding is not modelled.";
+  }
+  let txt = `Single-point bonding: ${pyFixed(sh.standing_v, 1)} V at the open end of a ${pyG(sh.section_length_m)} m ` +
+    "bonded section at normal load";
+  if (sh.standing_v_fault !== null) {
+    txt += ` (${pyFixed(sh.standing_v_fault, 0)} V during a ${pyG(inp.fault_ka)} kA balanced through-fault)`;
+  }
+  txt += ", no circulating loss.";
+  if (be) {
+    txt += ` Both-ends bonding: ${pyFixed(be.shield_current_a, 0)} A circulating, ` +
+      `${pyFixed(be.shield_loss_w / 1000, 2)} kW shield loss, worst lambda1 ${pyFixed(be.max_lambda1, 3)}, ` +
+      `lowest cable ampacity ${pyFixed(sp.min_ampacity_a, 0)} -> ${pyFixed(be.min_ampacity_a, 0)} A, ` +
+      `worst loading ${pyFixed(sp.max_loading_pct, 1)} -> ${pyFixed(be.max_loading_pct, 1)} %.`;
+  }
+  const lim = sh.voltage_limit_v;
+  if (lim === null || lim === undefined) {
+    txt += " Set your utility / owner standing-voltage limit to get a pass/fail and a recommendation.";
+  } else if (sh.passed) {
+    txt += ` Within the ${pyG(lim)} V limit, so single-point bonding is favoured (no circulating loss or ampacity ` +
+      "derating); confirm the jacket and sheath voltage limiter (SVL) ratings against the fault voltage.";
+  } else {
+    txt += ` Exceeds the ${pyG(lim)} V limit: shorten the bonded section to <= ${pyG(sh.max_section_m_for_limit)} m ` +
+      "(minor sections or mid-point bonding), or accept both-ends bonding with its loss and derating, " +
+      "or use cross-bonding.";
+  }
+  return txt + " Cross-bonding is not modelled.";
+}
+
+/**
+ * Shield standing voltage (single-point bonding) and comparison with both-ends bonding.
+ *
+ * Standing voltage: each shield open at one end of a bonded section,
+ * E_i = |sum_k z(shield_i, k) I_k| (V/m) with the impedance module's mutual impedances,
+ * V = E x section length. Through-fault: currents scaled by fault_ka / current_a
+ * (balanced three-phase fault shared like load current). With compareBonding the other
+ * bonding mode is solved for the same phase pattern.
+ */
+export function sheathStudy(inp, cons, cs, res, pattern, rows, shield_i, shield_loss, lam_max, compareBonding) {
+  const section = inp.shield_section_length_m || inp.length_m;
+  const mode = inp.shield_bonding;
+  const other = mode === "single_point" ? "both_ends" : "single_point";
+  const notes = [];
+  let alt = null;
+  if (compareBonding) {
+    try {
+      alt = analyse({ ...inp, shield_bonding: other, pattern, field_distances_m: [...inp.field_distances_m] }, false);
+    } catch (e) {
+      if (e instanceof TypeError || e instanceof RangeError) throw e;
+      notes.push(`${other.replace("_", "-")} bonding not compared: ${e.message}`);
+    }
+  }
+  let sp = null;
+  if (mode === "single_point") {
+    const radius = _shieldRadiusMm(inp, cons);
+    if (radius) {
+      sp = _standing(inp, cs, res, radius, section);
+    } else {
+      notes.push("Standing voltage needs the shield mean diameter (shield_mean_diameter_mm) or the cable " +
+        "construction with a shield thickness.");
+    }
+  } else if (alt !== null && alt.sheath.standing_v !== null) {
+    sp = {};
+    for (const k of _SP_KEYS) sp[k] = alt.sheath[k];
+  }
+  const modes = { single_point: null, both_ends: null };
+  modes[mode] = _modeSummary(rows, shield_i, shield_loss, lam_max, mode === "single_point" ? sp : null);
+  if (alt !== null) modes[other] = alt.sheath.modes[other];
+  const lim = inp.shield_voltage_limit_v;
+  const sh = {
+    bonding: mode, section_length_m: section, sections: Math.ceil(inp.length_m / section - 1e-9),
+    voltage_limit_v: lim, fault_ka: inp.fault_ka,
+  };
+  for (const k of _SP_KEYS) sh[k] = sp ? sp[k] : (k === "shields" ? [] : null);
+  sh.modes = modes;
+  if (lim === null || lim === undefined) notes.push(SHEATH_LIMIT_NOTE);
+  notes.push("Through-fault voltage assumes a balanced three-phase fault shared like load current; a " +
+    "single-line-to-ground fault (earth / shield return) can give much higher shield voltages and is " +
+    "not modelled. Compare the fault value with the jacket and sheath voltage limiter (SVL) ratings.");
+  notes.push("Cross-bonding (three equal minor sections with transpositions) is not modelled.");
+  sh.recommendation = _recommendation(sh, inp);
+  sh.notes = notes;
+  return sh;
+}
+
 // --- main -------------------------------------------------------------------
 
 function _div(a, b) {
@@ -372,10 +533,18 @@ function _div(a, b) {
 
 /**
  * Analyse a cable bus. inp comes from cableBusInput(); like the Python it normalises inp.size and may
- * fill in the shield geometry on it. Returns the CableBusResult fields plus `passed`.
+ * fill in the shield geometry on it. Returns the CableBusResult fields plus `passed`. With shielded cable,
+ * compareBonding also solves the other bonding mode (single-point vs both-ends) for the sheath comparison;
+ * the designer turns it off for speed.
  */
-export function analyse(inp) {
+export function analyse(inp, compareBonding = true) {
   validate.voltage("voltage_v", inp.voltage_v);
+  const sec = inp.shield_section_length_m;
+  if (sec !== null && sec !== undefined && !(0 < sec && sec <= inp.length_m)) {
+    throw new Error("shield_section_length_m must be > 0 and no longer than length_m");
+  }
+  const vlim = inp.shield_voltage_limit_v;
+  if (vlim !== null && vlim !== undefined && !(vlim > 0)) throw new Error("shield_voltage_limit_v must be > 0");
   if (inp.fault_clearing_s !== null && inp.fault_clearing_s !== undefined) {
     validate.clearingTime("fault_clearing_s", inp.fault_clearing_s);
   }
@@ -623,6 +792,19 @@ export function analyse(inp) {
       `${worst_b > LIMITS_UT["ICNIRP 1998 public"] ? " - EXCEEDS public level" : ""}.`);
   }
 
+  let sheath = null;
+  if (inp.shield_bonding === "single_point" || inp.shield_bonding === "both_ends") {
+    const lam_max = Math.max(...rows.map((r) => shieldLambda1(r.index)));
+    sheath = sheathStudy(inp, cons, cs, res, pattern, rows, shield_i, shield_loss, lam_max, compareBonding);
+    if (inp.shield_bonding === "single_point" && vlim !== null && vlim !== undefined && sheath.standing_v !== null) {
+      check("Shield standing voltage at open end (single-point bonding, normal load)",
+        "Owner / utility limit (IEEE 575 practice) [user-set limit, UNVERIFIED]",
+        sheath.standing_v, vlim, "V", sheath.passed,
+        `${sheath.worst_shield}: ${pyFixed(sheath.e_v_per_km, 1)} V/km x ${pyG(sheath.section_length_m)} m ` +
+        "bonded section");
+    }
+  }
+
   const width = Math.max(...rows.map((r) => r.x_mm)) + od;
   const height = Math.max(...rows.map((r) => r.y_mm)) + od;
   return {
@@ -637,6 +819,7 @@ export function analyse(inp) {
     support_load_lbf: support === null ? null : pyRound(support, 1),
     checks, notes, cable_od_mm: pyRound(od, 2), pitch_mm: pyRound(pitch, 2),
     tier_pitch_mm: pyRound(inp.tier_spacing_mm || pitch, 2),
+    sheath,
     passed: checks.every((c) => c.passed),
   };
 }
