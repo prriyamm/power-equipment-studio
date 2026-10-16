@@ -3,15 +3,13 @@
    Engine: src/engine/pecalc/cablebus.js, cablebus_design.js, drawing.js (ports of pecalc). */
 const { useState, useMemo, useEffect, useRef } = React;
 import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkMeter, checkStatus } from "./common.jsx";
-import { Chart, Bars, RefLine, Heatmap, PHASE_VAR } from "./charts/index.js";
+import { Chart, Bars, RefLine, PHASE_VAR } from "./charts/index.js";
 import { bus } from "./bus.js";
 import * as cond from "../engine/pecalc/conductors.js";
-import { analyse, cableBusInput, cableBusGroups, buildLayout, construction } from "../engine/pecalc/cablebus.js";
+import { analyse, cableBusInput, construction } from "../engine/pecalc/cablebus.js";
 import { designOptions, designRequest, designOptionLabel, BLOCK_MATERIALS } from "../engine/pecalc/cablebus_design.js";
 import { CableBus3D } from "./cablebus3d.jsx";
 import { cablebusSvg } from "../engine/pecalc/drawing.js";
-import { solveSharing } from "../engine/pecalc/impedance.js";
-import { bRmsUt, LIMITS_UT } from "../engine/pecalc/field.js";
 import { kvRows, checkRows } from "../engine/report.js";
 import { tableInfo } from "../engine/pecalc/ampacity.js";
 import { ReportButton, reportFigures } from "./reportButton.jsx";
@@ -19,6 +17,8 @@ import { PushToSystem } from "./systemPush.jsx";
 import { cableBusDesign } from "../engine/designPush.js";
 import { connectorTerminalC } from "../engine/system.js";
 import { SheathSection, sheathReport } from "./cablebusSheath.jsx";
+import { FieldMap } from "./cablebusField.jsx";
+import { tierCompat, fittingTiers, TIER_CHOICES, COUNT_CHOICES } from "./cablebusUtil.js";
 import { SimulateTab, SIM_STATE, simReport } from "./cablebusSim.jsx";
 
 const CSS = `
@@ -40,6 +40,9 @@ const CSS = `
 .cb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .cb-chip { font-family: var(--font-data); font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
 .cb-chip.is-on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 500; }
+.cb-tierwarn { font-size: 12px; color: var(--st-warn); border: 1px solid color-mix(in srgb, var(--st-warn) 45%, var(--line)); border-radius: 6px; padding: 7px 9px; background: color-mix(in srgb, var(--st-warn) 8%, transparent); }
+.cb-tierfix { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cb-tierfix .cb-chip { color: var(--fg); cursor: pointer; }
 .cb-from { display: inline-flex; align-items: center; gap: 4px; }
 .cb-from button { color: inherit; padding: 0 2px; }
 .cb-opt-row { cursor: pointer; }
@@ -63,7 +66,7 @@ const EXAMPLE = {
 const DESIGN_EXAMPLE = {
   voltage_v: 15000, current_a: 2000, material: "Cu", length_ft: 200, ambient_c: 40, insulation: "EPR",
   insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, fault_ka: 40, x_over_r: 15, max_loading_pct: 95,
-  sizes: ["500", "750", "1000"], tiers: [1, 2, 3], block_material: "GPO-3", ampacity_method: "auto",
+  sizes: ["500", "750", "1000"], tiers: [1, 2, 3, 4], block_material: "GPO-3", ampacity_method: "auto",
 };
 const FT = 0.3048;
 const SIZE_CHOICES = cond.SIZES.slice(cond.SIZES.indexOf("1/0"));
@@ -116,6 +119,8 @@ function toInput(f) {
 
 function solve(f) {
   try {
+    const tc = tierCompat(f.conductors_per_phase, f.tiers);
+    if (!tc.ok) throw new Error(tc.message);
     const inp = cableBusInput(toInput(f));
     const res = analyse(inp);
     return { inp, res };
@@ -183,71 +188,6 @@ function CrossSection({ inp, res }) {
     return s;
   }, [inp, res]);
   return <div className="cb-svgbox cb-svg cb-xs" dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-/* ------------------------------------------------------------ magnetic field map */
-/* Binned scale: sequential blues below the ICNIRP 1998 public reference level, status colours above it. */
-const LIM_UT = LIMITS_UT["ICNIRP 1998 public"];
-const FIELD_STEPS = [
-  { max: 1, color: "#0f2336", label: "< 1" },
-  { max: 3, color: "#174a78", label: "1–3" },
-  { max: 10, color: "#256abf", label: "3–10" },
-  { max: 30, color: "#5598e7", label: "10–30" },
-  { max: LIM_UT, color: "#b7d3f6", label: `30–${LIM_UT}` },
-  { max: 200, color: "#ff8b4a", label: `${LIM_UT}–200` },
-  { max: Infinity, color: "#ff5f5f", label: "> 200" },
-];
-const stepOf = (b) => FIELD_STEPS.find((s) => b < s.max);
-const fieldColor = (b) => stepOf(b).color;
-const FIELD_LEGEND = { steps: FIELD_STEPS, unit: "µT" };
-
-function FieldMap({ inp: liveInp, res: liveRes }) {
-  // the grid solve is heavy: defer it so typing in the inputs stays responsive (React renders the
-  // urgent update first, then this map with the latest values)
-  const inp = React.useDeferredValue(liveInp), res = React.useDeferredValue(liveRes);
-  const data = useMemo(() => {
-    const od = res.cable_od_mm;
-    const cs = buildLayout(inp, res.pattern, od);
-    const sol = solveSharing(cs, cableBusGroups(inp, inp.shield_bonding === "both_ends"), inp.frequency_hz);
-    const xs = res.conductors.map((c) => c.x_mm), ys = res.conductors.map((c) => c.y_mm);
-    const xc = (Math.min(...xs) + Math.max(...xs)) / 2, yc = (Math.min(...ys) + Math.max(...ys)) / 2;
-    const encW = inp.enclosure_width_mm || Math.max(...xs) - Math.min(...xs) + 2 * od;
-    const encH = inp.enclosure_height_mm || Math.max(...ys) - Math.min(...ys) + 2 * od;
-    const halfW = encW / 2 + 1500, halfH = encH / 2 + 1000;
-    const nx = 64, cell = (2 * halfW) / nx, ny = Math.ceil((2 * halfH) / cell);
-    const cells = [];
-    let peak = 0;
-    for (let j = 0; j < ny; j++) {
-      for (let i = 0; i < nx; i++) {
-        const x = xc - halfW + (i + 0.5) * cell, y = yc + halfH - (j + 0.5) * cell;
-        const b = bRmsUt(cs, sol.currents, x, y);
-        cells.push([i, j, b]);
-        const outside = Math.abs(x - xc) > encW / 2 + 40 || Math.abs(y - yc) > encH / 2 + 40;
-        if (outside && b > peak) peak = b;
-      }
-    }
-    return { cells, nx, ny, cell, xc, yc, halfW, halfH, encW, encH, od, peak, rows: res.conductors };
-  }, [inp, res]);
-  const { cells, nx, ny, cell, xc, yc, halfW, halfH, encW, encH, od, rows } = data;
-  const values = useMemo(() => cells.map((c) => c[2]), [cells]);
-  const X = (x) => x - (xc - halfW), Y = (y) => yc + halfH - y;
-  const Wd = 2 * halfW, Ht = ny * cell;
-  const readout = (i, j, b) => `x ${fmt((-halfW + (i + 0.5) * cell) / 1000, 2)} m, y ${fmt((halfH - (j + 0.5) * cell) / 1000, 2)} m: ${fmt(b, b < 10 ? 2 : 1)} µT`;
-  return (
-    <div>
-      <Heatmap nx={nx} ny={ny} values={values} color={fieldColor} legend={FIELD_LEGEND}
-        ariaLabel="Magnetic flux density around the enclosure" reportTitle="Magnetic field around the enclosure" readout={readout}
-        overlay={{ viewBox: `0 0 ${Wd} ${Ht}`, children: (k) => (<>
-          <rect x={X(xc - encW / 2)} y={Y(yc + encH / 2)} width={encW} height={encH} fill="none" stroke="#c3ced7" strokeWidth={1.5 / k} strokeDasharray={`${6 / k} ${4 / k}`} />
-          {rows.map((r) => <circle key={r.index} cx={X(r.x_mm)} cy={Y(r.y_mm)} r={Math.max(od / 2, 3 / k)} fill={PHASE_VAR[r.phase]} stroke="#0a0f14" strokeWidth={1 / k} />)}
-          {[-1, 0, 1].map((m) => <g key={m}>
-            <line x1={X(xc + m * 1000)} x2={X(xc + m * 1000)} y1={Ht - 12 / k} y2={Ht - 4 / k} stroke="#d6dfe6" strokeWidth={1.5 / k} />
-            <text x={X(xc + m * 1000)} y={Ht - 16 / k} textAnchor="middle" fontSize={11 / k} fill="#d6dfe6" fontFamily="IBM Plex Mono, monospace" paintOrder="stroke" stroke="#0a0f14" strokeWidth={3 / k}>{m} m</text>
-          </g>)}
-        </>) }} />
-      <div className="ck-caption">RMS resultant at the cross-section plane (all conductors, shields and enclosure walls). Beyond the enclosure the peak is <b>{fmt(data.peak, 1)} µT</b>; ICNIRP 1998 public reference level {LIM_UT} µT. Hover or tap for the value at a point.</div>
-    </div>
-  );
 }
 
 /* ------------------------------------------------------------ isometric 3/4 cutaway */
@@ -447,6 +387,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
   );
   const mv = f.voltage_v > 2000;
   const calc = f.ampacity_method === "calculated";
+  const tierFit = tierCompat(f.conductors_per_phase, f.tiers);
   return (
     <div className="cb-grid">
       <div className="cb-form">
@@ -465,8 +406,17 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
           <div className="cb-fields">
             {pick("size", "Size", SIZE_CHOICES.map((s) => [s, cond.sizeLabel(s)]))}
             {pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]])}
-            {pick("conductors_per_phase", "Conductors / phase", [1, 2, 3, 4, 5, 6, 8, 9, 10, 12].map((n) => [n, String(n)]), Number)}
-            {pick("tiers", "Tiers", [[1, "1"], [2, "2"], [3, "3"]], Number)}
+            {pick("conductors_per_phase", "Conductors / phase", COUNT_CHOICES.map((n) => [n, String(n)]), Number)}
+            {pick("tiers", "Tiers", TIER_CHOICES.map((t) => [t, String(t)]), Number)}
+            {!tierFit.ok && (
+              <div className="cb-wide cb-tierwarn" role="alert" id="cb-tier-warning">
+                <div>{tierFit.message}</div>
+                <div className="cb-tierfix">
+                  {tierFit.valid.map((n) => <button key={`n${n}`} type="button" className="cb-chip" onClick={() => setF((s) => ({ ...s, conductors_per_phase: n }))}>{n} per phase</button>)}
+                  <button type="button" className="cb-chip" onClick={() => setF((s) => ({ ...s, tiers: fittingTiers(s.conductors_per_phase, s.tiers) }))}>{fittingTiers(f.conductors_per_phase, f.tiers)} tier{fittingTiers(f.conductors_per_phase, f.tiers) > 1 ? "s" : ""}</button>
+                </div>
+              </div>
+            )}
             {pick("insulation_temp_c", "Insulation rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number)}
             {pick("terminal_temp_c", "Termination rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number)}
             {num("cable_od_mm", "Cable OD", "mm", { optional: true, ph: "from construction" })}
@@ -579,7 +529,7 @@ function DesignerTab({ d, setD, onPick }) {
           </div>
           <div className="label mb-1">Tiers</div>
           <div className="cb-chips">
-            {[1, 2, 3].map((t) => <button key={t} type="button" className={cx("cb-chip", d.tiers.includes(t) && "is-on")} onClick={() => toggle("tiers", t)}>{t}</button>)}
+            {TIER_CHOICES.map((t) => <button key={t} type="button" className={cx("cb-chip", d.tiers.includes(t) && "is-on")} onClick={() => toggle("tiers", t)}>{t}</button>)}
           </div>
         </Section>
         <Section title="Cable construction" aside={<span className="text-faint text-[12px]">{d.voltage_v > 2000 ? "required above 2000 V" : "MV / calculated only"}</span>}>

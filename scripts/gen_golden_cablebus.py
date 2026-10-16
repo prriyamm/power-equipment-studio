@@ -4,7 +4,7 @@ Usage: python3 scripts/gen_golden_cablebus.py
 Set PECALC_ROOT to the pecalc `calculations` directory and PECALC_EXAMPLES to the
 `examples` directory if they are not at the defaults below.
 
-Covers cablebus.analyse (LV and MV, Cu/Al, 1-6 conductors per phase, 1-3 tiers, every ampacity
+Covers cablebus.analyse (LV and MV, Cu/Al, 1-12 conductors per phase, 1-4 tiers, every ampacity
 method, shield bonding variants, enclosures, faults), candidate_patterns, cablebus_design.design_options
 and drawing.cablebus_svg. SVG strings are stored as a SHA-256 hash, with a few full examples.
 """
@@ -279,6 +279,27 @@ extras += [
 for e in extras:
     vectors.append(run_analyse(e))
 
+# 4 tiers (conductors per phase a multiple of 4: every tier holds complete A-B-C sets), LV and MV, with enclosures
+# and faults; plus the errors for counts that cannot be split into 4 tiers.
+four = [
+    dict(voltage_v=600.0, current_a=2500.0, conductors_per_phase=4, tiers=4, size="750"),
+    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", length_m=61.0,
+         enclosure_width_mm=500.0, enclosure_height_mm=400.0, fault_ka=65.0, x_over_r=15.0),
+    dict(voltage_v=600.0, current_a=6000.0, conductors_per_phase=12, tiers=4, size="750", material="Al",
+         enclosure_width_mm=700.0, enclosure_height_mm=400.0, covers_continuous=True),
+    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", pattern="ABCCBA/ABCCBA/ABCCBA/ABCCBA"),
+    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", spacing_mm=70.0,
+         tier_spacing_mm=95.0, enclosure_width_mm=600.0, enclosure_height_mm=450.0),
+    mv_inputs(15000, 4, 4, "750", current_a=3000.0, shield_bonding="single_point", length_m=60.0,
+              enclosure_width_mm=600.0, enclosure_height_mm=700.0, fault_ka=40.0, shield_voltage_limit_v=25.0),
+    mv_inputs(15000, 8, 4, "500", current_a=4000.0, shield_bonding="both_ends", length_m=60.0),
+    dict(voltage_v=600.0, conductors_per_phase=6, tiers=4), dict(voltage_v=600.0, conductors_per_phase=3, tiers=4),
+    dict(voltage_v=600.0, conductors_per_phase=5, tiers=4), dict(voltage_v=600.0, conductors_per_phase=4, tiers=4,
+                                                                 pattern="ABC/ABC/ABC"),
+]
+for k, e in enumerate(four):
+    vectors.append(run_analyse(e, svg_full=(k in (1, 4))))
+
 # 6. candidate_patterns
 patterns = []
 for n, t in itertools.product(range(1, 13), (1, 2, 3, 4, 6)):
@@ -319,6 +340,9 @@ REQUESTS = [
     dict(voltage_v=15000.0, current_a=2000.0, **MVD, ampacity_method="datasheet"),
     dict(voltage_v=600.0, current_a=4000.0, sizes=["bad"]),
     dict(voltage_v=600.0, current_a=100000.0), dict(voltage_v=600.0, current_a=4000.0, max_loading_pct=60.0),
+    dict(voltage_v=600.0, current_a=6000.0, top_n=12), dict(voltage_v=600.0, current_a=5000.0, tier_options=[4]),
+    dict(voltage_v=600.0, current_a=3000.0, tier_options=[1, 2, 3]),
+    dict(voltage_v=15000.0, current_a=3500.0, **MVD, fault_ka=40.0, tier_options=[2, 4]),
 ]
 designs = []
 for rq in REQUESTS:

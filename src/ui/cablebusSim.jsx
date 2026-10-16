@@ -6,6 +6,7 @@ const { useState, useMemo, useEffect, useRef } = React;
 import { Btn, Field, NumField, Pill, Section, cx, fmt, KpiStrip, ChecksTable, StateMsg, StatusBadge } from "./common.jsx";
 import { Chart, Line, RefLine, Dot, PHASE_VAR, TEMP_STOPS, rampAt, rgbCss, rgbToHex, normalize, rampCss } from "./charts/index.js";
 import { useQuality } from "./quality.js";
+import { peakSummary, i2tInfo } from "./cablebusUtil.js";
 import { BLOCK_MATERIALS } from "../engine/pecalc/cablebus_design.js";
 import { simInput, buildContext, simulateShortCircuit, simulateTemperatureRise, SIM_DATA } from "../engine/pecalc/cablebusSim.js";
 import { checkRows } from "../engine/report.js";
@@ -151,12 +152,8 @@ function ScCharts({ sc, ss }) {
   const kA = (arr) => arr.map((v, k) => ({ x: tms[k], y: v / 1000 }));
   const lines = useMemo(() => ({ A: kA(sc.phase_current_a.A), B: kA(sc.phase_current_a.B), C: kA(sc.phase_current_a.C),
     up: kA(sc.envelope_upper_a), lo: kA(sc.envelope_lower_a) }), [sc]);
-  const peak = useMemo(() => {
-    let best = { v: 0, k: 0, p: "A" };
-    const n1 = Math.min(n, 97);
-    for (const p of ["A", "B", "C"]) for (let k = 0; k < n1; k++) { const v = sc.phase_current_a[p][k]; if (Math.abs(v) > Math.abs(best.v)) best = { v, k, p }; }
-    return best;
-  }, [sc]);
+  const pks = useMemo(() => peakSummary(sc), [sc]);
+  const peak = pks.selected;
   const ymax = Math.max(sc.envelope_upper_a[0], -sc.envelope_lower_a[0], Math.abs(peak.v)) / 1000 * 1.12;
   const span = sc.span_m;
   const fdata = useMemo(() => ({ env: sc.force_envelope_n_per_m.map((v, k) => ({ x: tms[k], y: v })),
@@ -181,9 +178,13 @@ function ScCharts({ sc, ss }) {
           <Line data={lines.up} color="var(--faint)" width={1.25} dash="5 4" />
           <Line data={lines.lo} color="var(--faint)" width={1.25} dash="5 4" />
           <Line data={lines.A} color={PHASE_VAR.A} /><Line data={lines.B} color={PHASE_VAR.B} /><Line data={lines.C} color={PHASE_VAR.C} />
-          <Dot x={tms[peak.k]} y={peak.v / 1000} color={PHASE_VAR[peak.p]} label={`peak ${fmt(Math.abs(peak.v) / 1000, 1)} kA`} />
+          <Dot x={tms[peak.k]} y={peak.v / 1000} color={PHASE_VAR[peak.phase]} label={`peak ${fmt(peak.ka, 1)} kA (phase ${peak.phase})`} />
           <RefLine x={tms[idx]} tone="accent" label={`${fmt(tms[idx], 1)} ms`} dash="2 3" />
         </Chart>
+        <p className="sim-note" id="sim-peak-note">Peak marked: largest first-cycle phase current at the selected closing angle of {fmt(pks.selected.angle_deg, 0)}°, {fmt(pks.selected.ka, 1)} kA in phase {pks.selected.phase}.
+          {pks.worst.ka - pks.selected.ka > 0.05
+            ? ` The Peak current tile is the worst case over every closing angle and phase: ${fmt(pks.worst.ka, 1)} kA in phase ${pks.worst.phase} at ${fmt(pks.worst.angle_deg, 0)}°; set the closing angle to that value to see it in the chart.`
+            : " This equals the worst case over all closing angles and phases shown in the Peak current tile (the same waveform in another phase at another angle)."}</p>
         <div className="sim-cursor">
           {anim
             ? <Btn onClick={() => setPlaying((p) => !p)} active={playing} title="Play the waveform in slow motion">{playing ? "Pause" : "Play"}</Btn>
@@ -235,6 +236,7 @@ function ShortCircuit({ f, setF, ss, setSs, inp, ctx }) {
   }, [inp, ctx, ss]);
   const sc = sim.r;
   const k = (name) => sc?.checks.find((c) => c.name.startsWith(name));
+  const i2t = sc ? i2tInfo(sc) : null;
   const cMom = k("Momentary"), cSt = k("Short-time"), cBlk = k("Support block"), cTmp = k("Conductor temperature");
   return (
     <div className="sim-grid">
@@ -243,16 +245,16 @@ function ShortCircuit({ f, setF, ss, setSs, inp, ctx }) {
         {sim.error && <StateMsg kind="error" title="Cannot simulate the short circuit">{sim.error}. Enter the fault current and clearing time on the left (shared with the Check tab).</StateMsg>}
         {sc && <>
           <KpiStrip items={[
-            { label: "Peak current", value: fmt(sc.peak_current_ka, 1), unit: "kA", status: stat(cMom), meter: meter(cMom, `${fmt(sc.peak_current_ka / (ss.pk || 1) * 100, 0)} % of tested peak`),
-              sub: `${fmt(sc.peak_factor_computed, 2)} × rms sym (IEC 60909 ${fmt(sc.peak_factor_iec60909, 2)}) · ${ss.pk ? `tested ${fmt(ss.pk, 0)} kA` : "tested peak NOT SET"}` },
+            { label: "Peak current, worst case", value: fmt(sc.peak_current_ka, 1), unit: "kA", status: stat(cMom), meter: meter(cMom, `${fmt(sc.peak_current_ka / (ss.pk || 1) * 100, 0)} % of tested peak`),
+              sub: `phase ${sc.peak_current_phase} at ${fmt(sc.peak_current_angle_deg, 0)}° · ${fmt(sc.peak_factor_computed, 2)} × rms sym (IEC 60909 ${fmt(sc.peak_factor_iec60909, 2)}) · ${ss.pk ? `tested ${fmt(ss.pk, 0)} kA` : "tested peak NOT SET"}` },
             { label: "Peak force", value: fmt(sc.worst_force_n_per_m, 0), unit: "N/m", status: stat(k("Peak force")),
               sub: `${fmt(sc.worst_force_lbf_per_ft, 0)} lbf/ft · worst closing angle ${fmt(sc.worst_angle_deg, 0)}°${ss.frc ? "" : " · tested NOT SET"}` },
             { label: "Block load", value: fmt(sc.worst_block_load_n, 0), unit: "N", status: stat(cBlk), meter: meter(cBlk, `${fmt(sc.worst_block_load_n / (ss.blk || 1) * 100, 0)} % of tested block`),
               sub: `${fmt(sc.worst_block_load_lbf, 0)} lbf over ${fmt(sc.span_m * 1000, 0)} mm${ss.blk ? "" : " · rating NOT SET"}` },
             { label: "Conductor temp. at clearing", value: sc.clearing_s ? fmt(sc.thermal.final_c_worst_angle, 0) : "—", unit: sc.clearing_s ? "°C" : "", status: stat(cTmp), meter: meter(cTmp, `limit ${fmt(sc.sc_limit_c, 0)} °C`),
               sub: sc.clearing_s ? `from ${fmt(sc.thermal.initial_c, 0)} °C over ${fmt(sc.clearing_s * 1000, 0)} ms` : "give a clearing time" },
-            { label: "Let-through I²t", value: fmt(sc.i2t_sym_ka2s, 0), unit: "kA²s", status: stat(cSt), meter: meter(cSt, `${cSt && cSt.limit ? fmt(cSt.value / cSt.limit * 100, 0) : "—"} % of equivalent rating`),
-              sub: sc.equivalent_rating_ka ? `rating equivalent ${fmt(sc.equivalent_rating_ka, 1)} kA at ${fmt(sc.clearing_s, 2)} s · asymmetric ${fmt(sc.i2t_asym_ka2s, 0)} kA²s` : "short-time rating NOT SET" },
+            { label: "Let-through I²t", value: i2t.has_clearing ? fmt(sc.i2t_sym_ka2s, 0) : "—", unit: i2t.has_clearing ? "kA²s" : "", status: stat(cSt), meter: meter(cSt, `${cSt && cSt.limit ? fmt(cSt.value / cSt.limit * 100, 0) : "—"} % of equivalent rating`),
+              sub: !i2t.has_clearing ? "give a clearing time" : sc.equivalent_rating_ka ? `rating equivalent ${fmt(sc.equivalent_rating_ka, 1)} kA at ${fmt(sc.clearing_s, 2)} s · asymmetric ${fmt(sc.i2t_asym_ka2s, 0)} kA²s` : `over ${fmt(sc.clearing_s * 1000, 0)} ms · short-time rating NOT SET` },
           ]} />
           <ScCharts sc={sc} ss={ss} />
           <Section title="Rating checks" aside={<Pill tone={sc.passed === false ? "crit" : sc.complete ? "ok" : "warn"}>{sc.passed === false ? "Fail" : sc.complete ? "Pass" : "incomplete: ratings not set"}</Pill>}>
@@ -458,9 +460,9 @@ export function simReport(inp, ss, host) {
   tr = simulateTemperatureRise(sim, ctx);
   const rows = [];
   if (sc) {
-    rows.push({ label: "Peak current (worst closing angle)", value: sc.peak_current_ka, unit: "kA" }, { label: "Peak factor", value: sc.peak_factor_computed, unit: "" },
+    rows.push({ label: `Peak current (worst case: phase ${sc.peak_current_phase}, closing angle ${Math.round(sc.peak_current_angle_deg)} deg)`, value: sc.peak_current_ka, unit: "kA" }, { label: "Peak factor", value: sc.peak_factor_computed, unit: "" },
       { label: "Peak force per metre (worst conductor)", value: sc.worst_force_n_per_m, unit: "N/m" }, { label: "Peak support block load", value: sc.worst_block_load_n, unit: "N" },
-      { label: "Conductor temperature at clearing (worst angle)", value: sc.thermal.final_c_worst_angle, unit: "C" }, { label: "Let-through I2t (rms symmetrical)", value: sc.i2t_sym_ka2s, unit: "kA2s" });
+      { label: "Conductor temperature at clearing (worst angle)", value: sc.thermal.final_c_worst_angle, unit: "C" }, { label: "Let-through I2t (rms symmetrical)", value: sc.clearing_s ? sc.i2t_sym_ka2s : "needs a clearing time", unit: sc.clearing_s ? "kA2s" : "" });
   }
   rows.push({ label: "Hottest conductor", value: tr.hottest.theta_c, unit: "C" }, { label: "Hottest conductor rise", value: tr.hottest.rise_k, unit: "K" },
     { label: "Enclosure surface temperature (estimate)", value: tr.enclosure ? tr.enclosure.surface_c : "not modelled", unit: tr.enclosure ? "C" : "" },

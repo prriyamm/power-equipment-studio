@@ -2,7 +2,7 @@
    Pure module: no DOM, no React.
 
    For a required voltage and current, every practical combination of conductor size, conductors per phase
-   and stacked tiers (1, 2 or 3) is laid out with the code spacing (one cable diameter clear between cables
+   and stacked tiers (1 to 4) is laid out with the code spacing (one cable diameter clear between cables
    and between tiers, NEC 370 / CSA C22.2 No. 273 free-air basis), fitted into the smallest standard
    enclosure, and run through the full cable bus analysis. The best options are then checked for
    short-circuit forces on the support blocks.
@@ -28,7 +28,7 @@ const _REQ_DEFAULTS = {
   sizes: null,                    // default: 500, 600, 750, 1000 kcmil
   max_per_phase: 12,
   extra_per_phase: 2,             // also try this many more than the minimum
-  tier_options: [1, 2, 3],
+  tier_options: [1, 2, 3, 4],
   ampacity_method: "auto", insulation_temp_c: 90, terminal_temp_c: 90,
   insulation: "XLPE", insulation_mm: null, shield_mm: 0.0, jacket_mm: 0.0, jacket: "PVC",
   shield_bonding: null,           // default: single_point above 2000 V, none below
