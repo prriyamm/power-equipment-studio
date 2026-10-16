@@ -1,12 +1,13 @@
 /* Transformer workspace: preliminary core-type design (pecalc transformer port), live as inputs change. */
-const { useState, useMemo, useEffect } = React;
+const { useState, useMemo, useEffect, useRef } = React;
 import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkStatus } from "./common.jsx";
 import { bus } from "./bus.js";
 import { PushToSystem } from "./systemPush.jsx";
 import { transformerDesign } from "../engine/designPush.js";
-import { design, design_for_impedance, transformerInput } from "../engine/pecalc/transformer.js";
+import { design, design_for_impedance, transformerInput, DOE_CHECK_NAME } from "../engine/pecalc/transformer.js";
 import { kvRows, checkRows } from "../engine/report.js";
-import { ReportButton } from "./reportButton.jsx";
+import { ReportButton, reportFigures } from "./reportButton.jsx";
+import { DoePanel, DOE_WINDOWS, doeReportParts } from "./transformerDoe.jsx";
 
 /* Starting state: the 1500 kVA, 13.8 kV delta / 480Y V liquid-filled example, 5.75 % Z. */
 const EXAMPLE = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
@@ -21,23 +22,27 @@ function solve(inp, tune) {
 }
 
 /* Calculation package (see engine/report.js). */
-function transformerReport(r) {
+function transformerReport(r, host) {
   const i = r.input;
+  const doe = doeReportParts(r.doe);
   return {
     title: "Transformer preliminary design", module: "transformer", subtitle: `${i.kva} kVA, ${i.hv_v} V / ${i.lv_v} V`,
-    inputs: kvRows(i, { kva: "kVA", hv_v: "V", lv_v: "V", target_z_pct: "%", source_mva: "MVA", j_lv_a_mm2: "A/mm2", j_hv_a_mm2: "A/mm2" }),
-    results: [r.design, r.losses, r.impedance, r.performance, r.short_circuit].flatMap((d) => kvRows(d)),
+    inputs: kvRows(i, { kva: "kVA", hv_v: "V", lv_v: "V", target_z_pct: "%", source_mva: "MVA", j_lv_a_mm2: "A/mm2", j_hv_a_mm2: "A/mm2", bil_kv: "kV" }),
+    results: [r.design, r.losses, r.impedance, r.performance, r.short_circuit].flatMap((d) => kvRows(d)).concat(doe.results),
+    tables: doe.tables,
+    figures: reportFigures(host),
     checks: checkRows(r.checks),
     notes: r.notes,
     // Empirical design constants and tolerances are marked [UNVERIFIED] in the engine.
-    dataStatus: [{ table: "Empirical design constants, core-loss curve and tolerances", status: "UNVERIFIED", source: "Entered from memory (see [UNVERIFIED] in transformer.js); confirm against C57 standards and manufacturer data." }],
+    dataStatus: [{ table: "Empirical design constants, core-loss curve and tolerances", status: "UNVERIFIED", source: "Entered from memory (see [UNVERIFIED] in transformer.js); confirm against C57 standards and manufacturer data." }, ...doe.dataStatus],
   };
 }
 
 export function TransformerWorkspace({ goTo }) {
   const [inp, setInp] = useState(() => transformerInput(EXAMPLE));
   const [tune, setTune] = useState(true);
-  const [link, setLink] = useState(null);            // System transformer this design is for
+  const [link, setLink] = useState(null);
+  const hostRef = useRef(null);            // System transformer this design is for
   const { result: r, error } = useMemo(() => solve(inp, tune), [inp, tune]);
   const push = useMemo(() => (r ? { design: transformerDesign(r) } : { error }), [r, error]);
 
@@ -64,7 +69,7 @@ export function TransformerWorkspace({ goTo }) {
 
   const tuned = tune && !!inp.target_z_pct;
   return (
-    <div className="ws">
+    <div className="ws" ref={hostRef}>
       <WsHeader title="Transformer" context="Preliminary core-type design · 3-phase"
         status={<>
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
@@ -72,7 +77,7 @@ export function TransformerWorkspace({ goTo }) {
         </>}
         actions={<>
           <PushToSystem module="transformer" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
-          {r && <ReportButton filename="transformer-calc" getReport={() => transformerReport(r)} />}
+          {r && <ReportButton filename="transformer-calc" getReport={() => transformerReport(r, hostRef.current)} />}
           <Btn onClick={() => { setInp(transformerInput(EXAMPLE)); setTune(true); }} title="Restore the 1500 kVA example inputs">Reset to example</Btn>
         </>} />
 
@@ -107,12 +112,30 @@ export function TransformerWorkspace({ goTo }) {
                 {num("k_et", "Volts/turn constant K", "Et = K√kVA")}
                 {num("j_lv_a_mm2", "LV current density", "A/mm²")}
                 {num("j_hv_a_mm2", "HV current density", "A/mm²")}
-                {num("doe_min_efficiency_pct", "DOE minimum efficiency", "%", { optional: true, ph: "not checked", hint: "from 10 CFR 431.196" })}
               </div>
               <label className="live-toggle mt-3" title="Bisect the window height/width ratio until %Z meets the target">
                 <input id="xf-tune" type="checkbox" checked={tune} onChange={(e) => setTune(e.target.checked)} />
                 <span>Tune window ratio to target %Z</span>
               </label>
+            </Section>
+            <Section title="DOE efficiency (10 CFR 431.196)">
+              <div className="xf-fields">
+                <Field label="Compliance window" hint={inp.doe_date ? `manufacture date taken as ${inp.doe_date}` : "window that contains today"}>
+                  <select id="xf-doe_date" className="num-input" value={inp.doe_date || ""}
+                    onChange={(e) => setInp((s) => ({ ...s, doe_date: e.target.value || null }))}>
+                    {DOE_WINDOWS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                  </select>
+                </Field>
+                {num("bil_kv", "HV winding BIL", "kV", { optional: true, ph: inp.kind === "dry" && inp.hv_v > 600 ? "required" : "MV dry only",
+                  hint: "selects the 431.196(c) column (no default)" })}
+                {num("doe_min_efficiency_pct", "Extra user minimum", "%", { optional: true, ph: "none", hint: "optional; tables are built in" })}
+                {inp.kind === "liquid" && (
+                  <label className="live-toggle self-end" title="Submersible liquid-immersed units use 431.196(b)(4) from 2029-04-23">
+                    <input id="xf-doe_submersible" type="checkbox" checked={!!inp.doe_submersible} onChange={(e) => setInp((s) => ({ ...s, doe_submersible: e.target.checked }))} />
+                    <span>Submersible</span>
+                  </label>
+                )}
+              </div>
             </Section>
             <Section title="Materials">
               <div className="xf-fields">
@@ -150,7 +173,7 @@ export function TransformerWorkspace({ goTo }) {
 function Results({ r }) {
   const i = r.input, d = r.design, z = r.impedance, p = r.performance, sc = r.short_circuit, l = r.losses;
   const zCheck = r.checks.find((c) => c.name.startsWith("Impedance"));
-  const doeCheck = r.checks.find((c) => c.name.startsWith("Efficiency"));
+  const doeCheck = r.checks.find((c) => c.name === DOE_CHECK_NAME) || r.checks.find((c) => c.name.startsWith("Efficiency"));
   const lossTotal = (l.no_load_w + l.load_loss_w) / 1000;
   const std = (v) => (Number.isFinite(v) ? fmt(v, Math.abs(v) < 10 ? 2 : 1) : "∞");
   return (
@@ -159,7 +182,7 @@ function Results({ r }) {
         { label: "Rating", value: fmt(i.kva, i.kva % 1 ? 1 : 0), unit: "kVA", sub: `${fmt(i.hv_v / 1000, 2)} kV ${i.hv_connection === "delta" ? "Δ" : "Y"} / ${fmt(i.lv_v, 0)} V ${i.lv_connection === "delta" ? "Δ" : "Y"}` },
         { label: "Impedance", value: fmt(z.z_pct, 2), unit: "%Z", status: checkStatus(zCheck), sub: `R ${fmt(z.r_pct, 2)} % · X ${fmt(z.x_pct, 2)} % · X/R ${fmt(z.x_over_r, 1)}` },
         { label: "Efficiency, full load", value: fmt(p.efficiency_pct["100%"], 2), unit: "%", status: checkStatus(doeCheck),
-          sub: `DOE point (${fmt(p.doe_point.load * 100, 0)} %): ${fmt(p.doe_point.efficiency_pct, 3)} %` },
+          sub: `DOE point (${fmt(p.doe_point.load * 100, 0)} %): ${fmt(p.doe_point.efficiency_pct, 3)} %${Number.isFinite(r.doe?.required_pct) ? ` · min ${fmt(r.doe.required_pct, 2)} %` : ""}` },
         { label: "Losses", value: fmt(lossTotal, 2), unit: "kW", sub: `no-load ${fmt(l.no_load_w / 1000, 2)} · load ${fmt(l.load_loss_w / 1000, 2)} kW` },
         { label: "LV fault current", value: fmt(sc.lv_fault_ka_rms, 1), unit: "kA", status: !r.passed ? "warn" : undefined, sub: `peak ${fmt(sc.lv_fault_peak_ka, 1)} kA · ${i.source_mva ? `source ${fmt(i.source_mva, 0)} MVA` : "infinite source"}` },
       ]} />
@@ -167,6 +190,8 @@ function Results({ r }) {
       <Section title="Checks" aside={<Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "Pass" : "Fail"}</Pill>}>
         <ChecksTable checks={r.checks} format={std} bar={(c) => !c.name.startsWith("Impedance")} />
       </Section>
+
+      <DoePanel r={r} />
 
       <Section title="Core and coil" aside="drawn to scale, dimensions in mm">
         <CoreCoil d={d} i={i} />

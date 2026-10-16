@@ -19,6 +19,7 @@
 
    Result objects use the same snake_case field names as the Python dataclasses. */
 import * as validate from "./validate.js";
+import DOE from "./data/doe_10cfr431_efficiency.json" with { type: "json" };
 
 export const MU0 = 4e-7 * Math.PI;
 export const STEEL_DENSITY = 7650.0; // kg/m3, grain-oriented electrical steel
@@ -98,7 +99,10 @@ export function transformerInput(overrides = {}) {
     source_x_over_r: 10.0,      // utility source X/R at the HV terminals [UNVERIFIED typical; enter the utility's value]
     fault_duration_s: 2.0,      // through-fault thermal duration
     conductor_proof_mpa: 100.0, // 0.2 % proof stress of winding conductor [UNVERIFIED: annealed Cu]
-    doe_min_efficiency_pct: null, // from 10 CFR 431.196 for this kVA/BIL (enter from the rule)
+    doe_min_efficiency_pct: null, // optional extra user minimum (the 431.196 tables are built in)
+    bil_kv: null,               // HV winding BIL, kV; needed for the medium-voltage dry-type DOE minimum (no default)
+    doe_date: null,             // manufacture date YYYY-MM-DD selecting the 431.196 window; null = today
+    doe_submersible: false,     // liquid-immersed submersible unit (431.196(b)(4) table from 2029-04-23)
   };
   for (const k of Object.keys(overrides)) {
     if (!(k in inp)) throw new TypeError(`TransformerInput got an unexpected field '${k}'`);
@@ -109,15 +113,137 @@ export function transformerInput(overrides = {}) {
 
 // DOE test load point by equipment class. Efficiency standards: 10 CFR 431.196 (a) low-voltage dry-type,
 // (b) liquid-immersed, (c) medium-voltage dry-type; class definitions in 10 CFR 431.192 (low-voltage
-// dry-type: primary voltage <= 600 V). The per-unit test load (35 % LVDT, 50 % liquid and MVDT) is set by
-// the test procedure, Appendix A to Subpart K of Part 431. [UNVERIFIED: paragraph numbers from memory]
-export const DOE_TEST_POINT_CITATION = "10 CFR 431.192 / 431.196 / Part 431 Subpart K App. A [UNVERIFIED paragraph]";
+// dry-type: input voltage <= 600 V; medium-voltage dry-type: primary 601 V to 34.5 kV). The per-unit test
+// load (35 % LVDT, 50 % liquid and MVDT) is Table 2.1 and the reference temperatures (no-load 20 C; load
+// loss 55 C liquid, 75 C dry) Table 2.2 of Appendix A to Subpart K (read from the eCFR, see
+// data/doe_10cfr431_efficiency.json).
+export const DOE_TEST_POINT_CITATION = "10 CFR 431.192; Part 431 Subpart K App. A Tables 2.1 and 2.2";
+export const DOE_DATA = DOE;
+export const DOE_CATEGORIES = ["liquid", "lv_dry", "mv_dry"];
+export const DOE_CHECK_NAME = "DOE 10 CFR 431.196 minimum efficiency";
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** [DOE equipment class, per-unit test load]. Classified by the primary (input) voltage. */
 export function doe_test_point(kind, primary_v) {
   if (kind === "liquid") return ["liquid-immersed", 0.50];
   if (primary_v <= 600) return ["low-voltage dry-type", 0.35];
   return ["medium-voltage dry-type", 0.50];
+}
+
+/** DOE category key ('liquid', 'lv_dry', 'mv_dry') from the cooling type and primary (input) voltage
+ *  (10 CFR 431.192; a primary above 600 V is treated as medium voltage). */
+export function doe_category(kind, primary_v) {
+  if (kind === "liquid") return "liquid";
+  return primary_v <= DOE.scope.lv_dry_max_input_v ? "lv_dry" : "mv_dry";
+}
+
+const doeRows = (w, phases, band) =>
+  w[phases === 1 ? "single_phase" : "three_phase"].map(([k, v]) => [k, band === null ? v : v[band]]);
+
+/* Minimum for `kva` from [kVA, eff|null] rows by the 431.196 rule: the table value, or linear interpolation
+   between the rows immediately below and above. No extrapolation; a blank neighbour leaves it undetermined. */
+function doeLookup(rows, kva) {
+  const valued = rows.filter((r) => r[1] !== null);
+  const below = valued.filter((r) => r[0] < kva), above = valued.filter((r) => r[0] > kva);
+  const nearest = [...(below.length ? [below[below.length - 1]] : []), ...(above.length ? [above[0]] : [])];
+  for (const [k, v] of rows) {
+    if (k === kva) {
+      if (v === null) return { required: null, interpolated: false, rows: [], nearest, reason: "the table gives no minimum at this kVA for this BIL" };
+      return { required: v, interpolated: false, rows: [[k, v]], nearest: [[k, v]], reason: "" };
+    }
+  }
+  const lo = rows.filter((r) => r[0] < kva), hi = rows.filter((r) => r[0] > kva);
+  if (!lo.length || !hi.length) {
+    return { required: null, interpolated: false, rows: [], nearest, reason: "rating outside the tabulated kVA range (the rule gives no extrapolation)" };
+  }
+  const [k0, e0] = lo[lo.length - 1], [k1, e1] = hi[0];
+  if (e0 === null || e1 === null) return { required: null, interpolated: false, rows: [], nearest, reason: "an adjacent table row has no minimum for this BIL" };
+  return { required: e0 + (e1 - e0) * (kva - k0) / (k1 - k0), interpolated: true, rows: [[k0, e0], [k1, e1]], nearest: [[k0, e0], [k1, e1]], reason: "" };
+}
+
+function doeBand(bil_kv) {
+  const bands = DOE.categories.mv_dry.bil_bands_kv;
+  for (let i = 0; i < bands.length; i++) {
+    const b = bands[i];
+    if (given(bil_kv) && b.min <= bil_kv && (b.max === null || bil_kv <= b.max)) return [i, b.id];
+  }
+  return [null, null];
+}
+
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/** DOE 10 CFR 431.196 minimum-efficiency check (port of pecalc doe_efficiency_check; same fields).
+ *  kind 'liquid' | 'lv_dry' | 'mv_dry'; phases 1 or 3; date 'YYYY-MM-DD' (default today).
+ *  status: 'pass' | 'fail' | 'not_in_table' | 'needs_input' | 'not_covered'. */
+export function doe_efficiency_check(kind, phases, kva, bil_kv = null, efficiency_pct = null, date = null,
+  { submersible = false, primary_v = null, secondary_v = null, frequency_hz = null, today = null } = {}) {
+  if (!DOE_CATEGORIES.includes(kind)) throw new Error(`kind must be one of ${DOE_CATEGORIES.join(", ")}, got ${validate.reprValue(kind)}`);
+  if (phases !== 1 && phases !== 3) throw new Error(`phases must be 1 or 3, got ${String(phases)}`);
+  if (!kva || kva <= 0) throw new Error(`kva must be greater than 0, got ${validate.reprValue(kva)}`);
+  if (!given(date)) date = today || localToday();
+  if (typeof date !== "string" || !ISO_DATE.test(date)) throw new Error(`date must be an ISO date YYYY-MM-DD, got ${validate.reprValue(date)}`);
+  const cat = DOE.categories[kind], tp = DOE.test_procedure, scope = DOE.scope;
+  const [band, band_id] = kind === "mv_dry" ? doeBand(bil_kv) : [null, null];
+  const sub = Boolean(submersible && kind === "liquid");
+  const applies = ["all", sub ? "submersible" : "non_submersible"];
+  const windows = cat.windows.filter((w) => applies.includes(w.applies_to));
+  const out = {
+    category: kind, category_label: cat.label, phases, kva, bil_kv: given(bil_kv) ? bil_kv : null,
+    bil_band: band_id, date, submersible: sub,
+    test_load_pu: tp.per_unit_load[kind], reference_temp_c: { ...tp.reference_temp_c[kind] },
+    window: null, required_pct: null, interpolated: false, rows: [], nearest_rows: [],
+    efficiency_pct: given(efficiency_pct) ? efficiency_pct : null, margin_pct: null, status: "", passed: null, message: "",
+    citation: "", data_status: DOE._meta.status, snapshot: DOE._meta.ecfr_snapshot_date, by_window: [],
+  };
+  const lookup = (w) => (kind === "mv_dry" && band === null ? null : doeLookup(doeRows(w, phases, band), kva));
+  for (const w of windows) {
+    const lk = lookup(w);
+    out.by_window.push({ id: w.id, paragraph: w.paragraph, table: w.table, from: w.from, to: w.to, required_pct: lk ? lk.required : null });
+  }
+
+  // Scope: 10 CFR 431.192 definition of distribution transformer.
+  const [lo_kva, hi_kva] = scope.kva_range[kind === "liquid" ? "liquid" : "dry"];
+  let why = "";
+  if (given(primary_v) && primary_v > scope.max_input_v) why = `input voltage above ${pyG(scope.max_input_v / 1000)} kV`;
+  else if (given(secondary_v) && secondary_v > scope.max_output_v) why = `output voltage above ${scope.max_output_v} V`;
+  else if (given(frequency_hz) && frequency_hz !== scope.frequency_hz) why = `not rated ${scope.frequency_hz} Hz`;
+  else if (!(lo_kva <= kva && kva <= hi_kva)) why = `rating outside ${pyG(lo_kva)}-${pyG(hi_kva)} kVA`;
+  if (why) {
+    return Object.assign(out, { status: "not_covered", citation: "10 CFR 431.192",
+      message: `Not a DOE distribution transformer (10 CFR 431.192): ${why}. No 431.196 minimum applies.` });
+  }
+  const window = windows.find((w) => w.from <= date && (w.to === null || date < w.to));
+  if (!window) {
+    return Object.assign(out, { status: "not_covered", citation: cat.paragraph,
+      message: `No ${cat.label.toLowerCase()} standard for units manufactured before ${windows[0].from} (${cat.paragraph}).` });
+  }
+  out.window = { id: window.id, paragraph: window.paragraph, table: window.table, from: window.from, to: window.to };
+  const load_txt = `${pyG(tp.per_unit_load[kind] * 100)} % of nameplate load`;
+  out.citation = `${window.paragraph}, ${window.table}; App. A Table 2.1 (${load_txt})`;
+  if (kind === "mv_dry" && !given(bil_kv)) {
+    return Object.assign(out, { status: "needs_input", message: "Medium-voltage dry-type minimums depend on the BIL: enter the " +
+      "HV winding BIL (kV) to select the 431.196(c) column." });
+  }
+  if (kind === "mv_dry" && band === null) {
+    return Object.assign(out, { status: "not_in_table", message: `BIL ${pyG(bil_kv)} kV is outside the 431.196(c) BIL columns ` +
+      "(20-45, 46-95, 96 kV and above); rating not in table." });
+  }
+  const lk = lookup(window);
+  Object.assign(out, { rows: lk.rows, nearest_rows: lk.nearest, interpolated: lk.interpolated });
+  if (lk.required === null) {
+    const near = lk.nearest.map(([k, v]) => `${pyG(k)} kVA ${pyFixed2(v)} %`).join(", ") || "none";
+    return Object.assign(out, { status: "not_in_table", message: `Rating not in table: ${lk.reason}. Nearest rows: ${near}.` });
+  }
+  const req = lk.required;
+  out.required_pct = req;
+  const how = lk.interpolated ? `interpolated between ${pyG(lk.rows[0][0])} and ${pyG(lk.rows[1][0])} kVA` : "table value";
+  if (!given(efficiency_pct)) return Object.assign(out, { status: "needs_input", message: `Minimum ${pyFixed2(req)} % (${how}); no efficiency given.` });
+  const passed = efficiency_pct >= req;
+  return Object.assign(out, { margin_pct: efficiency_pct - req, passed, status: passed ? "pass" : "fail",
+    message: `Minimum ${pyFixed2(req)} % at ${load_txt} (${how}).` });
 }
 
 /** Utility source impedance on the transformer base, {re, im} pu: |Z| = kVA/1000 / MVA_sc at angle atan(X/R). */
@@ -268,6 +394,17 @@ export function design(inp) {
       inp.target_z_pct + tol, "%", Math.abs(z_pct - inp.target_z_pct) <= tol,
       `target ${pyNum(inp.target_z_pct)} % +/- ${pyNum(inp.z_tolerance_pct)} %`);
   }
+  const doe = doe_efficiency_check(doe_category(inp.kind, inp.hv_v), 3, inp.kva, inp.bil_kv, eff_doe, inp.doe_date,
+    { submersible: inp.doe_submersible, primary_v: inp.hv_v, secondary_v: inp.lv_v, frequency_hz: inp.frequency_hz });
+  doe.losses = { no_load_w: nll, load_loss_w: ll_doe, load_loss_temp_c: doe_temp };
+  if (doe.status === "pass" || doe.status === "fail") {
+    check(DOE_CHECK_NAME, doe.citation, eff_doe, doe.required_pct, "%", doe.passed,
+      `${doe.category_label}, ${doe.window.paragraph} window, ${pct0(doe_load)} load, unity pf, ` +
+      `load loss at ${doe_temp.toFixed(0)} C; ` + doe.message);
+  } else if (doe.status === "needs_input") {
+    checks.push({ name: DOE_CHECK_NAME, clause: doe.citation, value: pyRound(eff_doe, 3), limit: null, unit: "%", passed: false,
+      note: "Not determined: " + doe.message });
+  }
   if (inp.doe_min_efficiency_pct) {
     check("Efficiency at DOE test point", `10 CFR 431.196 (value entered by user); ${DOE_TEST_POINT_CITATION}`,
       eff_doe, inp.doe_min_efficiency_pct, "%", eff_doe >= inp.doe_min_efficiency_pct,
@@ -282,8 +419,8 @@ export function design(inp) {
   const notes = [
     `Preliminary design only (empirical K = ${pyNum(inp.k_et)}, Kw = ${kw.toFixed(3)}, core fill ${pyNum(inp.core_fill)}); ` +
     "refine with detailed design and FEA, and confirm by test (IEEE C57.12.90 / C57.12.91).",
-    `DOE test point: ${doe_class} (HV winding taken as the primary), ${pct0(doe_load)} load, load loss corrected to ${doe_temp.toFixed(0)} C; enter the 10 CFR 431.196 ` +
-    "minimum efficiency for this kVA and BIL (tables not loaded).",
+    `DOE test point: ${doe_class} (HV winding taken as the primary), ${pct0(doe_load)} load, load loss corrected to ${doe_temp.toFixed(0)} C ` +
+    "(I2R ratio, approximation). 10 CFR 431.196 check: " + doe.message,
     "Inner (LV) winding radial buckling and axial forces are not checked yet.",
   ];
   if (!inp.source_mva) notes.push("Secondary fault current assumes an infinite source (no utility impedance).");
@@ -323,6 +460,7 @@ export function design(inp) {
     },
     checks,
     notes,
+    doe,
     passed: checks.every((c) => c.passed),
   };
 }
@@ -350,6 +488,8 @@ export function design_for_impedance(inp, lo = 1.2, hi = 8.0) {
 // camelCase names (repo convention) alongside the Python-style names.
 export const nextStandardKva = next_standard_kva;
 export const doeTestPoint = doe_test_point;
+export const doeCategory = doe_category;
+export const doeEfficiencyCheck = doe_efficiency_check;
 export const sourceImpedancePu = source_impedance_pu;
 export const specificCoreLoss = specific_core_loss;
 export const rogowskiFactor = rogowski_factor;

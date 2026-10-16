@@ -17,7 +17,11 @@ EXAMPLES = Path(os.environ.get("PECALC_EXAMPLES", str(Path(ROOT).parent / "examp
 sys.path.insert(0, ROOT)
 
 from pecalc.transformer import (TransformerInput, design, design_for_impedance,  # noqa: E402
-                                next_standard_kva, rogowski_factor, specific_core_loss)
+                                doe_efficiency_check, next_standard_kva, rogowski_factor, specific_core_loss)
+
+# Fixed DOE manufacture date for every vector that does not set one, so the golden does not depend on the
+# day it is generated or run (doe_date None means "today").
+DOE_DATE = "2026-10-16"
 
 
 def clean(x):
@@ -32,6 +36,7 @@ def clean(x):
 
 
 def run(kind, inputs):
+    inputs = {**inputs, "doe_date": inputs.get("doe_date", DOE_DATE)}
     try:
         inp = TransformerInput(**inputs)
         r = design_for_impedance(inp) if kind == "tuned" else design(inp)
@@ -105,6 +110,67 @@ for kva, kind, lv in [(1500.0, "liquid", 480.0), (1500.0, "dry", 480.0), (1500.0
         vectors.append(run("design", {"kva": kva, "kind": kind, "lv_v": lv, "hv_v": 13800.0,
                                       "doe_min_efficiency_pct": round(e + off, 3), "target_z_pct": 6.0}))
 
+# DOE 10 CFR 431.196 built-in check: each table type, each window, pass / fail, interpolated and not-in-table
+# kVA, BIL bands, submersible, out of scope.
+doe_cases = []
+for date in ("2012-06-01", "2020-01-01", "2029-04-23"):
+    doe_cases += [
+        {"kva": 1500.0, "kind": "liquid", "doe_date": date},                                       # liquid 3-ph
+        {"kva": 1500.0, "kind": "liquid", "j_lv_a_mm2": 2.0, "j_hv_a_mm2": 2.0, "doe_date": date},  # lower loss
+        {"kva": 75.0, "kind": "dry", "hv_v": 480.0, "lv_v": 208.0, "doe_date": date},              # LV dry
+        {"kva": 1000.0, "kind": "dry", "hv_v": 13800.0, "lv_v": 480.0, "bil_kv": 95.0, "doe_date": date},  # MV dry
+    ]
+doe_cases += [
+    {"kva": 400.0, "kind": "liquid", "doe_date": "2029-04-23"},          # Table 6 300-500 kVA step, interpolated
+    {"kva": 1200.0, "kind": "liquid", "doe_date": "2020-01-01"},         # interpolated 1000-1500
+    {"kva": 1000.0, "kind": "liquid", "doe_date": "2030-01-01", "doe_submersible": True},   # Table 7
+    {"kva": 1000.0, "kind": "liquid", "doe_date": "2030-01-01", "doe_submersible": False},  # Table 6
+    {"kva": 1500.0, "kind": "dry", "hv_v": 480.0, "lv_v": 208.0, "doe_date": "2020-01-01"},  # LV dry not in table
+    {"kva": 112.5, "kind": "dry", "hv_v": 600.0, "lv_v": 208.0, "doe_date": "2020-01-01"},
+    {"kva": 500.0, "kind": "dry", "hv_v": 4160.0, "lv_v": 480.0, "bil_kv": 30.0, "doe_date": "2020-01-01"},
+    {"kva": 500.0, "kind": "dry", "hv_v": 34500.0, "lv_v": 480.0, "bil_kv": 150.0, "doe_date": "2020-01-01"},
+    {"kva": 75.0, "kind": "dry", "hv_v": 34500.0, "lv_v": 480.0, "bil_kv": 150.0, "doe_date": "2020-01-01"},  # blank
+    {"kva": 500.0, "kind": "dry", "hv_v": 4160.0, "lv_v": 480.0, "bil_kv": 10.0, "doe_date": "2020-01-01"},   # BIL < 20
+    {"kva": 500.0, "kind": "dry", "hv_v": 4160.0, "lv_v": 480.0, "doe_date": "2020-01-01"},   # BIL missing
+    {"kva": 1500.0, "kind": "liquid", "doe_date": "2009-12-31"},         # before the first window
+    {"kva": 7500.0, "kind": "liquid", "hv_v": 34500.0, "doe_date": "2020-01-01"},   # outside 431.192 kVA range
+    {"kva": 1500.0, "kind": "liquid", "frequency_hz": 50.0, "doe_date": "2020-01-01"},
+    {"kva": 1500.0, "kind": "liquid", "doe_date": "2020-13"},            # bad date
+]
+for e in doe_cases:
+    vectors.append(run("design", e))
+statuses = {v["result"]["doe"]["status"] for v in vectors if "result" in v}
+assert {"pass", "fail", "not_in_table", "needs_input", "not_covered"} <= statuses, statuses
+
+# Direct doe_efficiency_check calls (single-phase rows, all categories and windows; not reachable from the
+# 3-phase design).
+doe_direct = []
+for args, kw in [
+    (("liquid", 1, 50.0, None, 99.05, "2020-01-01"), {}),
+    (("liquid", 1, 60.0, None, 99.2, "2029-04-23"), {}),
+    (("liquid", 1, 5.0, None, 99.2, "2020-01-01"), {}),
+    (("lv_dry", 1, 60.0, None, 98.5, "2020-01-01"), {}),
+    (("lv_dry", 1, 333.0, None, 99.3, "2012-01-01"), {}),
+    (("lv_dry", 1, 500.0, None, 99.3, "2030-01-01"), {}),
+    (("lv_dry", 3, 75.0, None, 98.0, "2006-12-31"), {}),
+    (("mv_dry", 1, 15.0, 110.0, 99.0, "2020-01-01"), {}),
+    (("mv_dry", 1, 60.0, 110.0, 99.0, "2020-01-01"), {}),
+    (("mv_dry", 1, 100.0, 45.0, 98.9, "2010-01-01"), {}),
+    (("mv_dry", 3, 4000.0, 60.0, 99.5, "2029-04-23"), {}),
+    (("mv_dry", 3, 4000.0, 60.0, 99.5, "2020-01-01"), {}),
+    (("liquid", 3, 1000.0, None, None, "2020-01-01"), {}),
+    (("liquid", 3, 1000.0, None, 99.5, None), {"today": "2029-04-23"}),
+    (("liquid", 3, 1000.0, None, 99.5, "2020-01-01"), {"primary_v": 46000.0}),
+    (("liquid", 3, 1000.0, None, 99.5, "2020-01-01"), {"secondary_v": 4160.0}),
+    (("oil", 3, 1000.0, None, 99.5, "2020-01-01"), {}),
+    (("liquid", 2, 1000.0, None, 99.5, "2020-01-01"), {}),
+    (("liquid", 3, 0.0, None, 99.5, "2020-01-01"), {}),
+]:
+    try:
+        doe_direct.append({"args": list(args), "kwargs": kw, "result": clean(doe_efficiency_check(*args, **kw))})
+    except ValueError as e:
+        doe_direct.append({"args": list(args), "kwargs": kw, "error": str(e)})
+
 # Target %Z tuning (bisection; the JS test uses a looser tolerance here).
 for kva, hv, lv, z in [(75, 4160, 208, 3.0), (300, 13800, 480, 5.0), (500, 13800, 480, 5.75),
                        (1000, 13800, 480, 5.75), (1500, 13800, 480, 5.75), (1500, 13800, 480, 6.5),
@@ -119,6 +185,7 @@ vectors.append(run("tuned", {"kva": 2000.0, "conductor": "Al", "k_et": 0.37, "ta
 # The shipped example.
 ex = json.loads((EXAMPLES / "transformer-1500kva.json").read_text())
 ex_inputs = {k: float(v) for k, v in ex["inputs"].items()}
+ex_inputs["doe_date"] = DOE_DATE
 example = run("tuned" if ex["options"].get("tune_impedance") else "design", ex_inputs)
 example["file"] = "examples/transformer-1500kva.json"
 
@@ -134,7 +201,7 @@ except ValueError as e:
     helpers["next_standard_kva_error"] = [10001, str(e)]
 
 out = {"_meta": {"source": "pecalc.transformer (Python)", "generator": "scripts/gen_golden_transformer.py"},
-       "vectors": vectors, "example": example, "helpers": helpers}
+       "vectors": vectors, "example": example, "helpers": helpers, "doe_direct": doe_direct}
 dest = Path(__file__).resolve().parent.parent / "tests/golden/transformer.json"
 dest.write_text(json.dumps(out, indent=1) + "\n")
 n_err = sum("error" in v for v in vectors)

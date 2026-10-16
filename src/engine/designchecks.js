@@ -11,7 +11,7 @@
 import { EQUIPMENT, CONNECTORS, NODE_KINDS, connectorTerminalC } from "./system.js";
 import { cableBusInput, analyse as analyseCableBus } from "./pecalc/cablebus.js";
 import { busInput, analyseBus } from "./pecalc/switchgear.js";
-import { transformerInput, design_for_impedance } from "./pecalc/transformer.js";
+import { transformerInput, design_for_impedance, DOE_CHECK_NAME } from "./pecalc/transformer.js";
 
 // Typical MV cable insulation walls (mm) by system voltage, 100 % level (ICEA S-93-639 class values,
 // typical — not a specific cable). Used only when the run has no cable construction of its own.
@@ -89,7 +89,10 @@ export function designChecks(sys, analysis) {
     } else if (e.type === "transformer") {
       try {
         const res = transformerCheck(e, util?.mva_sc);
-        out[e.id] = { kind: "transformer", passed: res.passed, checks: res.checks, summary: `${res.impedance.z_pct} %Z · η ${res.performance.efficiency_pct["100%"]} % · ${((res.losses.no_load_w + res.losses.load_loss_w) / 1000).toFixed(1)} kW losses`, result: res };
+        // The DOE 10 CFR 431.196 efficiency check needs the real unit's losses, manufacture date and BIL; the
+        // system-level auto design has none of these, so it is left to the Transformer workspace.
+        const checks = res.checks.filter((c) => c.name !== DOE_CHECK_NAME);
+        out[e.id] = { kind: "transformer", passed: checks.every((c) => c.passed), checks, summary: `${res.impedance.z_pct} %Z · η ${res.performance.efficiency_pct["100%"]} % · ${((res.losses.no_load_w + res.losses.load_loss_w) / 1000).toFixed(1)} kW losses`, result: res };
       } catch (err) { out[e.id] = { kind: "transformer", passed: false, error: err.message, checks: [] }; }
     }
   }

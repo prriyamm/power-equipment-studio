@@ -1,0 +1,1569 @@
+{
+ "_meta": {
+  "source": "10 CFR Part 431 Subpart K: 431.192 (definitions), 431.196 (energy conservation standards), Appendix A (test method); eCFR versioner API",
+  "source_url": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196",
+  "definitions_url": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.192",
+  "appendix_a_url": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&subpart=K",
+  "ecfr_snapshot_date": "2026-10-14",
+  "retrieved": "2026-10-16",
+  "edition": "eCFR current to 2026-10-14; latest substantive amendment of 431.196 dated 2024-04-22 (final rule 89 FR 29834, FR Doc. 2024-07480, published 2024-04-22, effective 2024-07-08)",
+  "final_rule_url": "https://www.govinfo.gov/content/pkg/FR-2024-04-22/html/2024-07480.htm",
+  "status": "VERIFIED",
+  "units": "minimum efficiency, percent, at the per-unit test load; kVA = nameplate rating; BIL in kV",
+  "note": "All table values were parsed from the eCFR XML of 431.196 and checked against a text dump of the same XML. The 2029 tables (a)(3), (b)(3), (b)(4), (c)(3) were also compared with the regulatory text printed in the final rule (89 FR 29834) and match. Oddity recorded, not corrected: in Table 6 to paragraph (b)(3) (liquid-immersed, not submersible, on or after 2029-04-23) the three-phase 500 kVA minimum (99.38) is lower than 300 kVA (99.42), and 3750/5000 kVA (99.54/99.53) are lower than 2500 kVA (99.55). The final rule prints the same values; its preamble splits three-phase liquid-immersed units into equipment class 2A (15 to less than 500 kVA, about a 20 percent loss reduction) and 2B (500 kVA and above, about 5 percent), which explains the step. Linear interpolation between 300 and 500 kVA therefore gives values between 99.42 and 99.38, as the interpolation text of the rule requires. The eCFR captions the 2016 low-voltage dry-type table as Table 2 to Paragraph (a)(1) although it sits in paragraph (a)(2); it is recorded here as the (a)(2) table. Table 7 (submersible, 2029) has the same values as Table 5. Paragraph (d) (mining transformers) is reserved: no standard. Blank cells in the medium-voltage dry-type tables are null: the rule gives no minimum there. Pre-2016 tables carry no table number in the eCFR. A 2026 DOE review of the 2029 levels has been reported in secondary sources only; the eCFR snapshot above still shows the 2029 tables."
+ },
+ "scope": {
+  "citation": "10 CFR 431.192, definitions of distribution transformer, liquid-immersed, low-voltage dry-type and medium-voltage dry-type distribution transformer",
+  "status": "VERIFIED",
+  "max_input_v": 34500,
+  "max_output_v": 600,
+  "frequency_hz": 60,
+  "kva_range": {
+   "liquid": [
+    10,
+    5000
+   ],
+   "dry": [
+    15,
+    5000
+   ]
+  },
+  "lv_dry_max_input_v": 600,
+  "mv_dry_primary_v": [
+   601,
+   34500
+  ],
+  "exclusions_note": "431.192 excludes autotransformers, drive (isolation), grounding, machine-tool (control), nonventilated, rectifier, regulating, sealed, special-impedance, testing, UPS and welding transformers, and units with a tap range of 20 percent or more (paraphrased)."
+ },
+ "interpolation": {
+  "method": "linear",
+  "citation": "10 CFR 431.196 (a)(1)-(a)(3), (b)(1)-(b)(4), (c)(1)-(c)(3): each paragraph sets the minimum for a kVA rating not in the table by linear interpolation of the kVA and efficiency values immediately above and below that rating",
+  "status": "VERIFIED",
+  "outside_table": "The rule gives no extrapolation: a rating below the smallest or above the largest tabulated kVA (or next to a blank cell) has no minimum determinable from the table."
+ },
+ "test_procedure": {
+  "citation": "10 CFR 431 Subpart K, Appendix A: section 2.1 Table 2.1 (per-unit load), section 2.2 Table 2.2 (reference temperature), sections 5.1-5.3 (efficiency)",
+  "status": "VERIFIED",
+  "per_unit_load": {
+   "liquid": 0.5,
+   "mv_dry": 0.5,
+   "lv_dry": 0.35
+  },
+  "reference_temp_c": {
+   "liquid": {
+    "no_load": 20,
+    "load": 55
+   },
+   "mv_dry": {
+    "no_load": 20,
+    "load": 75
+   },
+   "lv_dry": {
+    "no_load": 20,
+    "load": 75
+   }
+  },
+  "efficiency_basis": "Appendix A 5.1-5.3: output Pos = nameplate apparent power x per-unit load; efficiency = Pos / (Pos + no-load loss + load loss adjusted to the per-unit load). The output is the kVA product itself, which is a unity power factor basis. The equation images (5-1 to 5-3) could not be read through the API (graphics redirect to an unblock page, not followed); the variable definitions were read.",
+  "efficiency_resolution_pct": 0.01
+ },
+ "categories": {
+  "lv_dry": {
+   "label": "Low-voltage dry-type",
+   "paragraph": "10 CFR 431.196(a)",
+   "test_load_pu": 0.35,
+   "windows": [
+    {
+     "id": "(a)(1)",
+     "paragraph": "10 CFR 431.196(a)(1)",
+     "table": "untitled table in paragraph (a)(1)",
+     "from": "2007-01-01",
+     "to": "2016-01-01",
+     "applies_to": "all",
+     "single_phase": [
+      [
+       15.0,
+       97.7
+      ],
+      [
+       25.0,
+       98.0
+      ],
+      [
+       37.5,
+       98.2
+      ],
+      [
+       50.0,
+       98.3
+      ],
+      [
+       75.0,
+       98.5
+      ],
+      [
+       100.0,
+       98.6
+      ],
+      [
+       167.0,
+       98.7
+      ],
+      [
+       250.0,
+       98.8
+      ],
+      [
+       333.0,
+       98.9
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       97.0
+      ],
+      [
+       30.0,
+       97.5
+      ],
+      [
+       45.0,
+       97.7
+      ],
+      [
+       75.0,
+       98.0
+      ],
+      [
+       112.5,
+       98.2
+      ],
+      [
+       150.0,
+       98.3
+      ],
+      [
+       225.0,
+       98.5
+      ],
+      [
+       300.0,
+       98.6
+      ],
+      [
+       500.0,
+       98.7
+      ],
+      [
+       750.0,
+       98.8
+      ],
+      [
+       1000.0,
+       98.9
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(a)(2)",
+     "paragraph": "10 CFR 431.196(a)(2)",
+     "table": "Table 2 (captioned in the eCFR as Table 2 to Paragraph (a)(1))",
+     "from": "2016-01-01",
+     "to": "2029-04-23",
+     "applies_to": "all",
+     "single_phase": [
+      [
+       15.0,
+       97.7
+      ],
+      [
+       25.0,
+       98.0
+      ],
+      [
+       37.5,
+       98.2
+      ],
+      [
+       50.0,
+       98.3
+      ],
+      [
+       75.0,
+       98.5
+      ],
+      [
+       100.0,
+       98.6
+      ],
+      [
+       167.0,
+       98.7
+      ],
+      [
+       250.0,
+       98.8
+      ],
+      [
+       333.0,
+       98.9
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       97.89
+      ],
+      [
+       30.0,
+       98.23
+      ],
+      [
+       45.0,
+       98.4
+      ],
+      [
+       75.0,
+       98.6
+      ],
+      [
+       112.5,
+       98.74
+      ],
+      [
+       150.0,
+       98.83
+      ],
+      [
+       225.0,
+       98.94
+      ],
+      [
+       300.0,
+       99.02
+      ],
+      [
+       500.0,
+       99.14
+      ],
+      [
+       750.0,
+       99.23
+      ],
+      [
+       1000.0,
+       99.28
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(a)(3)",
+     "paragraph": "10 CFR 431.196(a)(3)",
+     "table": "Table 3 to paragraph (a)(3)",
+     "from": "2029-04-23",
+     "to": null,
+     "applies_to": "all",
+     "single_phase": [
+      [
+       15.0,
+       98.39
+      ],
+      [
+       25.0,
+       98.6
+      ],
+      [
+       37.5,
+       98.74
+      ],
+      [
+       50.0,
+       98.81
+      ],
+      [
+       75.0,
+       98.95
+      ],
+      [
+       100.0,
+       99.02
+      ],
+      [
+       167.0,
+       99.09
+      ],
+      [
+       250.0,
+       99.16
+      ],
+      [
+       333.0,
+       99.23
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       98.31
+      ],
+      [
+       30.0,
+       98.58
+      ],
+      [
+       45.0,
+       98.72
+      ],
+      [
+       75.0,
+       98.88
+      ],
+      [
+       112.5,
+       98.99
+      ],
+      [
+       150.0,
+       99.06
+      ],
+      [
+       225.0,
+       99.15
+      ],
+      [
+       300.0,
+       99.22
+      ],
+      [
+       500.0,
+       99.31
+      ],
+      [
+       750.0,
+       99.38
+      ],
+      [
+       1000.0,
+       99.42
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    }
+   ]
+  },
+  "liquid": {
+   "label": "Liquid-immersed",
+   "paragraph": "10 CFR 431.196(b)",
+   "test_load_pu": 0.5,
+   "windows": [
+    {
+     "id": "(b)(1)",
+     "paragraph": "10 CFR 431.196(b)(1)",
+     "table": "untitled table in paragraph (b)(1)",
+     "from": "2010-01-01",
+     "to": "2016-01-01",
+     "applies_to": "all",
+     "single_phase": [
+      [
+       10.0,
+       98.62
+      ],
+      [
+       15.0,
+       98.76
+      ],
+      [
+       25.0,
+       98.91
+      ],
+      [
+       37.5,
+       99.01
+      ],
+      [
+       50.0,
+       99.08
+      ],
+      [
+       75.0,
+       99.17
+      ],
+      [
+       100.0,
+       99.23
+      ],
+      [
+       167.0,
+       99.25
+      ],
+      [
+       250.0,
+       99.32
+      ],
+      [
+       333.0,
+       99.36
+      ],
+      [
+       500.0,
+       99.42
+      ],
+      [
+       667.0,
+       99.46
+      ],
+      [
+       833.0,
+       99.49
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       98.36
+      ],
+      [
+       30.0,
+       98.62
+      ],
+      [
+       45.0,
+       98.76
+      ],
+      [
+       75.0,
+       98.91
+      ],
+      [
+       112.5,
+       99.01
+      ],
+      [
+       150.0,
+       99.08
+      ],
+      [
+       225.0,
+       99.17
+      ],
+      [
+       300.0,
+       99.23
+      ],
+      [
+       500.0,
+       99.25
+      ],
+      [
+       750.0,
+       99.32
+      ],
+      [
+       1000.0,
+       99.36
+      ],
+      [
+       1500.0,
+       99.42
+      ],
+      [
+       2000.0,
+       99.46
+      ],
+      [
+       2500.0,
+       99.49
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(b)(2)",
+     "paragraph": "10 CFR 431.196(b)(2)",
+     "table": "Table 5 to paragraph (b)(2)",
+     "from": "2016-01-01",
+     "to": "2029-04-23",
+     "applies_to": "all",
+     "single_phase": [
+      [
+       10.0,
+       98.7
+      ],
+      [
+       15.0,
+       98.82
+      ],
+      [
+       25.0,
+       98.95
+      ],
+      [
+       37.5,
+       99.05
+      ],
+      [
+       50.0,
+       99.11
+      ],
+      [
+       75.0,
+       99.19
+      ],
+      [
+       100.0,
+       99.25
+      ],
+      [
+       167.0,
+       99.33
+      ],
+      [
+       250.0,
+       99.39
+      ],
+      [
+       333.0,
+       99.43
+      ],
+      [
+       500.0,
+       99.49
+      ],
+      [
+       667.0,
+       99.52
+      ],
+      [
+       833.0,
+       99.55
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       98.65
+      ],
+      [
+       30.0,
+       98.83
+      ],
+      [
+       45.0,
+       98.92
+      ],
+      [
+       75.0,
+       99.03
+      ],
+      [
+       112.5,
+       99.11
+      ],
+      [
+       150.0,
+       99.16
+      ],
+      [
+       225.0,
+       99.23
+      ],
+      [
+       300.0,
+       99.27
+      ],
+      [
+       500.0,
+       99.35
+      ],
+      [
+       750.0,
+       99.4
+      ],
+      [
+       1000.0,
+       99.43
+      ],
+      [
+       1500.0,
+       99.48
+      ],
+      [
+       2000.0,
+       99.51
+      ],
+      [
+       2500.0,
+       99.53
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(b)(3)",
+     "paragraph": "10 CFR 431.196(b)(3)",
+     "table": "Table 6 to paragraph (b)(3)",
+     "from": "2029-04-23",
+     "to": null,
+     "applies_to": "non_submersible",
+     "single_phase": [
+      [
+       10.0,
+       98.77
+      ],
+      [
+       15.0,
+       98.88
+      ],
+      [
+       25.0,
+       99.0
+      ],
+      [
+       37.5,
+       99.1
+      ],
+      [
+       50.0,
+       99.15
+      ],
+      [
+       75.0,
+       99.23
+      ],
+      [
+       100.0,
+       99.29
+      ],
+      [
+       167.0,
+       99.46
+      ],
+      [
+       250.0,
+       99.51
+      ],
+      [
+       333.0,
+       99.54
+      ],
+      [
+       500.0,
+       99.59
+      ],
+      [
+       667.0,
+       99.62
+      ],
+      [
+       833.0,
+       99.64
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       98.92
+      ],
+      [
+       30.0,
+       99.06
+      ],
+      [
+       45.0,
+       99.14
+      ],
+      [
+       75.0,
+       99.22
+      ],
+      [
+       112.5,
+       99.29
+      ],
+      [
+       150.0,
+       99.33
+      ],
+      [
+       225.0,
+       99.38
+      ],
+      [
+       300.0,
+       99.42
+      ],
+      [
+       500.0,
+       99.38
+      ],
+      [
+       750.0,
+       99.43
+      ],
+      [
+       1000.0,
+       99.46
+      ],
+      [
+       1500.0,
+       99.51
+      ],
+      [
+       2000.0,
+       99.53
+      ],
+      [
+       2500.0,
+       99.55
+      ],
+      [
+       3750.0,
+       99.54
+      ],
+      [
+       5000.0,
+       99.53
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(b)(4)",
+     "paragraph": "10 CFR 431.196(b)(4)",
+     "table": "Table 7 to paragraph (b)(4)",
+     "from": "2029-04-23",
+     "to": null,
+     "applies_to": "submersible",
+     "single_phase": [
+      [
+       10.0,
+       98.7
+      ],
+      [
+       15.0,
+       98.82
+      ],
+      [
+       25.0,
+       98.95
+      ],
+      [
+       37.5,
+       99.05
+      ],
+      [
+       50.0,
+       99.11
+      ],
+      [
+       75.0,
+       99.19
+      ],
+      [
+       100.0,
+       99.25
+      ],
+      [
+       167.0,
+       99.33
+      ],
+      [
+       250.0,
+       99.39
+      ],
+      [
+       333.0,
+       99.43
+      ],
+      [
+       500.0,
+       99.49
+      ],
+      [
+       667.0,
+       99.52
+      ],
+      [
+       833.0,
+       99.55
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       98.65
+      ],
+      [
+       30.0,
+       98.83
+      ],
+      [
+       45.0,
+       98.92
+      ],
+      [
+       75.0,
+       99.03
+      ],
+      [
+       112.5,
+       99.11
+      ],
+      [
+       150.0,
+       99.16
+      ],
+      [
+       225.0,
+       99.23
+      ],
+      [
+       300.0,
+       99.27
+      ],
+      [
+       500.0,
+       99.35
+      ],
+      [
+       750.0,
+       99.4
+      ],
+      [
+       1000.0,
+       99.43
+      ],
+      [
+       1500.0,
+       99.48
+      ],
+      [
+       2000.0,
+       99.51
+      ],
+      [
+       2500.0,
+       99.53
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    }
+   ]
+  },
+  "mv_dry": {
+   "label": "Medium-voltage dry-type",
+   "paragraph": "10 CFR 431.196(c)",
+   "test_load_pu": 0.5,
+   "bil_bands_kv": [
+    {
+     "id": "20-45 kV",
+     "min": 20,
+     "max": 45
+    },
+    {
+     "id": "46-95 kV",
+     "min": 46,
+     "max": 95
+    },
+    {
+     "id": ">=96 kV",
+     "min": 96,
+     "max": null
+    }
+   ],
+   "windows": [
+    {
+     "id": "(c)(1)",
+     "paragraph": "10 CFR 431.196(c)(1)",
+     "table": "untitled table in paragraph (c)(1)",
+     "from": "2010-01-01",
+     "to": "2016-01-01",
+     "applies_to": "all",
+     "single_phase": [
+      [
+       15.0,
+       [
+        98.1,
+        97.86,
+        null
+       ]
+      ],
+      [
+       25.0,
+       [
+        98.33,
+        98.12,
+        null
+       ]
+      ],
+      [
+       37.5,
+       [
+        98.49,
+        98.3,
+        null
+       ]
+      ],
+      [
+       50.0,
+       [
+        98.6,
+        98.42,
+        null
+       ]
+      ],
+      [
+       75.0,
+       [
+        98.73,
+        98.57,
+        98.53
+       ]
+      ],
+      [
+       100.0,
+       [
+        98.82,
+        98.67,
+        98.63
+       ]
+      ],
+      [
+       167.0,
+       [
+        98.96,
+        98.83,
+        98.8
+       ]
+      ],
+      [
+       250.0,
+       [
+        99.07,
+        98.95,
+        98.91
+       ]
+      ],
+      [
+       333.0,
+       [
+        99.14,
+        99.03,
+        98.99
+       ]
+      ],
+      [
+       500.0,
+       [
+        99.22,
+        99.12,
+        99.09
+       ]
+      ],
+      [
+       667.0,
+       [
+        99.27,
+        99.18,
+        99.15
+       ]
+      ],
+      [
+       833.0,
+       [
+        99.31,
+        99.23,
+        99.2
+       ]
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       [
+        97.5,
+        97.18,
+        null
+       ]
+      ],
+      [
+       30.0,
+       [
+        97.9,
+        97.63,
+        null
+       ]
+      ],
+      [
+       45.0,
+       [
+        98.1,
+        97.86,
+        null
+       ]
+      ],
+      [
+       75.0,
+       [
+        98.33,
+        98.12,
+        null
+       ]
+      ],
+      [
+       112.5,
+       [
+        98.49,
+        98.3,
+        null
+       ]
+      ],
+      [
+       150.0,
+       [
+        98.6,
+        98.42,
+        null
+       ]
+      ],
+      [
+       225.0,
+       [
+        98.73,
+        98.57,
+        98.53
+       ]
+      ],
+      [
+       300.0,
+       [
+        98.82,
+        98.67,
+        98.63
+       ]
+      ],
+      [
+       500.0,
+       [
+        98.96,
+        98.83,
+        98.8
+       ]
+      ],
+      [
+       750.0,
+       [
+        99.07,
+        98.95,
+        98.91
+       ]
+      ],
+      [
+       1000.0,
+       [
+        99.14,
+        99.03,
+        98.99
+       ]
+      ],
+      [
+       1500.0,
+       [
+        99.22,
+        99.12,
+        99.09
+       ]
+      ],
+      [
+       2000.0,
+       [
+        99.27,
+        99.18,
+        99.15
+       ]
+      ],
+      [
+       2500.0,
+       [
+        99.31,
+        99.23,
+        99.2
+       ]
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(c)(2)",
+     "paragraph": "10 CFR 431.196(c)(2)",
+     "table": "Table 9 to paragraph (c)(2)",
+     "from": "2016-01-01",
+     "to": "2029-04-23",
+     "applies_to": "all",
+     "single_phase": [
+      [
+       15.0,
+       [
+        98.1,
+        97.86,
+        null
+       ]
+      ],
+      [
+       25.0,
+       [
+        98.33,
+        98.12,
+        null
+       ]
+      ],
+      [
+       37.5,
+       [
+        98.49,
+        98.3,
+        null
+       ]
+      ],
+      [
+       50.0,
+       [
+        98.6,
+        98.42,
+        null
+       ]
+      ],
+      [
+       75.0,
+       [
+        98.73,
+        98.57,
+        98.53
+       ]
+      ],
+      [
+       100.0,
+       [
+        98.82,
+        98.67,
+        98.63
+       ]
+      ],
+      [
+       167.0,
+       [
+        98.96,
+        98.83,
+        98.8
+       ]
+      ],
+      [
+       250.0,
+       [
+        99.07,
+        98.95,
+        98.91
+       ]
+      ],
+      [
+       333.0,
+       [
+        99.14,
+        99.03,
+        98.99
+       ]
+      ],
+      [
+       500.0,
+       [
+        99.22,
+        99.12,
+        99.09
+       ]
+      ],
+      [
+       667.0,
+       [
+        99.27,
+        99.18,
+        99.15
+       ]
+      ],
+      [
+       833.0,
+       [
+        99.31,
+        99.23,
+        99.2
+       ]
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       [
+        97.5,
+        97.18,
+        null
+       ]
+      ],
+      [
+       30.0,
+       [
+        97.9,
+        97.63,
+        null
+       ]
+      ],
+      [
+       45.0,
+       [
+        98.1,
+        97.86,
+        null
+       ]
+      ],
+      [
+       75.0,
+       [
+        98.33,
+        98.13,
+        null
+       ]
+      ],
+      [
+       112.5,
+       [
+        98.52,
+        98.36,
+        null
+       ]
+      ],
+      [
+       150.0,
+       [
+        98.65,
+        98.51,
+        null
+       ]
+      ],
+      [
+       225.0,
+       [
+        98.82,
+        98.69,
+        98.57
+       ]
+      ],
+      [
+       300.0,
+       [
+        98.93,
+        98.81,
+        98.69
+       ]
+      ],
+      [
+       500.0,
+       [
+        99.09,
+        98.99,
+        98.89
+       ]
+      ],
+      [
+       750.0,
+       [
+        99.21,
+        99.12,
+        99.02
+       ]
+      ],
+      [
+       1000.0,
+       [
+        99.28,
+        99.2,
+        99.11
+       ]
+      ],
+      [
+       1500.0,
+       [
+        99.37,
+        99.3,
+        99.21
+       ]
+      ],
+      [
+       2000.0,
+       [
+        99.43,
+        99.36,
+        99.28
+       ]
+      ],
+      [
+       2500.0,
+       [
+        99.47,
+        99.41,
+        99.33
+       ]
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    },
+    {
+     "id": "(c)(3)",
+     "paragraph": "10 CFR 431.196(c)(3)",
+     "table": "Table 10 to paragraph (c)(3)",
+     "from": "2029-04-23",
+     "to": null,
+     "applies_to": "all",
+     "single_phase": [
+      [
+       15.0,
+       [
+        98.29,
+        98.07,
+        null
+       ]
+      ],
+      [
+       25.0,
+       [
+        98.5,
+        98.31,
+        null
+       ]
+      ],
+      [
+       37.5,
+       [
+        98.64,
+        98.47,
+        null
+       ]
+      ],
+      [
+       50.0,
+       [
+        98.74,
+        98.58,
+        null
+       ]
+      ],
+      [
+       75.0,
+       [
+        98.86,
+        98.71,
+        98.68
+       ]
+      ],
+      [
+       100.0,
+       [
+        98.94,
+        98.8,
+        98.77
+       ]
+      ],
+      [
+       167.0,
+       [
+        99.06,
+        98.95,
+        98.92
+       ]
+      ],
+      [
+       250.0,
+       [
+        99.16,
+        99.06,
+        99.02
+       ]
+      ],
+      [
+       333.0,
+       [
+        99.23,
+        99.13,
+        99.09
+       ]
+      ],
+      [
+       500.0,
+       [
+        99.3,
+        99.21,
+        99.18
+       ]
+      ],
+      [
+       667.0,
+       [
+        99.34,
+        99.26,
+        99.24
+       ]
+      ],
+      [
+       833.0,
+       [
+        99.38,
+        99.31,
+        99.28
+       ]
+      ]
+     ],
+     "three_phase": [
+      [
+       15.0,
+       [
+        97.75,
+        97.46,
+        null
+       ]
+      ],
+      [
+       30.0,
+       [
+        98.11,
+        97.87,
+        null
+       ]
+      ],
+      [
+       45.0,
+       [
+        98.29,
+        98.07,
+        null
+       ]
+      ],
+      [
+       75.0,
+       [
+        98.5,
+        98.32,
+        null
+       ]
+      ],
+      [
+       112.5,
+       [
+        98.67,
+        98.52,
+        null
+       ]
+      ],
+      [
+       150.0,
+       [
+        98.79,
+        98.66,
+        null
+       ]
+      ],
+      [
+       225.0,
+       [
+        98.94,
+        98.82,
+        98.71
+       ]
+      ],
+      [
+       300.0,
+       [
+        99.04,
+        98.93,
+        98.82
+       ]
+      ],
+      [
+       500.0,
+       [
+        99.18,
+        99.09,
+        99.0
+       ]
+      ],
+      [
+       750.0,
+       [
+        99.29,
+        99.21,
+        99.12
+       ]
+      ],
+      [
+       1000.0,
+       [
+        99.35,
+        99.28,
+        99.2
+       ]
+      ],
+      [
+       1500.0,
+       [
+        99.43,
+        99.37,
+        99.29
+       ]
+      ],
+      [
+       2000.0,
+       [
+        99.49,
+        99.42,
+        99.35
+       ]
+      ],
+      [
+       2500.0,
+       [
+        99.52,
+        99.47,
+        99.4
+       ]
+      ],
+      [
+       3750.0,
+       [
+        99.5,
+        99.44,
+        99.4
+       ]
+      ],
+      [
+       5000.0,
+       [
+        99.48,
+        99.43,
+        99.39
+       ]
+      ]
+     ],
+     "status": "VERIFIED",
+     "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+    }
+   ]
+  }
+ }
+}
