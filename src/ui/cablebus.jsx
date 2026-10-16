@@ -15,6 +15,7 @@ import { tableInfo } from "../engine/pecalc/ampacity.js";
 import { ReportButton } from "./reportButton.jsx";
 import { PushToSystem } from "./systemPush.jsx";
 import { cableBusDesign } from "../engine/designPush.js";
+import { connectorTerminalC } from "../engine/system.js";
 
 const CSS = `
 .cb-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
@@ -649,6 +650,8 @@ export function CableBusWorkspace({ goTo }) {
       if (c.sets) { n.conductors_per_phase = c.sets; n.tiers = c.sets <= 3 ? 1 : c.sets % 2 === 0 ? 2 : c.sets % 3 === 0 ? 3 : 1; }
       if (c.length_ft) n.length_ft = c.length_ft;
       if (c.insulation_c && [60, 75, 90].includes(c.insulation_c)) { n.insulation_temp_c = c.insulation_c; n.terminal_temp_c = c.insulation_c; }
+      // LV: terminal rating per NEC 110.14(C) (marking, else 60/75 °C default), as the System design check uses
+      if (c.kind === "cablebus" && c.size && kv && kv <= 2) n.terminal_temp_c = connectorTerminalC(c)[0];
       if (current_a) n.current_a = Math.round(current_a);
       if (kv) n.voltage_v = Math.round(kv * 1000);
       n.enc_w = undefined; n.enc_h = undefined; n.enclosure_on = true;

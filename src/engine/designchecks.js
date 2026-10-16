@@ -8,7 +8,7 @@
  * thermal + bracing check at its rating and fault level, and every transformer
  * gets the preliminary design check at its rating.
  * ========================================================================== */
-import { EQUIPMENT, CONNECTORS, NODE_KINDS } from "./system.js";
+import { EQUIPMENT, CONNECTORS, NODE_KINDS, connectorTerminalC } from "./system.js";
 import { cableBusInput, analyse as analyseCableBus } from "./pecalc/cablebus.js";
 import { busInput, analyseBus } from "./pecalc/switchgear.js";
 import { transformerInput, design_for_impedance } from "./pecalc/transformer.js";
@@ -28,7 +28,9 @@ export function cableBusCheck(c, current_a, kv, fault_ka, xr) {
   const inp = {
     voltage_v: kv * 1000, current_a: Math.max(current_a, 1), length_m: (c.length_ft ?? 100) * 0.3048,
     material: c.material ?? "Cu", size: String(c.size ?? "750"), conductors_per_phase: sets, tiers: 1,
-    insulation_temp_c: c.insulation_c ?? 90, terminal_temp_c: Math.min(c.insulation_c ?? 90, 90),
+    insulation_temp_c: c.insulation_c ?? 90,
+    // NEC 110.14(C) terminal rating (marking or 60/75 C default) at LV, as the System loading uses (O10)
+    terminal_temp_c: kv > 2 ? Math.min(c.insulation_c ?? 90, 90) : connectorTerminalC({ kind: "cablebus", ...c, sets })[0],
     fault_ka: fault_ka ?? null, x_over_r: Math.min(Math.max(xr ?? 15, 2), 60),
   };
   if (kv > 2) Object.assign(inp, { insulation: "EPR", insulation_mm: mvInsulation(kv), shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "single_point" });

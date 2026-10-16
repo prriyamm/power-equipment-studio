@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { analyseSystem, EXAMPLE_SYSTEM } from "../src/engine/system.js";
-import { designChecks, gearBusCheck } from "../src/engine/designchecks.js";
+import { designChecks, gearBusCheck, cableBusCheck } from "../src/engine/designchecks.js";
 
 test("every cable bus run, switchgear bus and transformer in the example gets a passing design check", () => {
   const d = designChecks(EXAMPLE_SYSTEM, analyseSystem(EXAMPLE_SYSTEM));
@@ -31,4 +31,11 @@ test("regression: a cable bus fed from a transformer secondary is checked at the
   const d = designChecks(EXAMPLE_SYSTEM, analyseSystem(EXAMPLE_SYSTEM));
   assert.equal(d["CB-1"].result.input.voltage_v, 480);
   assert.equal(d["CB-2"].result.input.voltage_v, 4160);
+});
+
+test("O10: LV cable bus check uses the NEC 110.14(C) terminal rating, MV keeps the insulation rating", () => {
+  const c = { kind: "cablebus", size: "750", material: "Cu", sets: 4, insulation_c: 90, length_ft: 100 };
+  assert.equal(cableBusCheck(c, 1500, 0.48, 30, 10).input.terminal_temp_c, 75);
+  assert.equal(cableBusCheck({ ...c, terminal_c: 90 }, 1500, 0.48, 30, 10).input.terminal_temp_c, 90);
+  assert.equal(cableBusCheck(c, 300, 4.16, 30, 10).input.terminal_temp_c, 90);
 });
