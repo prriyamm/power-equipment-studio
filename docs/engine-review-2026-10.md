@@ -76,7 +76,7 @@ Update after the pecalc PR #9 / #10 port: several P rows below were fixed in the
 | P14 | pecalc/conductors.js:114 (conductors.py:128) | kp = 0.8 is the IEC 60287-1-1 value for dried-and-impregnated conductors. Extruded insulation uses kp = 1. | 500 kcmil Cu Rac +1.7 % with kp = 1. Table 9 gives 0.027 either way. | needs-standard |
 | P15 | pecalc/data/ampacity_nec.json | Al 8 AWG 60 °C = 35. Older editions list 30. | Every other 310.16/310.17 row checked matches. | fixed in pecalc #10 / ported: 30 A, from public reprints (data still UNVERIFIED). The CEC placeholder copy is unchanged. |
 | P16 | pecalc/sizing.js (sizing.py:116) | CEC 8-104 free-air continuous limits may be 70/85 % rather than 80/100 %. | CEC data is PLACEHOLDER. | needs-standard |
-| P17 | pecalc/cablebus.js | There is no adiabatic short-time withstand check for the conductor or shield (I²t = K²S²), and no mutual heating between stacked tiers. | Missing checks, not wrong formulas. | open |
+| P17 | pecalc/cablebus.js | There is no adiabatic short-time withstand check for the conductor or shield (I²t = K²S²), and no mutual heating between stacked tiers. | Missing checks, not wrong formulas. | conductor withstand added (pecalc #12 / web #31); shield withstand and tier mutual heating still open |
 
 ## Verified clean (spot list)
 

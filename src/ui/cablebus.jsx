@@ -54,7 +54,7 @@ const EXAMPLE = {
   voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 1,
   insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "both_ends",
   length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: 90, ampacity_method: "auto",
-  cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, x_over_r: 15,
+  cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15,
   enclosure_on: true, enc_w: 800, enc_h: 150, covers_continuous: false, max_vd_pct: 3,
 };
 const DESIGN_EXAMPLE = {
@@ -91,6 +91,7 @@ function toInput(f) {
   if (f.cable_ampacity_lambda1_ref) o.cable_ampacity_lambda1_ref = f.cable_ampacity_lambda1_ref;
   if (f.cable_od_mm) o.cable_od_mm = f.cable_od_mm;
   if (f.fault_ka) o.fault_ka = f.fault_ka;
+  if (f.fault_clearing_s) o.fault_clearing_s = f.fault_clearing_s;
   if (mv || calc) {
     o.insulation = f.insulation; o.insulation_mm = f.insulation_mm ?? cond.insulationMm(f.size);
     o.shield_mm = f.shield_mm; o.jacket_mm = f.jacket_mm;
@@ -123,7 +124,7 @@ function cableBusReport(f) {
   const i = res.input, info = tableInfo(i.code, "free_air");
   return {
     title: "Cable bus check", module: "cablebus", subtitle: `${i.voltage_v} V, ${i.current_a} A, ${i.conductors_per_phase} x ${i.size} ${i.material} per phase`,
-    inputs: kvRows(i, { voltage_v: "V", current_a: "A", length_m: "m", ambient_c: "C", fault_ka: "kA", max_vd_pct: "%", x_over_r: "" }),
+    inputs: kvRows(i, { voltage_v: "V", current_a: "A", length_m: "m", ambient_c: "C", fault_ka: "kA", fault_clearing_s: "s", max_vd_pct: "%", x_over_r: "" }),
     results: [
       { label: "Phase pattern", value: res.pattern }, { label: "Worst conductor loading", value: res.max_loading_pct, unit: "%" },
       { label: "Voltage drop", value: res.vd_pct, unit: "%" }, { label: "Conductor loss", value: res.conductor_loss_w, unit: "W" },
@@ -458,6 +459,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
             {num("length_ft", "Length", "ft", { hint: `${fmt(f.length_ft * FT, 1)} m` })}
             {num("ambient_c", "Ambient", "°C")}
             {num("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" })}
+            {num("fault_clearing_s", "Fault clearing time", "s", { optional: true, ph: "none", hint: "enables conductor withstand check" })}
             {num("x_over_r", "Fault X/R", "")}
           </div>
         </Section>

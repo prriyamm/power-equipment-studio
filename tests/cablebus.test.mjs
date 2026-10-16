@@ -262,6 +262,27 @@ test("drawing: SVG has 12 cables + 3 legend dots and the block material", () => 
   assert.ok(svg.includes("GPO-3"));
 });
 
+test("short-circuit withstand (pecalc #12): ICEA P-32-382 hand check, skipped without clearing time", () => {
+  // A = 3 x 750 000 = 2 250 000 cmil; Cu: K = 0.0297, T0 = 234; 90 -> 250 C; t = 0.5 s.
+  // 484 / 324 = 1.493827; log10 = 0.174300; 0.0297 x 0.174300 / 0.5 = 0.0103534; sqrt = 0.101752
+  // I = 2 250 000 x 0.101752 = 228 942 A = 228.94 kA.
+  const sc = (r) => r.checks.filter((c) => c.name === "Conductor short-circuit withstand");
+  const [c] = sc(cb.analyse(cb.cableBusInput({ fault_ka: 50, fault_clearing_s: 0.5 })));
+  assert.equal(c.clause, "ICEA P-32-382");
+  assert.equal(c.value, 228.94);
+  assert.ok(c.passed);
+  // 1 x 4/0 Cu (211 600 cmil), 1 s: 211 600 x sqrt(0.0051767) = 15.22 kA < 20 kA.
+  const r = cb.analyse(cb.cableBusInput({ size: "4/0", conductors_per_phase: 1, current_a: 300, fault_ka: 20,
+    fault_clearing_s: 1.0 }));
+  assert.equal(sc(r)[0].value, 15.22);
+  assert.equal(r.passed, false);
+  const skipped = cb.analyse(cb.cableBusInput({ fault_ka: 50 }));
+  assert.equal(sc(skipped).length, 0);
+  assert.ok(skipped.notes.includes("Conductor short-circuit withstand not checked: give fault_clearing_s."));
+  assert.throws(() => cb.analyse(cb.cableBusInput({ fault_ka: 50, fault_clearing_s: 0 })),
+    /fault_clearing_s must be greater than 0 s/);
+});
+
 test("drawing (Check tab path): one support block per tier and a tier-pitch dimension per tier gap", () => {
   const blockRects = (svg) => svg.split("\n").filter((l) => l.startsWith("<rect") && l.includes("fill='#e9b9a1'") && l.includes("rx='3'"));
   for (const tiers of [1, 2, 3]) {
