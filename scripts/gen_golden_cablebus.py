@@ -300,6 +300,43 @@ four = [
 for k, e in enumerate(four):
     vectors.append(run_analyse(e, svg_full=(k in (1, 4))))
 
+# 5b. Cable library (DLO 2000 V): standard-size DLO on the code table, non-standard sizes on the printed
+# free-air rating, the 1111 kcmil row with its unstated basis, and the refusals (voltage over rating etc.).
+DLO = dict(voltage_v=600.0, current_a=1200.0, conductors_per_phase=2, cable_type="dlo_2000v")
+dlo_cases = [
+    dict(DLO, size="4/0", cable_id="southwire_dlo_2000v:4/0"),                                   # table (standard size)
+    dict(DLO, size="4/0", cable_id="southwire_dlo_2000v:4/0", ampacity_method="datasheet"),       # printed 405 A
+    dict(DLO, size="4/0", cable_id="southwire_dlo_2000v:4/0", ampacity_method="calculated"),      # error
+    dict(DLO, size="2", cable_id="southwire_dlo_2000v:2", current_a=150.0, conductors_per_phase=1, ambient_c=50.0),
+    dict(DLO, size="8", cable_id="southwire_dlo_2000v:8", current_a=200.0),                       # parallel minimum fails
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         ambient_c=40.0),                                                                       # non-standard, datasheet
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         ambient_c=40.0, fault_ka=42.0, x_over_r=15.0, fault_clearing_s=0.5, length_m=61.0),
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         ambient_c=40.0, enclosure_width_mm=700.0, enclosure_height_mm=300.0, covers_continuous=True),
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         cable_ampacity_a=600.0, cable_ampacity_ambient_c=30.0, ambient_c=40.0),                   # user rating
+    dict(DLO, size="777.7", cable_id="southwire_dlo_2000v:777.7", current_a=2000.0, conductors_per_phase=3,
+         tiers=1, ambient_c=40.0),
+    dict(DLO, size="1111", cable_id="awc_dlo_2000v:1111", current_a=1500.0, conductors_per_phase=3,
+         ambient_c=40.0),                                                                       # basis not stated
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         voltage_v=2400.0),                                                                    # error: above 2000 V
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         material="Al"),                                                                       # error: copper only
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         insulation_temp_c=75),                                                                # error: 90 C only
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:9999", current_a=1500.0),              # error: unknown size
+    dict(DLO, size="444.4", current_a=1500.0),                                                   # error: no cable_id
+    dict(DLO, size="444.4", cable_id="southwire_dlo_2000v:444.4", current_a=1500.0, conductors_per_phase=3,
+         insulation_mm=2.41),                                                                  # error: construction given
+    dict(voltage_v=600.0, current_a=1200.0, conductors_per_phase=2, size="750", cable_type="standard",
+         cable_id="southwire_dlo_2000v:444.4"),                                                # error: id with standard
+]
+for k, e in enumerate(dlo_cases):
+    vectors.append(run_analyse(e, svg_full=(k == 5)))
+
 # 6. candidate_patterns
 patterns = []
 for n, t in itertools.product(range(1, 13), (1, 2, 3, 4, 6)):

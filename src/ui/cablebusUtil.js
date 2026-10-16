@@ -1,4 +1,37 @@
 /* Pure helpers for the Cable bus workspace (no DOM, no React): unit-tested in tests/cablebusUi.test.mjs. */
+import * as cond from "../engine/pecalc/conductors.js";
+import { libraryEntries, cableSpec } from "../engine/pecalc/cablebus.js";
+
+/* Cable type choices in the Check form. "dlo_2000v" takes its sizes from the cable library (data/dlo_cables.json). */
+export const CABLE_TYPE_CHOICES = [
+  ["standard", "Standard building wire"],
+  ["dlo_2000v", "DLO 2000 V (Southwire; AWC 1111 kcmil)"],
+  ["mv_construction", "Existing MV construction"],
+];
+export const DLO_DEFAULT_ID = "southwire_dlo_2000v:444.4";
+
+/* Conductor label and diameter for results and the 3D view: a library cable carries its own values. */
+export function conductorLabel(inp, cableData) { return cableData ? cableData.size_label : cond.sizeLabel(inp.size); }
+export function conductorDiameterMm(inp, cableData) { return cableData ? cableData.diameter_mm : cond.diameterMm(inp.size); }
+
+/* Library rows for the DLO size select. */
+export function libraryOptions() {
+  return libraryEntries().map((e) => ({ id: e.cable_id, label: `${e.size_label} · ${e.manufacturer}` }));
+}
+
+/* Form state after a cable type change. DLO forces copper, the 90 C rating and a non-calculated ampacity method
+   (the engine refuses calculated ampacity for library cables). Leaving DLO clears the library id. */
+export function applyCableType(f, type) {
+  if (type === "dlo_2000v") {
+    const id = f.cable_type === "dlo_2000v" && f.cable_id ? f.cable_id : DLO_DEFAULT_ID;
+    const spec = cableSpec(id);
+    return { ...f, cable_type: type, cable_id: id, size: spec.size, material: "Cu", insulation_temp_c: 90,
+      ampacity_method: f.ampacity_method === "calculated" ? "auto" : f.ampacity_method };
+  }
+  // Back to a building-wire size: a library size (e.g. 444.4) is not in the standard list, so use 750 kcmil.
+  const size = cond.SIZES.includes(f.size) ? f.size : "750";
+  return { ...f, cable_type: type, cable_id: null, size };
+}
 
 /* Stacked tiers the workspace offers. The engine lays out any number of tiers (candidate_patterns builds one
    row of complete A-B-C sets per tier); 4 is the limit asked for, not an engine limit. */

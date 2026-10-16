@@ -5,7 +5,7 @@
 const { useEffect, useRef, useState } = React;
 import { createViewer } from "./three/viewer.js";
 import { MM, scale, threeColor, gradientCss, std, boxMm, cylMm, addEdges, lineMm, labelEl, v3, plateWithHoles, disposeGroup } from "./three/parts.js";
-import * as cond from "../engine/pecalc/conductors.js";
+import { conductorDiameterMm } from "./cablebusUtil.js";
 import { fmt } from "./common.jsx";
 
 const PH_HEX = { A: 0xe05a4f, B: 0xe8c35a, C: 0x5aa0e0 };
@@ -48,7 +48,7 @@ const CSS = `
 `;
 
 function build(grp, viewer, inp, res, mode) {
-  const od = res.cable_od_mm, rows = res.conductors, dc = cond.diameterMm(res.input.size);
+  const od = res.cable_od_mm, rows = res.conductors, dc = conductorDiameterMm(res.input, res.cable_data);
   const xs = rows.map((r) => r.x_mm), ys = rows.map((r) => r.y_mm);
   const xc = (Math.min(...xs) + Math.max(...xs)) / 2, yc = (Math.min(...ys) + Math.max(...ys)) / 2;
   const w_in = inp.enclosure_width_mm || Math.max(...xs) - Math.min(...xs) + 2 * od + 50;

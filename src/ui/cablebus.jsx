@@ -6,7 +6,7 @@ import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, Check
 import { Chart, Bars, RefLine, PHASE_VAR } from "./charts/index.js";
 import { bus } from "./bus.js";
 import * as cond from "../engine/pecalc/conductors.js";
-import { analyse, cableBusInput, construction } from "../engine/pecalc/cablebus.js";
+import { analyse, cableBusInput, cableSpec, construction } from "../engine/pecalc/cablebus.js";
 import { designOptions, designRequest, designOptionLabel, BLOCK_MATERIALS } from "../engine/pecalc/cablebus_design.js";
 import { CableBus3D } from "./cablebus3d.jsx";
 import { cablebusSvg } from "../engine/pecalc/drawing.js";
@@ -18,7 +18,8 @@ import { cableBusDesign } from "../engine/designPush.js";
 import { connectorTerminalC } from "../engine/system.js";
 import { SheathSection, sheathReport } from "./cablebusSheath.jsx";
 import { FieldMap } from "./cablebusField.jsx";
-import { tierCompat, fittingTiers, TIER_CHOICES, COUNT_CHOICES } from "./cablebusUtil.js";
+import { tierCompat, fittingTiers, TIER_CHOICES, COUNT_CHOICES, CABLE_TYPE_CHOICES, conductorLabel, conductorDiameterMm,
+  libraryOptions, applyCableType } from "./cablebusUtil.js";
 import { SimulateTab, SIM_STATE, simReport } from "./cablebusSim.jsx";
 
 const CSS = `
@@ -57,6 +58,7 @@ const CSS = `
 /* Starting state: the 15 kV, 2000 A, 3 x 750 kcmil Cu EPR per phase example. */
 const EXAMPLE = {
   voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 1,
+  cable_type: "standard", cable_id: null,
   insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "both_ends",
   length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: 90, ampacity_method: "auto",
   cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15,
@@ -71,9 +73,14 @@ const DESIGN_EXAMPLE = {
 const FT = 0.3048;
 const SIZE_CHOICES = cond.SIZES.slice(cond.SIZES.indexOf("1/0"));
 const PH_COLOR = { A: "var(--ph-a)", B: "var(--ph-b)", C: "var(--ph-c)" };
+const LIB = libraryOptions();
+const AMP_OPTS = [["auto", "Auto"], ["table", "Code table (LV)"], ["datasheet", "Datasheet rating"], ["calculated", "Calculated (IEC 60287)"]];
 
 /* ------------------------------------------------------------ form -> engine input */
 function autoOd(f) {
+  if (f.cable_type === "dlo_2000v" && f.cable_id) {
+    try { return cableSpec(f.cable_id).od_mm; } catch { return null; }
+  }
   try {
     const base = cableBusInput({ size: f.size, voltage_v: f.voltage_v, material: f.material, insulation: f.insulation,
       insulation_mm: f.voltage_v > 2000 || f.ampacity_method === "calculated" ? f.insulation_mm ?? null : null,
@@ -84,12 +91,14 @@ function autoOd(f) {
 }
 
 function toInput(f) {
+  const lib = f.cable_type === "dlo_2000v";
   const mv = f.voltage_v > 2000;
   const calc = f.ampacity_method === "calculated";
   const o = {
-    voltage_v: f.voltage_v, current_a: f.current_a, size: f.size, material: f.material,
+    voltage_v: f.voltage_v, current_a: f.current_a, size: f.size, material: lib ? "Cu" : f.material,
+    cable_type: f.cable_type ?? "standard", cable_id: lib ? f.cable_id : null,
     conductors_per_phase: f.conductors_per_phase, tiers: f.tiers, length_m: f.length_ft * FT,
-    ambient_c: f.ambient_c, ampacity_method: f.ampacity_method, insulation_temp_c: f.insulation_temp_c,
+    ambient_c: f.ambient_c, ampacity_method: f.ampacity_method, insulation_temp_c: lib ? 90 : f.insulation_temp_c,
     terminal_temp_c: f.terminal_temp_c, max_vd_pct: f.max_vd_pct, x_over_r: f.x_over_r,
     shield_bonding: mv ? f.shield_bonding : "none", covers_continuous: f.covers_continuous,
   };
@@ -102,7 +111,7 @@ function toInput(f) {
     if (f.shield_section_ft) o.shield_section_length_m = f.shield_section_ft * FT;
     if (f.shield_voltage_limit_v) o.shield_voltage_limit_v = f.shield_voltage_limit_v;
   }
-  if (mv || calc) {
+  if (!lib && (mv || calc)) {
     o.insulation = f.insulation; o.insulation_mm = f.insulation_mm ?? cond.insulationMm(f.size);
     o.shield_mm = f.shield_mm; o.jacket_mm = f.jacket_mm;
   }
@@ -136,13 +145,15 @@ function cableBusReport(f, host) {
   const i = res.input, info = tableInfo(i.code, "free_air");
   const sr = sheathReport(res);
   return {
-    title: "Cable bus check", module: "cablebus", subtitle: `${i.voltage_v} V, ${i.current_a} A, ${i.conductors_per_phase} x ${i.size} ${i.material} per phase`,
+    title: "Cable bus check", module: "cablebus", subtitle: `${i.voltage_v} V, ${i.current_a} A, ${i.conductors_per_phase} x ${conductorLabel(i, res.cable_data)} ${i.material} per phase`,
     inputs: kvRows(i, { voltage_v: "V", current_a: "A", length_m: "m", ambient_c: "C", fault_ka: "kA", fault_clearing_s: "s", max_vd_pct: "%", x_over_r: "" }),
     results: [
       { label: "Phase pattern", value: res.pattern }, { label: "Worst conductor loading", value: res.max_loading_pct, unit: "%" },
       { label: "Voltage drop", value: res.vd_pct, unit: "%" }, { label: "Conductor loss", value: res.conductor_loss_w, unit: "W" },
       { label: "Shield loss", value: res.shield_loss_w, unit: "W" }, { label: "Enclosure loss", value: res.enclosure_loss_w, unit: "W" },
       { label: "Fault force", value: res.fault_force_lbf_per_ft, unit: "lbf/ft" }, { label: "Support load", value: res.support_load_lbf, unit: "lbf" },
+      ...(res.cable_data ? [{ label: "Cable (library)", value: res.cable_data.cable_id }, { label: "Cable OD", value: res.cable_od_mm, unit: "mm" },
+        { label: "Free-air rating used", value: res.ampacity_basis }] : []),
       ...sr.results,
     ],
     checks: checkRows(res.checks),
@@ -150,7 +161,9 @@ function cableBusReport(f, host) {
       rows: res.conductors.map((c) => [c.phase, c.tier, c.x_mm, c.current_a, c.share_pct, c.ampacity_a, c.loading_pct]) }, ...sr.tables],
     figures: [...(i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res, { tier_dims: true }) }] : []), ...reportFigures(host)],
     notes: [...res.notes, ...sr.notes],
-    dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }, ...sr.dataStatus],
+    dataStatus: [...(res.cable_data ? [{ table: `Cable library: ${res.cable_data.manufacturer} ${res.cable_data.series}, ${res.cable_data.size_label}`,
+      status: res.cable_data.status, source: `${res.cable_data.source_name} (${res.cable_data.source_url}; ${res.cable_data.source_date})` }] : []),
+      { table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }, ...sr.dataStatus],
   };
 }
 
@@ -223,7 +236,7 @@ function IsoBus({ inp, res }) {
   const lip = 10, tb = 25.4;
   const blockYs = [150, 150 + span, 150 + 2 * span];
   const cableRows = [...rows].sort((a, b) => bx(a) + bz(a) - (bx(b) + bz(b)));
-  const dc = cond.diameterMm(res.input.size);
+  const dc = conductorDiameterMm(res.input, res.cable_data);
 
   const cable = (r) => {
     const x = bx(r), z = bz(r);
@@ -303,7 +316,7 @@ function IsoBus({ inp, res }) {
           {/* support spacing dimension */}
           <g stroke="var(--muted)" fill="none"><line x1={dimA[0]} y1={dimA[1]} x2={dimB[0]} y2={dimB[1]} /></g>
           <text x={(dimA[0] + dimB[0]) / 2 + 10} y={(dimA[1] + dimB[1]) / 2 + 16} fontSize="12" fill="var(--muted)">{`supports every ${fmt(span, 0)} mm (${fmt(span / 25.4, 0)} in)`}</text>
-          <text x="24" y="22" fontSize="12" fill="var(--muted)">{`${res.input.conductors_per_phase} x ${cond.sizeLabel(res.input.size)} ${res.input.material} per phase, ${res.input.tiers} tier(s), ${fmt(W, 0)} x ${fmt(H, 0)} mm ventilated Al enclosure, cover cut away`}</text>
+          <text x="24" y="22" fontSize="12" fill="var(--muted)">{`${res.input.conductors_per_phase} x ${conductorLabel(res.input, res.cable_data)} ${res.input.material} per phase, ${res.input.tiers} tier(s), ${fmt(W, 0)} x ${fmt(H, 0)} mm ventilated Al enclosure, cover cut away`}</text>
         </svg>
       </div>
       <div className="cb-legend">
@@ -316,6 +329,38 @@ function IsoBus({ inp, res }) {
 }
 
 /* ------------------------------------------------------------ Check tab */
+/* Library cable used by the check: the manufacturer values behind each number (read-only). */
+function CableDataSection({ res }) {
+  const d = res.cable_data;
+  const rdc = d.rdc_ref
+    ? `${fmt(d.rdc_ref[0], 4)} ohm per 1000 ft at ${fmt(d.rdc_ref[1], 0)} °C (printed)`
+    : "not printed: calculated from area, stranding factor 1.02 (UNVERIFIED for Class I)";
+  const rows = [
+    ["Cable", `${d.cable_id} · ${d.manufacturer}, ${d.series}`, true],
+    ["Size and area", `${d.size_label} · ${fmt(d.area_cmil, 0)} cmil`],
+    ["Nominal OD", `${fmt(d.od_mm, 2)} mm (printed)`],
+    ["Insulation wall", `${fmt(d.insulation_mm, 2)} mm (printed)`],
+    ["Conductor diameter", `${fmt(d.diameter_mm, 2)} mm (${d.diameter_source === "printed" ? "printed" : "estimated, UNVERIFIED"})`],
+    ["DC resistance", rdc, true],
+    ["Printed free-air rating", `${fmt(d.ampacity_free_air_a, 0)} A at ${fmt(d.ampacity_ref_ambient_c, 0)} °C ambient, ${d.temp_c} °C conductor`],
+    ["Basis used in this check", res.ampacity_basis, true],
+    ["Source", `${d.source_name} · ${d.source_date}`, true],
+  ];
+  return (
+    <Section title="Cable data (library)" aside={<Pill tone={d.status === "MANUFACTURER" ? "accent" : "warn"}>{d.status}</Pill>}>
+      <div className="cb-fields">
+        {rows.map(([k, v, wide]) => (
+          <div key={k} className={wide ? "cb-wide" : undefined}>
+            <div className="label">{k}</div>
+            <div style={{ fontFamily: "var(--font-data)", fontSize: 12.5, color: "var(--fg)", overflowWrap: "anywhere" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div className="cb-note" style={{ marginTop: 8 }}>Read-only. Values are the manufacturer's printed numbers; see the Notes for the basis, gaps and warnings.</div>
+    </Section>
+  );
+}
+
 function Results({ inp, res }) {
   const n = res.input.conductors_per_phase;
   const minAmp = Math.min(...res.conductors.map((c) => c.ampacity_a));
@@ -348,6 +393,8 @@ function Results({ inp, res }) {
         <ChecksTable checks={res.checks} format={std} />
       </Section>
 
+      {res.cable_data && <CableDataSection res={res} />}
+
       <SheathSection res={res} />
 
       <div className="cb-two">
@@ -378,9 +425,9 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
       <NumField id={`cb-${k}`} value={f[k]} placeholder={o.ph} disabled={o.disabled} onCommit={set(k, o.optional)} />
     </Field>
   );
-  const pick = (k, label, opts, conv) => (
+  const pick = (k, label, opts, conv, disabled = false) => (
     <Field label={label}>
-      <select id={`cb-${k}`} className="num-input" value={f[k]} onChange={(e) => setF((s) => ({ ...s, [k]: conv ? conv(e.target.value) : e.target.value }))}>
+      <select id={`cb-${k}`} className="num-input" value={f[k]} disabled={disabled} onChange={(e) => setF((s) => ({ ...s, [k]: conv ? conv(e.target.value) : e.target.value }))}>
         {opts.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
       </select>
     </Field>
@@ -404,8 +451,23 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
         </Section>
         <Section title="Conductors">
           <div className="cb-fields">
-            {pick("size", "Size", SIZE_CHOICES.map((s) => [s, cond.sizeLabel(s)]))}
-            {pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]])}
+            <div className="cb-wide">
+              <Field label="Cable type">
+                <select id="cb-cable_type" className="num-input" value={f.cable_type} onChange={(e) => setF((s) => applyCableType(s, e.target.value))}>
+                  {CABLE_TYPE_CHOICES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                </select>
+              </Field>
+            </div>
+            {f.cable_type === "dlo_2000v"
+              ? (
+                <Field label="Size (library)" hint="manufacturer rows; non-standard sizes use the printed rating">
+                  <select id="cb-cable_id" className="num-input" value={f.cable_id} onChange={(e) => setF((s) => ({ ...s, cable_id: e.target.value, size: e.target.value.split(":")[1] }))}>
+                    {LIB.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                </Field>
+              )
+              : pick("size", "Size", SIZE_CHOICES.map((s) => [s, cond.sizeLabel(s)]))}
+            {pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]], undefined, f.cable_type === "dlo_2000v")}
             {pick("conductors_per_phase", "Conductors / phase", COUNT_CHOICES.map((n) => [n, String(n)]), Number)}
             {pick("tiers", "Tiers", TIER_CHOICES.map((t) => [t, String(t)]), Number)}
             {!tierFit.ok && (
@@ -417,9 +479,9 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
                 </div>
               </div>
             )}
-            {pick("insulation_temp_c", "Insulation rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number)}
+            {pick("insulation_temp_c", "Insulation rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number, f.cable_type === "dlo_2000v")}
             {pick("terminal_temp_c", "Termination rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number)}
-            {num("cable_od_mm", "Cable OD", "mm", { optional: true, ph: "from construction" })}
+            {num("cable_od_mm", "Cable OD", "mm", { optional: true, ph: f.cable_type === "dlo_2000v" ? "from cable library" : "from construction" })}
           </div>
         </Section>
         <Section title="Insulation, shield, jacket" aside={<span className="text-faint text-[12px]">{mv || calc ? "used" : "MV / calculated only"}</span>}>
@@ -437,7 +499,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
         </Section>
         <Section title="Ampacity">
           <div className="cb-fields">
-            {pick("ampacity_method", "Method", [["auto", "Auto"], ["table", "Code table (LV)"], ["datasheet", "Datasheet rating"], ["calculated", "Calculated (IEC 60287)"]])}
+            {pick("ampacity_method", "Method", f.cable_type === "dlo_2000v" ? AMP_OPTS.filter(([v]) => v !== "calculated") : AMP_OPTS)}
             {num("cable_ampacity_a", "Datasheet rating", "A / cable", { optional: true, ph: "none", hint: "free air, 40 °C" })}
             {num("cable_ampacity_lambda1_ref", "Datasheet shield λ1", "", { optional: true, ph: "0", disabled: !f.cable_ampacity_a || f.shield_bonding !== "both_ends", hint: "shield loss factor the rating already includes (0 = single-point / cross-bonded)" })}
             {num("max_vd_pct", "Voltage drop limit", "%")}

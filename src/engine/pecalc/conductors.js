@@ -87,11 +87,25 @@ export function insulationMm(size) {
 /** Estimated single-conductor 600 V cable OD (conductor + insulation). */
 export function cableOdMm(size) { return diameterMm(size) + 2 * insulationMm(size); }
 
-export function rdcOhmPerM(size, material, temp_c = 75.0) {
+/** DC resistance from the conductor area alone (any area, e.g. non-standard DLO sizes). */
+export function rdcFromAreaOhmPerM(area_cmil, material, temp_c = 75.0, stranding_factor = STRANDING_FACTOR) {
   const m = lookup(MATERIALS, material);
-  const r20_per_ft = (m.rho20 / AREA_CMIL[normalizeSize(size)]) * STRANDING_FACTOR;
+  const r20_per_ft = (m.rho20 / area_cmil) * stranding_factor;
   const r_per_ft = (r20_per_ft * (m.t0 + temp_c)) / (m.t0 + 20.0);
   return r_per_ft / FT;
+}
+
+export function rdcOhmPerM(size, material, temp_c = 75.0) {
+  return rdcFromAreaOhmPerM(AREA_CMIL[normalizeSize(size)], material, temp_c);
+}
+
+/**
+ * Correct a datasheet DC resistance (ohm per 1000 ft at temp_ref_c) to temp_c: R2 = R1 (t0 + T2) / (t0 + T1).
+ */
+export function rdcDatasheetOhmPerM(r_ref_ohm_per_kft, temp_ref_c, material, temp_c) {
+  const m = lookup(MATERIALS, material);
+  const r_ref_per_m = r_ref_ohm_per_kft / 1000 / FT;
+  return (r_ref_per_m * (m.t0 + temp_c)) / (m.t0 + temp_ref_c);
 }
 
 const _f = (x4) => x4 / (192.0 + 0.8 * x4);
@@ -144,7 +158,14 @@ export function adiabaticTemperatureC(material, area_cmil, initial_c, i2t_a2s) {
 }
 
 /** Geometric mean radius, approximated as 0.7788 r (solid-round value). */
-export function gmrMm(size) { return (0.7788 * diameterMm(size)) / 2; }
+export function gmrFromDiameterMm(diameter_mm) { return (0.7788 * diameter_mm) / 2; }
+export function gmrMm(size) { return gmrFromDiameterMm(diameterMm(size)); }
+
+/** AC resistance from a given DC resistance (same skin/proximity model as racOhmPerM). */
+export function racFromRdcOhmPerM(rdc, diameter_mm, freq = 60.0, spacing_mm = null) {
+  const [ys, yp] = acFactors(rdc, freq, diameter_mm, spacing_mm);
+  return rdc * (1 + ys + yp);
+}
 
 /** Positive-sequence series reactance for a transposed/symmetric group. */
 export function reactanceOhmPerM(size, gmd_mm, freq = 60.0) {
