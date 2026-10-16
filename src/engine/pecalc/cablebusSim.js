@@ -63,6 +63,9 @@ const isNull = (v) => v === null || v === undefined;
 export function buildContext(bus) {
   const inp = { ...bus, field_distances_m: [...bus.field_distances_m] };
   const result = analyse(inp, false);
+  if (result.cable_data) {
+    throw new Error("The Simulate tab does not model library cables (cable_type 'dlo_2000v') yet; the Check tab does");
+  }
   const od = result.cable_od_mm;
   const cs = buildLayout(inp, result.pattern, od);
   const with_shields = inp.shield_bonding === "both_ends";
