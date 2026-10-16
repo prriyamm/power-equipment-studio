@@ -21,7 +21,7 @@ export const SQRT3 = Math.sqrt(3);
 /* ---------------------------------------------------------------- catalogue */
 // kv: nominal line-to-line kV. Ratings are inputs, never fixed products.
 export const EQUIPMENT = {
-  utility: { label: "Utility source", terminals: ["out"], defaults: { kv: 13.8, mva_sc: 500, xr: 15, v_pu: 1.0 } },
+  utility: { label: "Utility source", terminals: ["out"], defaults: { kv: 13.8, mva_sc: 500, xr: 15, v_pu: 1.0, sc_basis: "IEC" } },
   generator: { label: "Generator", terminals: ["out"], defaults: { kv: 0.48, kva: 1000, pf: 0.8, p_kw: 600, v_pu: 1.0, xd2: 0.15, xr: 30 } },
   transformer: { label: "Transformer", terminals: ["hv", "lv"], defaults: { kva: 2500, hv_kv: 13.8, lv_kv: 0.48, z_pct: 5.75, xr: 7, tap_pct: 0, conn: "Dyn1", cooling: "ONAN", style: "padmount" } },
   switchgear: { label: "Switchgear", terminals: ["bus"], defaults: { kv: 0.48, bus_a: 4000, sc_ka: 65, sections: 5 } },
@@ -202,7 +202,11 @@ export function compileSystem(sys) {
       else add("error", e.id, `More than one utility source. Only one swing source is supported; use a generator for the others.`);
       // IEC 60909-0 network feeder: Z_Q = c_Q·U_nQ²/S″_kQ, so a fault at the feeder bus reproduces the stated
       // S″_kQ (the solver applies c again at the fault; without c_Q here the PCC fault came out c_Q × too high).
-      const z = (cMax(kv) * base_mva) / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
+      // sc_basis says how the utility quoted mva_sc (S). The solver gives I″k = c·I_base/|z| (pu, c = cMax(kv)).
+      //   "IEC":  S already includes c_max. z = c·base/S  → I″k = S/(√3·U),   Ibf = I″k/c = S/(c·√3·U).
+      //   "ANSI": S is a plain E/Z bolted value at nominal U (no c). z = base/S → I″k = c·S/(√3·U), Ibf = S/(√3·U).
+      const cQ = e.sc_basis === "ANSI" ? 1 : cMax(kv);
+      const z = (cQ * base_mva) / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
       scSources.push({ bus: bid, r, x: r * e.xr, id: e.id, kind: "utility" });
     } else if (e.type === "generator") {
       if (b.type !== "slack") { b.type = "PV"; b.v = e.v_pu; b.p_gen = (b.p_gen ?? 0) + e.p_kw / 1000; }
