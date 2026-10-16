@@ -121,14 +121,26 @@ export function racOhmPerM(size, material, temp_c = 75.0, freq = 60.0, spacing_m
   return rdc * (1 + ys + yp);
 }
 
+// ICEA P-32-382 adiabatic constants: [K with A in cmil and I in A, T0 in C]. [UNVERIFIED]
+export const ADIABATIC = { Cu: [0.0297, 234.0], Al: [0.0125, 228.0] };
+
 /**
  * ICEA P-32-382 adiabatic short-circuit withstand current, A.
  * (I/A)^2 t = K log10((T2 + T0) / (T1 + T0)), so I = A sqrt(K log10((T2 + T0) / (T1 + T0)) / t), A in cmil, t in s.
  * [UNVERIFIED: K = 0.0297 Cu / 0.0125 Al with A in cmil, I in A; T0 = 234 Cu / 228 Al]
  */
 export function adiabaticWithstandA(material, area_cmil, initial_c, final_c, time_s) {
-  const [k, t0] = material === "Cu" ? [0.0297, 234.0] : [0.0125, 228.0];
+  const [k, t0] = material === "Cu" ? ADIABATIC.Cu : ADIABATIC.Al;
   return area_cmil * Math.sqrt((k * Math.log10((final_c + t0) / (initial_c + t0))) / time_s);
+}
+
+/**
+ * Conductor temperature after a fault with let-through energy i2t = integral of i^2 dt (A^2 s): the inverse
+ * of adiabaticWithstandA with the same constants, T2 = (T1 + T0) 10^(i2t / (K A^2)) - T0.
+ */
+export function adiabaticTemperatureC(material, area_cmil, initial_c, i2t_a2s) {
+  const [k, t0] = material === "Cu" ? ADIABATIC.Cu : ADIABATIC.Al;
+  return (initial_c + t0) * 10 ** (i2t_a2s / (k * area_cmil ** 2)) - t0;
 }
 
 /** Geometric mean radius, approximated as 0.7788 r (solid-round value). */

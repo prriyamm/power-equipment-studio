@@ -1,4 +1,5 @@
-/* Cable bus workspace: Check (analyse a given design) and Designer (enumerate + rank options).
+/* Cable bus workspace: Check (analyse a given design), Simulate (short circuit + temperature rise) and Designer
+   (enumerate + rank options).
    Engine: src/engine/pecalc/cablebus.js, cablebus_design.js, drawing.js (ports of pecalc). */
 const { useState, useMemo, useEffect, useRef } = React;
 import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkMeter, checkStatus } from "./common.jsx";
@@ -18,6 +19,7 @@ import { PushToSystem } from "./systemPush.jsx";
 import { cableBusDesign } from "../engine/designPush.js";
 import { connectorTerminalC } from "../engine/system.js";
 import { SheathSection, sheathReport } from "./cablebusSheath.jsx";
+import { SimulateTab, SIM_STATE, simReport } from "./cablebusSim.jsx";
 
 const CSS = `
 .cb-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
@@ -639,6 +641,7 @@ export function CableBusWorkspace({ goTo }) {
   const [d, setD] = useState(DESIGN_EXAMPLE);
   const [fromSystem, setFromSystem] = useState(null);
   const [link, setLink] = useState(null);            // System cable bus run this design is for
+  const [ss, setSs] = useState(SIM_STATE);            // Simulate tab inputs (test-report ratings, angle, load)
   const hostRef = useRef(null);
 
   useEffect(() => bus.on("cablebus:open", ({ connector, current_a, kv }) => {
@@ -679,29 +682,33 @@ export function CableBusWorkspace({ goTo }) {
   };
 
   const { res, error: solveError } = useMemo(() => (tab === "check" ? solve(f) : {}), [f, tab]);
+  const { inp: simInp, error: simError } = useMemo(() => (tab === "simulate" ? solve(f) : {}), [f, tab]);
   const push = useMemo(() => (res ? { design: cableBusDesign(res) } : { error: tab === "check" ? solveError : "Open a design on the Check tab to apply it" }), [res, solveError, tab]);
   return (
     <div className="ws" ref={hostRef}>
       <style>{CSS}</style>
-      <WsHeader title="Cable bus" context={tab === "check" ? "Analyse a given design" : "Enumerate and rank options"}
+      <WsHeader title="Cable bus" context={tab === "check" ? "Analyse a given design" : tab === "simulate" ? "Short-circuit and temperature-rise simulation" : "Enumerate and rank options"}
         status={<>
           {tab === "check" && res && <Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
           {tab === "check" && solveError && <Pill tone="crit">Input error</Pill>}
+          {tab === "simulate" && simError && <Pill tone="crit">Input error</Pill>}
         </>}
         actions={<>
           <PushToSystem module="cablebus" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {tab === "check" && res && <ReportButton filename="cable-bus-calc" getReport={() => cableBusReport(f, hostRef.current)} />}
+          {tab === "simulate" && simInp && <ReportButton filename="cable-bus-simulation" getReport={() => simReport(simInp, ss, hostRef.current)} />}
           {tab === "check" && <Btn onClick={() => { setF(EXAMPLE); setFromSystem(null); }} title="Restore the 15 kV 2000 A example">Reset to example</Btn>}
         </>}>
         <div className="seg" role="tablist" aria-label="Mode">
           <Btn active={tab === "check"} onClick={() => setTab("check")}>Check</Btn>
+          <Btn active={tab === "simulate"} onClick={() => setTab("simulate")}>Simulate</Btn>
           <Btn active={tab === "designer"} onClick={() => setTab("designer")}>Designer</Btn>
         </div>
       </WsHeader>
       <div className="main">
-        {tab === "check"
-          ? <CheckTab f={f} setF={setF} fromSystem={fromSystem} clearFrom={() => setFromSystem(null)} />
-          : <DesignerTab d={d} setD={setD} onPick={pick} />}
+        {tab === "check" && <CheckTab f={f} setF={setF} fromSystem={fromSystem} clearFrom={() => setFromSystem(null)} />}
+        {tab === "simulate" && <SimulateTab f={f} setF={setF} ss={ss} setSs={setSs} inp={simInp} error={simError} />}
+        {tab === "designer" && <DesignerTab d={d} setD={setD} onPick={pick} />}
       </div>
     </div>
   );
