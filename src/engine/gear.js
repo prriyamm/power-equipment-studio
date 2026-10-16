@@ -54,6 +54,7 @@ export function buildLineup(sys, analysis, gearId, opts = {}) {
     if (res && !res.open && res.dir != null) incoming = (c.to === busKey) === (res.dir > 0);
     else incoming = far && (far.type === "utility" || far.type === "generator" || (far.type === "transformer" && farEnd.endsWith(".lv")));
     const load_a = res && !res.open ? res.i_a : 0;
+    // allowable ampacity from the System: lesser of insulation and NEC 110.14(C) terminal columns (LV)
     const amp = res?.ampacity_a ?? null;
     // 215.3: 125 % of the continuous share plus 100 % of the non-continuous share
     const minTrip = load_a * (1 + (factor - 1) * cont);

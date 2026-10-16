@@ -68,7 +68,9 @@ export function parseSystem(text) {
     seen.add(c.id);
     if (!CONNECTORS[c.kind]) throw new Error(`Unknown connector kind "${c.kind}" on ${c.id}.`);
     for (const k of ["from", "to"]) if (typeof c[k] !== "string" || !/^[^.\s]+\.[^.\s]+$/.test(c[k])) throw new Error(`${c.id}: "${k}" must look like "EQUIPMENT-ID.terminal".`);
-    return { ...CONNECTORS[c.kind].defaults, ...c };
+    const full = { ...CONNECTORS[c.kind].defaults, ...c };
+    if (full.terminal_c != null && ![60, 75, 90].includes(full.terminal_c)) throw new Error(`${c.id}: "terminal_c" must be 60, 75, 90 or null (code default).`);
+    return full;
   });
   const sys = { name: d.name ?? "Untitled package", base_mva, equipment, connectors };
   const bad = compileSystem(sys).issues.find((x) => x.level === "error" && STRUCTURAL.test(x.msg));
