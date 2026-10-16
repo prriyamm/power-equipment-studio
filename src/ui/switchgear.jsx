@@ -1,7 +1,8 @@
 /* Switchgear bus workspace: Rac/Rdc, lamination sharing, temperature rise and short-circuit bracing
    (pecalc switchgear port), live as inputs change. Starts filled with the 3000 A switchboard example. */
-const { useState, useMemo, useEffect } = React;
-import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
+const { useState, useMemo, useEffect, useRef } = React;
+import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkMeter, checkStatus } from "./common.jsx";
+import { Chart, Bars, RefLine } from "./charts/index.js";
 import { bus } from "./bus.js";
 import { PushToSystem } from "./systemPush.jsx";
 import { switchgearDesign } from "../engine/designPush.js";
@@ -9,7 +10,7 @@ import { SwitchgearBus3D } from "./switchgear3d.jsx";
 import { STOPS, scale, rgb } from "./three/parts.js";
 import { analyseBus, busInput, mesh, EMISSIVITY, SPAN } from "../engine/pecalc/switchgear.js";
 import { kvRows, checkRows } from "../engine/report.js";
-import { ReportButton } from "./reportButton.jsx";
+import { ReportButton, reportFigures } from "./reportButton.jsx";
 
 /* 3 x 1/4 x 6 in Cu per phase, edge to edge, 65 kA fault (examples/switchgear-bus-3000a.json). */
 const EXAMPLE = {
@@ -41,7 +42,7 @@ function solve(inp) {
 const PH = ["var(--ph-a)", "var(--ph-b)", "var(--ph-c)"];
 
 /* Calculation package (see engine/report.js). */
-function busReport(r) {
+function busReport(r, host) {
   return {
     title: "Switchgear bus", module: "switchgear", subtitle: `${r.input.current_a} A, ${r.input.bars_per_phase} bar(s) per phase`,
     inputs: kvRows(r.input, { current_a: "A", bar_thickness_mm: "mm", bar_width_mm: "mm", phase_spacing_mm: "mm", internal_air_rise_c: "C", fault_ka: "kA", support_span_m: "m" }),
@@ -53,6 +54,7 @@ function busReport(r) {
     ],
     checks: checkRows(r.checks),
     tables: [{ title: "Lamination current sharing", columns: ["Lamination", "% of equal share"], rows: (r.lamination_share_pct || []).map((v, k) => [k + 1, v]) }],
+    figures: reportFigures(host),
     notes: r.notes,
     // Bus material and UL 891 limits are entered from memory in the engine ([UNVERIFIED] markers in the check clauses).
     dataStatus: [{ table: "Bus material constants and UL 891 limits", status: "UNVERIFIED", source: "Engine constants marked [UNVERIFIED]; confirm against the product standard and supplier data." }],
@@ -62,6 +64,7 @@ function busReport(r) {
 export function SwitchgearWorkspace({ goTo }) {
   const [inp, setInp] = useState(() => busInput(EXAMPLE));
   const [link, setLink] = useState(null);            // System switchgear / MCC / panel this bus is for
+  const hostRef = useRef(null);
   const { result: r, error, coarse } = useMemo(() => solve(inp), [inp]);
   const push = useMemo(() => (r ? { design: switchgearDesign(r) } : { error }), [r, error]);
 
@@ -95,18 +98,18 @@ export function SwitchgearWorkspace({ goTo }) {
 
   const nFail = r ? r.checks.filter((c) => !c.passed).length : 0;
   return (
-    <div className="ws">
+    <div className="ws" ref={hostRef}>
       <style>{CSS}</style>
-      <header className="topbar">
-        <div className="ws-title">Switchgear bus</div>
-        <span className="text-muted text-[12.5px]">Switchboard main bus and risers · 3-phase</span>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <PushToSystem module="switchgear" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
+      <WsHeader title="Switchgear bus" context="Switchboard main bus and risers · 3-phase"
+        status={<>
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${nFail} check(s) fail`}</Pill>}
-          {r && <ReportButton filename="switchgear-bus-calc" getReport={() => busReport(r)} />}
+          {error && <Pill tone="crit">Input error</Pill>}
+        </>}
+        actions={<>
+          <PushToSystem module="switchgear" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
+          {r && <ReportButton filename="switchgear-bus-calc" getReport={() => busReport(r, hostRef.current)} />}
           <Btn onClick={() => setInp(busInput(EXAMPLE))} title="Restore the 3000 A example inputs">Reset to example</Btn>
-        </div>
-      </header>
+        </>} />
 
       <div className="main">
         <div className="sg-grid">
@@ -151,7 +154,7 @@ export function SwitchgearWorkspace({ goTo }) {
           </div>
 
           <div className="sg-results">
-            {error && <div className="notice notice-crit"><b>Cannot analyse.</b> {error}</div>}
+            {error && <StateMsg kind="error" title="Cannot analyse this bus">{error}. Correct the input on the left; results update as you type.</StateMsg>}
             {r && <Results r={r} coarse={coarse} />}
           </div>
         </div>
@@ -173,41 +176,27 @@ function Results({ r, coarse }) {
   return (
     <>
       {coarse && <div className="notice notice-info">Large bar layout: the filament mesh was coarsened ({coarse} filaments per bar) to keep the page responsive. Set filaments in the engine call for full resolution.</div>}
-      <div className="tiles">
-        <Tile label="Rac / Rdc" value={fmt(r.rac_over_rdc, 3)} sub={`loss ${fmt(r.loss_w_per_m_per_phase, 0)} W/m per phase`} />
-        <Tile label="Temperature rise" value={fmt(r.rise_c, 1)} unit="°C" tone={tempCheck.passed ? "ok" : "crit"}
-          sub={`limit ${fmt(i.max_rise_c, 0)} °C · rated ${fmt(r.rated_current_at_limit_a, 0)} A at limit`} />
-        <Tile label="Lamination imbalance" value={fmt(spread, 1)} unit="pts" tone={i.bars_per_phase > 1 && spread > 25 ? "warn" : undefined}
-          sub={i.bars_per_phase > 1 ? `shares ${fmt(Math.min(...shares), 0)}–${fmt(Math.max(...shares), 0)} % of equal` : "single bar per phase"} />
-        <Tile label="Peak force per phase" value={hasFault ? fmt(r.peak_force_n_per_m, 0) : "—"} unit={hasFault ? "N/m" : ""}
-          sub={hasFault ? `${fmt(r.peak_force_n_per_m * 0.0685218, 0)} lbf/ft · support ${fmt(r.support_load_n, 0)} N` : "enter a fault current"} />
-        <Tile label="Bending stress" value={hasFault ? fmt(r.bending_stress_mpa, 1) : "—"} unit={hasFault ? "MPa" : ""} tone={bendCheck ? (bendCheck.passed ? "ok" : "crit") : undefined}
-          sub={bendCheck ? `allowable ${fmt(bendCheck.limit, 0)} MPa (yield)` : "no fault"} />
-        <Tile label="Max support span" value={hasFault ? fmt(r.max_span_m, 3) : "—"} unit={hasFault ? "m" : ""}
-          tone={hasFault ? (r.max_span_m >= i.support_span_m ? "ok" : "crit") : undefined} sub={hasFault ? `installed ${fmt(i.support_span_m, 2)} m, ${i.support_condition}` : ""} />
-      </div>
+      <KpiStrip items={[
+        { label: "Rac / Rdc", value: fmt(r.rac_over_rdc, 3), sub: `loss ${fmt(r.loss_w_per_m_per_phase, 0)} W/m per phase` },
+        { label: "Temperature rise", value: fmt(r.rise_c, 1), unit: "°C", status: checkStatus(tempCheck), meter: checkMeter(tempCheck),
+          sub: `limit ${fmt(i.max_rise_c, 0)} °C · rated ${fmt(r.rated_current_at_limit_a, 0)} A at limit` },
+        { label: "Lamination imbalance", value: fmt(spread, 1), unit: "pts", status: i.bars_per_phase > 1 && spread > 25 ? "warn" : undefined,
+          sub: i.bars_per_phase > 1 ? `shares ${fmt(Math.min(...shares), 0)}–${fmt(Math.max(...shares), 0)} % of equal` : "single bar per phase" },
+        { label: "Peak force per phase", value: hasFault ? fmt(r.peak_force_n_per_m, 0) : "—", unit: hasFault ? "N/m" : "",
+          sub: hasFault ? `${fmt(r.peak_force_n_per_m * 0.0685218, 0)} lbf/ft · support ${fmt(r.support_load_n, 0)} N` : "enter a fault current" },
+        { label: "Bending stress", value: hasFault ? fmt(r.bending_stress_mpa, 1) : "—", unit: hasFault ? "MPa" : "", status: checkStatus(bendCheck), meter: checkMeter(bendCheck),
+          sub: bendCheck ? `allowable ${fmt(bendCheck.limit, 0)} MPa (yield)` : "no fault" },
+        { label: "Max support span", value: hasFault ? fmt(r.max_span_m, 3) : "—", unit: hasFault ? "m" : "",
+          status: hasFault ? (r.max_span_m >= i.support_span_m ? "pass" : "fail") : undefined, meter: hasFault ? { u: i.support_span_m / r.max_span_m, label: `installed ${fmt(i.support_span_m, 2)} m` } : null,
+          sub: hasFault ? `installed ${fmt(i.support_span_m, 2)} m, ${i.support_condition}` : "" },
+      ]} />
 
       <Section title="Checks" aside={<Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "Pass" : "Fail"}</Pill>}>
-        <div className="table-wrap">
-          <table className="grid-table">
-            <thead><tr><th>Check</th><th className="r">Value</th><th className="r">Limit</th><th>Result</th><th>Clause</th></tr></thead>
-            <tbody>
-              {r.checks.map((c) => (
-                <tr key={c.name} title={c.note}>
-                  <td className="sg-wrap">{c.name}<div className="sg-note">{c.note}</div></td>
-                  <td className="r">{std(c.value)} <em className="sg-unit">{c.unit}</em></td>
-                  <td className="r">{std(c.limit)} <em className="sg-unit">{c.unit}</em></td>
-                  <td><Pill tone={c.passed ? "ok" : "crit"}>{c.passed ? "Pass" : "Fail"}</Pill></td>
-                  <td className="sg-wrap sg-clause">{c.clause}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ChecksTable checks={r.checks} format={std} />
       </Section>
 
       <div className="sg-two">
-        <Section title="Lamination current sharing" aside={<span className="text-faint text-[12px]">phase A, % of equal share</span>}>
+        <Section title="Lamination current sharing" aside="phase A, % of equal share">
           <ShareChart shares={shares} />
         </Section>
         <Section title="Phase packs" aside={<span className="text-faint text-[12px]">cross-section to scale, mm</span>}>
@@ -228,26 +217,17 @@ function Results({ r, coarse }) {
 
 /* ---------------------------------------------------------- share chart */
 function ShareChart({ shares }) {
-  const row = 28, top = 8, W = 420, lab = 66, right = 52;
   const mx = Math.max(125, ...shares) * 1.04;
-  const x = (v) => lab + (v / mx) * (W - lab - right);
-  const H = top + shares.length * row + 22;
+  const tone = (s) => (Math.abs(s - 100) > 25 ? "var(--high)" : "var(--accent)");
   return (
-    <svg className="sg-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Lamination current shares: ${shares.join(", ")} percent of an equal share`}>
-      {shares.map((s, k) => {
-        const y = top + k * row, dev = Math.abs(s - 100);
-        const col = dev > 25 ? "var(--high)" : "var(--accent)";
-        return (
-          <g key={k}>
-            <text x={lab - 8} y={y + 15} textAnchor="end" className="sg-axis">Bar {k + 1}</text>
-            <rect x={lab} y={y + 4} width={Math.max(1, x(s) - lab)} height={row - 10} rx="2" fill={col} opacity="0.85" />
-            <text x={x(s) + 6} y={y + 16} className="sg-val">{fmt(s, 1)} %</text>
-          </g>
-        );
-      })}
-      <line x1={x(100)} x2={x(100)} y1={top - 2} y2={top + shares.length * row} className="sg-ref" />
-      <text x={x(100)} y={H - 6} textAnchor="middle" className="sg-axis">100 % = equal share</text>
-    </svg>
+    <Chart height={220} ariaLabel={`Lamination current shares: ${shares.join(", ")} percent of an equal share`} reportTitle="Lamination current sharing, phase A"
+      x={{ type: "band", n: shares.length, labels: shares.map((_, k) => `Bar ${k + 1}`), label: "Lamination", maxBar: 32 }}
+      y={{ domain: [0, mx], label: "Share of equal current", unit: "%" }}
+      legend={[{ name: "Equal share, 100 %", color: "var(--muted)", kind: "ref" }, { name: "Within 25 pts", color: "var(--accent)", kind: "bar" }, { name: "Beyond 25 pts", color: "var(--high)", kind: "bar" }]}
+      hover={{ render: (k) => ({ title: `Bar ${k + 1}`, rows: [{ label: "of equal share", value: `${fmt(shares[k], 1)} %`, color: tone(shares[k]) }, { label: "deviation", value: `${shares[k] >= 100 ? "+" : "−"}${fmt(Math.abs(shares[k] - 100), 1)} pts` }] }) }}>
+      <RefLine y={100} tone="muted" />
+      <Bars values={shares} color={(s) => tone(s)} labels={() => shares.length <= 8} format={(v) => `${fmt(v, 1)} %`} />
+    </Chart>
   );
 }
 
@@ -435,10 +415,7 @@ const CSS = `
 .sg-svg { width: 100%; height: auto; max-height: 460px; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
 .sg-svg.sg-iso { max-height: 620px; }
 .sg-svg text { font-family: var(--font-data); fill: var(--fg); }
-.sg-axis { font-size: 11.5px; fill: var(--muted) !important; }
 .sg-faint { fill: var(--faint) !important; font-size: 10px; }
-.sg-val { font-size: 12px; }
-.sg-ref { stroke: var(--muted); stroke-dasharray: 4 3; stroke-width: 1; }
 .sg-bar { stroke: rgba(10, 15, 20, 0.7); }
 .sg-ph { font-weight: 600; }
 .sg-dim path { stroke: var(--muted); fill: none; }

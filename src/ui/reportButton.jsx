@@ -10,9 +10,11 @@ export const ENGINE_VERSION = pkg.version;
 /* Serialise a rendered SVG element as standalone markup. The app styles drawings with CSS classes and variables,
    so the computed paint properties are copied onto each element; the result no longer needs the page stylesheet. */
 const PAINT = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "stroke-opacity",
-  "opacity", "font-family", "font-size", "font-weight", "text-anchor", "dominant-baseline", "display", "visibility"];
-export function svgToString(svg) {
-  if (!svg) return null;
+  "opacity", "font-family", "font-size", "font-weight", "text-anchor", "dominant-baseline", "display", "visibility", "font-variant-numeric"];
+
+/* Deep clone of an SVG element with computed paint styles inlined and classes dropped. Elements marked
+   data-noexport (chart crosshair, hover dots) are left out. */
+function inlineClone(svg) {
   const clone = svg.cloneNode(true);
   const src = [svg, ...svg.querySelectorAll("*")], dst = [clone, ...clone.querySelectorAll("*")];
   src.forEach((el, i) => {
@@ -21,12 +23,70 @@ export function svgToString(svg) {
     dst[i].setAttribute("style", css);
     dst[i].removeAttribute("class");
   });
+  clone.querySelectorAll("[data-noexport]").forEach((n) => n.remove());
   clone.removeAttribute("class");
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  return clone;
+}
+
+export function svgToString(svg) {
+  if (!svg) return null;
+  const clone = inlineClone(svg);
   const vb = svg.viewBox?.baseVal;
   if (vb && vb.width) { clone.setAttribute("width", String(vb.width)); clone.setAttribute("height", String(vb.height)); }
   clone.setAttribute("style", "max-width:100%;height:auto");
   return clone.outerHTML;
+}
+
+/* A report figure from a rendered chart: an <svg> (chart kit, drawings) or a canvas heatmap (.ck-heat), whose
+   canvas becomes an embedded PNG <image> under its SVG overlay, with the colour bar below. */
+export function figureSvg(el) {
+  if (!el) return null;
+  if (el.tagName?.toLowerCase() === "svg") return svgToString(el);
+  const canvas = el.querySelector("canvas");
+  if (!canvas) return svgToString(el.querySelector("svg"));
+  const NS = "http://www.w3.org/2000/svg";
+  const plot = canvas.getBoundingClientRect();
+  const w = Math.round(plot.width || parseFloat(canvas.style.width) || canvas.width), h = Math.round(plot.height || parseFloat(canvas.style.height) || canvas.height);
+  const bar = el.querySelector("svg.ck-colorbar");
+  const bh = bar ? Number(bar.getAttribute("height")) + 8 : 0;
+  const out = document.createElementNS(NS, "svg");
+  out.setAttribute("xmlns", NS);
+  out.setAttribute("viewBox", `0 0 ${w} ${h + bh}`);
+  out.setAttribute("width", String(w)); out.setAttribute("height", String(h + bh));
+  out.setAttribute("style", "max-width:100%;height:auto");
+  let url = null;
+  try { url = canvas.toDataURL("image/png"); } catch (e) { url = null; }
+  if (url) {
+    const im = document.createElementNS(NS, "image");
+    im.setAttribute("href", url); im.setAttribute("width", String(w)); im.setAttribute("height", String(h));
+    im.setAttribute("preserveAspectRatio", "none");
+    out.appendChild(im);
+  }
+  const ov = el.querySelector("svg.ck-heat-overlay");
+  if (ov) {
+    const c = inlineClone(ov);
+    c.setAttribute("x", "0"); c.setAttribute("y", "0"); c.setAttribute("width", String(w)); c.setAttribute("height", String(h));
+    c.removeAttribute("style");
+    out.appendChild(c);
+  }
+  if (bar) {
+    const c = inlineClone(bar);
+    c.setAttribute("x", "0"); c.setAttribute("y", String(h + 8)); c.removeAttribute("style");
+    out.appendChild(c);
+  }
+  return out.outerHTML;
+}
+
+/* Every chart in `host` marked with data-report-fig="Title" (Chart reportTitle / Heatmap reportTitle), as
+   buildReport() figures. Dark: the charts are drawn for the dark theme. */
+export function reportFigures(host) {
+  if (!host || typeof document === "undefined") return [];
+  return [...host.querySelectorAll("[data-report-fig]")].map((el) => {
+    let svg = null;
+    try { svg = figureSvg(el); } catch (e) { svg = null; }
+    return svg ? { title: el.getAttribute("data-report-fig"), svg, dark: true } : null;
+  }).filter(Boolean);
 }
 
 const slug = (s) => String(s || "report").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "report";

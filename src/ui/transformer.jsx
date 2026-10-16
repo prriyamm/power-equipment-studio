@@ -1,6 +1,6 @@
 /* Transformer workspace: preliminary core-type design (pecalc transformer port), live as inputs change. */
 const { useState, useMemo, useEffect } = React;
-import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
+import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkStatus } from "./common.jsx";
 import { bus } from "./bus.js";
 import { PushToSystem } from "./systemPush.jsx";
 import { transformerDesign } from "../engine/designPush.js";
@@ -65,16 +65,16 @@ export function TransformerWorkspace({ goTo }) {
   const tuned = tune && !!inp.target_z_pct;
   return (
     <div className="ws">
-      <header className="topbar">
-        <div className="ws-title">Transformer</div>
-        <span className="text-muted text-[12.5px]">Preliminary core-type design · 3-phase</span>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <PushToSystem module="transformer" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
+      <WsHeader title="Transformer" context="Preliminary core-type design · 3-phase"
+        status={<>
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
+          {error && <Pill tone="crit">Input error</Pill>}
+        </>}
+        actions={<>
+          <PushToSystem module="transformer" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
           {r && <ReportButton filename="transformer-calc" getReport={() => transformerReport(r)} />}
           <Btn onClick={() => { setInp(transformerInput(EXAMPLE)); setTune(true); }} title="Restore the 1500 kVA example inputs">Reset to example</Btn>
-        </div>
-      </header>
+        </>} />
 
       <div className="main">
         <div className="xf-grid">
@@ -138,7 +138,7 @@ export function TransformerWorkspace({ goTo }) {
           </div>
 
           <div className="xf-results">
-            {error && <div className="notice notice-crit"><b>Cannot design.</b> {error}</div>}
+            {error && <StateMsg kind="error" title="Cannot design this transformer">{error}. Correct the input on the left; results update as you type.</StateMsg>}
             {r && <Results r={r} />}
           </div>
         </div>
@@ -155,36 +155,20 @@ function Results({ r }) {
   const std = (v) => (Number.isFinite(v) ? fmt(v, Math.abs(v) < 10 ? 2 : 1) : "∞");
   return (
     <>
-      <div className="tiles">
-        <Tile label="Rating" value={fmt(i.kva, i.kva % 1 ? 1 : 0)} unit="kVA" sub={`${fmt(i.hv_v / 1000, 2)} kV ${i.hv_connection === "delta" ? "Δ" : "Y"} / ${fmt(i.lv_v, 0)} V ${i.lv_connection === "delta" ? "Δ" : "Y"}`} />
-        <Tile label="Impedance" value={fmt(z.z_pct, 2)} unit="%Z" tone={zCheck ? (zCheck.passed ? "ok" : "crit") : undefined}
-          sub={`R ${fmt(z.r_pct, 2)} % · X ${fmt(z.x_pct, 2)} % · X/R ${fmt(z.x_over_r, 1)}`} />
-        <Tile label="Efficiency, full load" value={fmt(p.efficiency_pct["100%"], 2)} unit="%" tone={doeCheck ? (doeCheck.passed ? "ok" : "crit") : undefined}
-          sub={`DOE point (${fmt(p.doe_point.load * 100, 0)} %): ${fmt(p.doe_point.efficiency_pct, 3)} %`} />
-        <Tile label="Losses" value={fmt(lossTotal, 2)} unit="kW" sub={`no-load ${fmt(l.no_load_w / 1000, 2)} · load ${fmt(l.load_loss_w / 1000, 2)} kW`} />
-        <Tile label="LV fault current" value={fmt(sc.lv_fault_ka_rms, 1)} unit="kA" tone={!r.passed ? "warn" : undefined} sub={`peak ${fmt(sc.lv_fault_peak_ka, 1)} kA · ${i.source_mva ? `source ${fmt(i.source_mva, 0)} MVA` : "infinite source"}`} />
-      </div>
+      <KpiStrip items={[
+        { label: "Rating", value: fmt(i.kva, i.kva % 1 ? 1 : 0), unit: "kVA", sub: `${fmt(i.hv_v / 1000, 2)} kV ${i.hv_connection === "delta" ? "Δ" : "Y"} / ${fmt(i.lv_v, 0)} V ${i.lv_connection === "delta" ? "Δ" : "Y"}` },
+        { label: "Impedance", value: fmt(z.z_pct, 2), unit: "%Z", status: checkStatus(zCheck), sub: `R ${fmt(z.r_pct, 2)} % · X ${fmt(z.x_pct, 2)} % · X/R ${fmt(z.x_over_r, 1)}` },
+        { label: "Efficiency, full load", value: fmt(p.efficiency_pct["100%"], 2), unit: "%", status: checkStatus(doeCheck),
+          sub: `DOE point (${fmt(p.doe_point.load * 100, 0)} %): ${fmt(p.doe_point.efficiency_pct, 3)} %` },
+        { label: "Losses", value: fmt(lossTotal, 2), unit: "kW", sub: `no-load ${fmt(l.no_load_w / 1000, 2)} · load ${fmt(l.load_loss_w / 1000, 2)} kW` },
+        { label: "LV fault current", value: fmt(sc.lv_fault_ka_rms, 1), unit: "kA", status: !r.passed ? "warn" : undefined, sub: `peak ${fmt(sc.lv_fault_peak_ka, 1)} kA · ${i.source_mva ? `source ${fmt(i.source_mva, 0)} MVA` : "infinite source"}` },
+      ]} />
 
       <Section title="Checks" aside={<Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "Pass" : "Fail"}</Pill>}>
-        <div className="table-wrap">
-          <table className="grid-table">
-            <thead><tr><th>Check</th><th className="r">Value</th><th className="r">Limit</th><th>Result</th><th>Clause</th></tr></thead>
-            <tbody>
-              {r.checks.map((c) => (
-                <tr key={c.name} title={c.note}>
-                  <td className="xf-wrap">{c.name}<div className="xf-note">{c.note}</div></td>
-                  <td className="r">{std(c.value)} <em className="xf-unit">{c.unit}</em></td>
-                  <td className="r">{std(c.limit)} <em className="xf-unit">{c.unit}</em></td>
-                  <td><Pill tone={c.passed ? "ok" : "crit"}>{c.passed ? "Pass" : "Fail"}</Pill></td>
-                  <td className="xf-wrap xf-clause">{c.clause}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ChecksTable checks={r.checks} format={std} bar={(c) => !c.name.startsWith("Impedance")} />
       </Section>
 
-      <Section title="Core and coil" aside={<span className="text-faint text-[12px]">drawn to scale, dimensions in mm</span>}>
+      <Section title="Core and coil" aside="drawn to scale, dimensions in mm">
         <CoreCoil d={d} i={i} />
       </Section>
 

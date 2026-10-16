@@ -1,7 +1,8 @@
 /* Cable bus workspace: Check (analyse a given design) and Designer (enumerate + rank options).
    Engine: src/engine/pecalc/cablebus.js, cablebus_design.js, drawing.js (ports of pecalc). */
 const { useState, useMemo, useEffect, useRef } = React;
-import { Btn, Field, NumField, Pill, Section, Tile, cx, fmt } from "./common.jsx";
+import { Btn, Field, NumField, Pill, Section, cx, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkMeter, checkStatus } from "./common.jsx";
+import { Chart, Bars, RefLine, Heatmap, PHASE_VAR } from "./charts/index.js";
 import { bus } from "./bus.js";
 import * as cond from "../engine/pecalc/conductors.js";
 import { analyse, cableBusInput, cableBusGroups, buildLayout, construction } from "../engine/pecalc/cablebus.js";
@@ -12,7 +13,7 @@ import { solveSharing } from "../engine/pecalc/impedance.js";
 import { bRmsUt, LIMITS_UT } from "../engine/pecalc/field.js";
 import { kvRows, checkRows } from "../engine/report.js";
 import { tableInfo } from "../engine/pecalc/ampacity.js";
-import { ReportButton } from "./reportButton.jsx";
+import { ReportButton, reportFigures } from "./reportButton.jsx";
 import { PushToSystem } from "./systemPush.jsx";
 import { cableBusDesign } from "../engine/designPush.js";
 import { connectorTerminalC } from "../engine/system.js";
@@ -22,7 +23,6 @@ const CSS = `
 .cb-form, .cb-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .cb-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
 .cb-fields .cb-wide { grid-column: 1 / -1; }
-.cb-results .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .cb-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .cb-wrap { white-space: normal !important; min-width: 150px; font-family: var(--font-ui) !important; }
 .cb-note { font-size: 11px; color: var(--faint); margin-top: 2px; }
@@ -43,8 +43,7 @@ const CSS = `
 .cb-pick { color: var(--accent); }
 @media (max-width: 1100px) { .cb-two { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 899px) { .cb-grid { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 899px) { .cb-field text { font-size: 54px; } }
-@media (max-width: 640px) { .cb-xs { overflow-x: auto; } .cb-xs > svg { min-width: 760px; } .cb-field text { font-size: 104px; } }
+@media (max-width: 640px) { .cb-xs { overflow-x: auto; } .cb-xs > svg { min-width: 760px; } }
 @media (max-width: 640px) { .cb-chip { min-height: 40px; min-width: 48px; padding: 6px 12px; } }
 @media (max-width: 420px) { .cb-fields { grid-template-columns: minmax(0, 1fr); } .cb-grid { padding: 10px 16px; } }
 `;
@@ -118,7 +117,7 @@ function solve(f) {
 }
 
 /* Calculation package for the Check tab (see engine/report.js). */
-function cableBusReport(f) {
+function cableBusReport(f, host) {
   const { inp, res } = solve(f);
   if (!res) return null;
   const i = res.input, info = tableInfo(i.code, "free_air");
@@ -134,7 +133,7 @@ function cableBusReport(f) {
     checks: checkRows(res.checks),
     tables: [{ title: "Conductor currents", columns: ["Phase", "Tier", "x (mm)", "Current (A)", "% of equal share", "Ampacity (A)", "Loading %"],
       rows: res.conductors.map((c) => [c.phase, c.tier, c.x_mm, c.current_a, c.share_pct, c.ampacity_a, c.loading_pct]) }],
-    figures: i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res, { tier_dims: true }) }] : [],
+    figures: [...(i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res, { tier_dims: true }) }] : []), ...reportFigures(host)],
     notes: res.notes,
     dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
   };
@@ -144,27 +143,21 @@ function cableBusReport(f) {
 function SharingChart({ res }) {
   const rows = res.conductors;
   const n = rows.length;
-  const W = 960, Hh = 230, L = 48, B = 34, T = 22, R = 8;
   const equal = res.input.current_a / res.input.conductors_per_phase;
   const maxV = Math.max(...rows.map((r) => r.current_a), equal) * 1.12;
-  const bw = (W - L - R) / n;
-  const y = (v) => T + (Hh - T - B) * (1 - v / maxV);
   return (
-    <div className="chart-scroll" style={{ "--chart-min": "640px" }}><svg className="chart" viewBox={`0 0 ${W} ${Hh}`} role="img" aria-label="Current per conductor">
-      {[0, 0.5, 1].map((t) => <g key={t}><line className="gridline" x1={L} x2={W - R} y1={y(maxV / 1.12 * t)} y2={y(maxV / 1.12 * t)} /><text className="tick" x={L - 6} y={y(maxV / 1.12 * t) + 3} textAnchor="end">{fmt(maxV / 1.12 * t, 0)}</text></g>)}
-      {rows.map((r, i) => (
-        <g key={r.index}>
-          <rect x={L + i * bw + bw * 0.14} width={bw * 0.72} y={y(r.current_a)} height={Math.max(0, y(0) - y(r.current_a))} fill={PH_COLOR[r.phase]} rx="2">
-            <title>{`${r.phase} (tier ${r.tier + 1}): ${r.current_a} A, ${r.share_pct} % of equal share, loading ${r.loading_pct} %`}</title>
-          </rect>
-          {n <= 12 && <text className="tick" x={L + i * bw + bw / 2} y={y(r.current_a) - 4} textAnchor="middle">{fmt(r.current_a, 0)}</text>}
-          <text className="tick" x={L + i * bw + bw / 2} y={Hh - B + 13} textAnchor="middle">{r.phase}{n <= 18 ? r.tier + 1 : ""}</text>
-        </g>
-      ))}
-      <line className="limit" x1={L} x2={W - R} y1={y(equal)} y2={y(equal)} />
-      <text className="tick accent" x={W - R} y={11} textAnchor="end">- - equal share {fmt(equal, 0)} A</text>
-      <text className="tick" x={L} y={11}>conductor current, A rms (phase and tier)</text>
-    </svg></div>
+    <Chart height={240} minWidth={n > 24 ? n * 22 : 0} ariaLabel="Current per conductor" reportTitle="Current sharing per conductor"
+      x={{ type: "band", n, labels: rows.map((r) => `${r.phase}${n <= 18 ? r.tier + 1 : ""}`), label: "Conductor (phase and tier)", maxBar: 28, inner: 0.25 }}
+      y={{ domain: [0, maxV], label: "Current", unit: "A rms" }}
+      legend={[{ name: "Phase A", color: PHASE_VAR.A, kind: "bar" }, { name: "Phase B", color: PHASE_VAR.B, kind: "bar" }, { name: "Phase C", color: PHASE_VAR.C, kind: "bar" }, { name: `Equal share ${fmt(equal, 0)} A`, color: "var(--accent)", kind: "ref" }]}
+      hover={{ render: (i) => { const r = rows[i]; return { title: `Phase ${r.phase}, tier ${r.tier + 1}`, rows: [
+        { label: "current", value: `${fmt(r.current_a, 0)} A`, color: PHASE_VAR[r.phase] },
+        { label: "of equal share", value: `${fmt(r.share_pct, 1)} %` },
+        { label: "loading", value: `${fmt(r.loading_pct, 1)} %` },
+        { label: "x position", value: `${fmt(r.x_mm, 0)} mm` }] }; } }}>
+      <RefLine y={equal} tone="accent" />
+      <Bars values={rows.map((r) => r.current_a)} color={(v, i) => PHASE_VAR[rows[i].phase]} labels={() => n <= 12} />
+    </Chart>
   );
 }
 
@@ -183,16 +176,20 @@ function CrossSection({ inp, res }) {
 }
 
 /* ------------------------------------------------------------ magnetic field map */
+/* Binned scale: sequential blues below the ICNIRP 1998 public reference level, status colours above it. */
+const LIM_UT = LIMITS_UT["ICNIRP 1998 public"];
 const FIELD_STEPS = [
-  { max: 1, color: "#10202b", label: "< 1" },
-  { max: 3, color: "#143f57", label: "1 – 3" },
-  { max: 10, color: "#1c6b86", label: "3 – 10" },
-  { max: 30, color: "#3fa39f", label: "10 – 30" },
-  { max: LIMITS_UT["ICNIRP 1998 public"], color: "#e8c35a", label: `30 – ${LIMITS_UT["ICNIRP 1998 public"]}` },
-  { max: 200, color: "#e8814a", label: `${LIMITS_UT["ICNIRP 1998 public"]} – 200` },
-  { max: Infinity, color: "#e0524f", label: "> 200" },
+  { max: 1, color: "#0f2336", label: "< 1" },
+  { max: 3, color: "#174a78", label: "1–3" },
+  { max: 10, color: "#256abf", label: "3–10" },
+  { max: 30, color: "#5598e7", label: "10–30" },
+  { max: LIM_UT, color: "#b7d3f6", label: `30–${LIM_UT}` },
+  { max: 200, color: "#ff8b4a", label: `${LIM_UT}–200` },
+  { max: Infinity, color: "#ff5f5f", label: "> 200" },
 ];
 const stepOf = (b) => FIELD_STEPS.find((s) => b < s.max);
+const fieldColor = (b) => stepOf(b).color;
+const FIELD_LEGEND = { steps: FIELD_STEPS, unit: "µT" };
 
 function FieldMap({ inp: liveInp, res: liveRes }) {
   // the grid solve is heavy: defer it so typing in the inputs stays responsive (React renders the
@@ -222,23 +219,23 @@ function FieldMap({ inp: liveInp, res: liveRes }) {
     return { cells, nx, ny, cell, xc, yc, halfW, halfH, encW, encH, od, peak, rows: res.conductors };
   }, [inp, res]);
   const { cells, nx, ny, cell, xc, yc, halfW, halfH, encW, encH, od, rows } = data;
-  const k = 1; // 1 svg unit per mm
-  const X = (x) => (x - (xc - halfW)) * k, Y = (y) => (yc + halfH - y) * k;
-  const Wd = 2 * halfW * k, Ht = ny * cell * k;
+  const values = useMemo(() => cells.map((c) => c[2]), [cells]);
+  const X = (x) => x - (xc - halfW), Y = (y) => yc + halfH - y;
+  const Wd = 2 * halfW, Ht = ny * cell;
+  const readout = (i, j, b) => `x ${fmt((-halfW + (i + 0.5) * cell) / 1000, 2)} m, y ${fmt((halfH - (j + 0.5) * cell) / 1000, 2)} m: ${fmt(b, b < 10 ? 2 : 1)} µT`;
   return (
     <div>
-      <div className="cb-svgbox">
-        <svg viewBox={`0 0 ${Wd} ${Ht}`} className="cb-svg cb-field" role="img" aria-label="Magnetic flux density around the enclosure">
-          {cells.map(([i, j, b]) => <rect key={j * nx + i} x={i * cell * k} y={j * cell * k} width={cell * k + 0.6} height={cell * k + 0.6} fill={stepOf(b).color} />)}
-          <rect x={X(xc - encW / 2)} y={Y(yc + encH / 2)} width={encW * k} height={encH * k} fill="none" stroke="#c3ced7" strokeWidth="5" strokeDasharray="22 12" />
-          {rows.map((r) => <circle key={r.index} cx={X(r.x_mm)} cy={Y(r.y_mm)} r={Math.max(od / 2, 14) * k} fill={PH_COLOR[r.phase]} stroke="#0a0f14" strokeWidth="2" />)}
-          {[-1, 0, 1].map((m) => <g key={m}><line x1={X(xc + m * 1000)} x2={X(xc + m * 1000)} y1={Ht - 26} y2={Ht - 12} stroke="#d6dfe6" strokeWidth="3" /><text x={X(xc + m * 1000)} y={Ht - 32} textAnchor="middle" fontSize="42" fill="#d6dfe6">{m} m</text></g>)}
-        </svg>
-      </div>
-      <div className="cb-legend">
-        {FIELD_STEPS.map((s) => <span key={s.label}><i style={{ background: s.color }} />{s.label} µT</span>)}
-      </div>
-      <div className="text-faint text-[12px] mt-1">RMS resultant at the cross-section plane (all conductors, shields and enclosure walls). Beyond the enclosure the peak is {fmt(data.peak, 1)} µT; ICNIRP 1998 public limit {LIMITS_UT["ICNIRP 1998 public"]} µT.</div>
+      <Heatmap nx={nx} ny={ny} values={values} color={fieldColor} legend={FIELD_LEGEND}
+        ariaLabel="Magnetic flux density around the enclosure" reportTitle="Magnetic field around the enclosure" readout={readout}
+        overlay={{ viewBox: `0 0 ${Wd} ${Ht}`, children: (k) => (<>
+          <rect x={X(xc - encW / 2)} y={Y(yc + encH / 2)} width={encW} height={encH} fill="none" stroke="#c3ced7" strokeWidth={1.5 / k} strokeDasharray={`${6 / k} ${4 / k}`} />
+          {rows.map((r) => <circle key={r.index} cx={X(r.x_mm)} cy={Y(r.y_mm)} r={Math.max(od / 2, 3 / k)} fill={PHASE_VAR[r.phase]} stroke="#0a0f14" strokeWidth={1 / k} />)}
+          {[-1, 0, 1].map((m) => <g key={m}>
+            <line x1={X(xc + m * 1000)} x2={X(xc + m * 1000)} y1={Ht - 12 / k} y2={Ht - 4 / k} stroke="#d6dfe6" strokeWidth={1.5 / k} />
+            <text x={X(xc + m * 1000)} y={Ht - 16 / k} textAnchor="middle" fontSize={11 / k} fill="#d6dfe6" fontFamily="IBM Plex Mono, monospace" paintOrder="stroke" stroke="#0a0f14" strokeWidth={3 / k}>{m} m</text>
+          </g>)}
+        </>) }} />
+      <div className="ck-caption">RMS resultant at the cross-section plane (all conductors, shields and enclosure walls). Beyond the enclosure the peak is <b>{fmt(data.peak, 1)} µT</b>; ICNIRP 1998 public reference level {LIM_UT} µT. Hover or tap for the value at a point.</div>
     </div>
   );
 }
@@ -381,45 +378,31 @@ function Results({ inp, res }) {
   const worstCheck = res.checks.find((c) => c.name.startsWith("Most heavily loaded conductor within its"));
   return (
     <>
-      <div className="tiles">
-        <Tile label="Ampacity vs load" value={fmt(ampPhase, 0)} unit="A / phase" tone={worstCheck ? (worstCheck.passed ? "ok" : "crit") : undefined}
-          sub={`load ${fmt(res.input.current_a, 0)} A · margin ${margin >= 0 ? "+" : "−"}${fmt(Math.abs(margin), 1)} % · worst cable ${fmt(res.max_loading_pct, 1)} % loaded`} />
-        <Tile label="Current imbalance" value={fmt(Math.max(...shares), 1)} unit="% of equal share"
-          sub={`min ${fmt(Math.min(...shares), 1)} % · spread ${fmt(Math.max(...shares) - Math.min(...shares), 1)} pts · pattern ${res.pattern}`} />
-        <Tile label="Voltage drop" value={fmt(res.vd_pct, 2)} unit="%" tone={res.vd_pct <= res.input.max_vd_pct ? "ok" : "crit"} sub={`limit ${fmt(res.input.max_vd_pct, 1)} % · ${fmt(lenFt, 0)} ft`} />
-        <Tile label="Losses" value={fmt(lossW / lenFt, 1)} unit="W/ft" sub={`${fmt(lossW / 1000, 2)} kW total · shield ${fmt(res.shield_loss_w / 1000, 2)} · enclosure ${fmt(res.enclosure_loss_w / 1000, 2)} kW`} />
-        <Tile label="Max fault force" value={res.fault_force_lbf_per_ft === null ? "—" : fmt(res.fault_force_lbf_per_ft, 0)} unit={res.fault_force_lbf_per_ft === null ? "" : "lbf/ft"}
-          sub={res.support_load_lbf === null ? "no fault current given" : `${fmt(res.support_load_lbf, 0)} lbf on one support (${fmt(res.input.support_span_m * 1000, 0)} mm span)`} />
-      </div>
+      <KpiStrip items={[
+        { label: "Ampacity vs load", value: fmt(ampPhase, 0), unit: "A / phase", status: checkStatus(worstCheck), meter: checkMeter(worstCheck, `worst cable ${fmt(res.max_loading_pct, 1)} % loaded`),
+          sub: `load ${fmt(res.input.current_a, 0)} A · margin ${margin >= 0 ? "+" : "−"}${fmt(Math.abs(margin), 1)} %` },
+        { label: "Current imbalance", value: fmt(Math.max(...shares), 1), unit: "%",
+          sub: `of equal share · min ${fmt(Math.min(...shares), 1)} % · spread ${fmt(Math.max(...shares) - Math.min(...shares), 1)} pts · pattern ${res.pattern}` },
+        { label: "Voltage drop", value: fmt(res.vd_pct, 2), unit: "%", status: res.vd_pct <= res.input.max_vd_pct ? "pass" : "fail", meter: { u: res.vd_pct / res.input.max_vd_pct },
+          sub: `limit ${fmt(res.input.max_vd_pct, 1)} % · ${fmt(lenFt, 0)} ft` },
+        { label: "Losses", value: fmt(lossW / lenFt, 1), unit: "W/ft", sub: `${fmt(lossW / 1000, 2)} kW total · shield ${fmt(res.shield_loss_w / 1000, 2)} · enclosure ${fmt(res.enclosure_loss_w / 1000, 2)} kW` },
+        { label: "Max fault force", value: res.fault_force_lbf_per_ft === null ? "—" : fmt(res.fault_force_lbf_per_ft, 0), unit: res.fault_force_lbf_per_ft === null ? "" : "lbf/ft",
+          sub: res.support_load_lbf === null ? "no fault current given" : `${fmt(res.support_load_lbf, 0)} lbf on one support (${fmt(res.input.support_span_m * 1000, 0)} mm span)` },
+      ]} />
 
-      <Section title="Current sharing" aside={<span className="text-faint text-[12px]">per conductor, coloured by phase</span>}>
+      <Section title="Current sharing" aside="per conductor, coloured by phase">
         <SharingChart res={res} />
       </Section>
 
       <Section title="Checks" aside={<Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "Pass" : "Fail"}</Pill>}>
-        <div className="table-wrap">
-          <table className="grid-table">
-            <thead><tr><th>Check</th><th className="r">Value</th><th className="r">Limit</th><th>Result</th><th>Clause</th></tr></thead>
-            <tbody>
-              {res.checks.map((c) => (
-                <tr key={c.name} title={c.note}>
-                  <td className="cb-wrap">{c.name}<div className="cb-note">{c.note}</div></td>
-                  <td className="r">{std(c.value)} <em className="cb-unit">{c.unit}</em></td>
-                  <td className="r">{std(c.limit)} <em className="cb-unit">{c.unit}</em></td>
-                  <td><Pill tone={c.passed ? "ok" : "crit"}>{c.passed ? "Pass" : "Fail"}</Pill></td>
-                  <td className="cb-wrap cb-clause">{c.clause}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ChecksTable checks={res.checks} format={std} />
       </Section>
 
       <div className="cb-two">
         <Section title="Cross-section" aside={<span className="text-faint text-[12px]">to scale · pitch {fmt(res.pitch_mm, 0)} mm{res.input.tiers > 1 ? ` · tier pitch ${fmt(res.tier_pitch_mm, 0)} mm` : ""} · OD {fmt(res.cable_od_mm, 1)} mm</span>}>
           <CrossSection inp={inp} res={res} />
         </Section>
-        <Section title="Magnetic field" aside={<span className="text-faint text-[12px]">µT, RMS</span>}>
+        <Section title="Magnetic field" aside="µT, RMS">
           <FieldMap inp={inp} res={res} />
         </Section>
       </div>
@@ -506,7 +489,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
         </Section>
       </div>
       <div className="cb-results">
-        {error && <div className="notice notice-crit"><b>Cannot analyse.</b> {error}</div>}
+        {error && <StateMsg kind="error" title="Cannot analyse this cable bus">{error}. Correct the input on the left; results update as you type.</StateMsg>}
         {res && <Results inp={inp} res={res} />}
       </div>
     </div>
@@ -600,12 +583,12 @@ function DesignerTab({ d, setD, onPick }) {
         <Btn kind="primary" onClick={() => run()} disabled={busy || !d.sizes.length || !d.tiers.length}>{busy ? "Running…" : "Run designer"}</Btn>
       </div>
       <div className="cb-results">
-        {out?.error && <div className="notice notice-crit"><b>Cannot design.</b> {out.error}</div>}
-        {!out && <div className="notice notice-info">Running the designer…</div>}
+        {out?.error && <StateMsg kind="error" title="Cannot design">{out.error}</StateMsg>}
+        {(!out || busy) && <StateMsg kind="loading" title="Running the designer">Enumerating layouts and analysing each one.</StateMsg>}
         {r && (
           <>
             <Section title="Ranked options" aside={<span className="text-faint text-[12px]">{r.considered} layouts analysed · {r.options.filter((o) => o.passed).length} pass</span>}>
-              {r.options.length === 0 && <div className="text-muted">No layout fits the enclosure catalogue. Try more tiers or larger sizes.</div>}
+              {r.options.length === 0 && <StateMsg title="No layout fits the enclosure catalogue">Try more tiers or larger sizes, then run the designer again.</StateMsg>}
               <div className="table-wrap">
                 <table className="grid-table">
                   <thead><tr><th>#</th><th>Option</th><th className="r">Loading</th><th className="r">Vdrop</th><th className="r">Loss</th><th className="r">Cu / phase</th>{out.req.fault_ka ? <th className="r">Block stress</th> : null}<th>Result</th><th /></tr></thead>
@@ -644,6 +627,7 @@ export function CableBusWorkspace({ goTo }) {
   const [d, setD] = useState(DESIGN_EXAMPLE);
   const [fromSystem, setFromSystem] = useState(null);
   const [link, setLink] = useState(null);            // System cable bus run this design is for
+  const hostRef = useRef(null);
 
   useEffect(() => bus.on("cablebus:open", ({ connector, current_a, kv }) => {
     const c = connector || {};
@@ -685,22 +669,23 @@ export function CableBusWorkspace({ goTo }) {
   const { res, error: solveError } = useMemo(() => (tab === "check" ? solve(f) : {}), [f, tab]);
   const push = useMemo(() => (res ? { design: cableBusDesign(res) } : { error: tab === "check" ? solveError : "Open a design on the Check tab to apply it" }), [res, solveError, tab]);
   return (
-    <div className="ws">
+    <div className="ws" ref={hostRef}>
       <style>{CSS}</style>
-      <header className="topbar">
-        <div className="ws-title">Cable bus</div>
-        <div className="seg" role="tablist">
+      <WsHeader title="Cable bus" context={tab === "check" ? "Analyse a given design" : "Enumerate and rank options"}
+        status={<>
+          {tab === "check" && res && <Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
+          {tab === "check" && solveError && <Pill tone="crit">Input error</Pill>}
+        </>}
+        actions={<>
+          <PushToSystem module="cablebus" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
+          {tab === "check" && res && <ReportButton filename="cable-bus-calc" getReport={() => cableBusReport(f, hostRef.current)} />}
+          {tab === "check" && <Btn onClick={() => { setF(EXAMPLE); setFromSystem(null); }} title="Restore the 15 kV 2000 A example">Reset to example</Btn>}
+        </>}>
+        <div className="seg" role="tablist" aria-label="Mode">
           <Btn active={tab === "check"} onClick={() => setTab("check")}>Check</Btn>
           <Btn active={tab === "designer"} onClick={() => setTab("designer")}>Designer</Btn>
         </div>
-        <span className="text-muted text-[12.5px]">{tab === "check" ? "Analyse a given design" : "Enumerate and rank options"}</span>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <PushToSystem module="cablebus" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
-          {tab === "check" && res && <Pill tone={res.passed ? "ok" : "crit"}>{res.passed ? "All checks pass" : `${res.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
-          {tab === "check" && res && <ReportButton filename="cable-bus-calc" getReport={() => cableBusReport(f)} />}
-          {tab === "check" && <Btn onClick={() => { setF(EXAMPLE); setFromSystem(null); }} title="Restore the 15 kV 2000 A example">Reset to example</Btn>}
-        </div>
-      </header>
+      </WsHeader>
       <div className="main">
         {tab === "check"
           ? <CheckTab f={f} setF={setF} fromSystem={fromSystem} clearFrom={() => setFromSystem(null)} />

@@ -1,6 +1,7 @@
 // Motor starting and daily load profile studies for the System workspace (Schedule view).
 const { useState, useMemo } = React;
-import { Btn, Pill, Section, Field, NumField, Tile, cx, fmt } from "./common.jsx";
+import { Btn, Pill, Section, Field, NumField, Tile, cx, fmt, StateMsg } from "./common.jsx";
+import { Chart, Bars, Line, Area, RefLine, Band } from "./charts/index.js";
 import { motorStartStudy, startableMotors, largestMotor, STARTERS, DEFAULT_CRITERIA } from "../engine/motorstart.js";
 import { profileStudy, PROFILES } from "../engine/loadprofile.js";
 
@@ -10,9 +11,8 @@ const CSS = `
 .ss-tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:12px; }
 .ss-charts { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:14px; margin-bottom:12px; }
 .ss-chart { background: var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; min-width:0; }
-.ss-chart h4 { font-size:11.5px; color: var(--muted); margin:0 0 4px; font-weight:500; }
-.ss-svg { width:100%; height:auto; display:block; font-variant-numeric: tabular-nums; }
-.ss-svg text { fill: var(--faint); font-size:10px; font-family: var(--font-data); }
+.ss-chart h4 { font-size:12.5px; color: var(--fg); margin:0 0 6px; font-weight:600; }
+.ss-chart h4 span { color: var(--faint); font-weight:400; }
 .ss-note { color: var(--faint); font-size:12px; line-height:1.5; margin-top:8px; }
 .ss-bar { display:inline-block; height:8px; border-radius:2px; vertical-align:middle; min-width:1px; }
 .ss-barcell { width:140px; }
@@ -23,46 +23,32 @@ const CSS = `
 .ss-heat td.ss-cell { height:18px; min-width:16px; text-align:center; font-size:9.5px; color:#0a0f14; font-variant-numeric: tabular-nums; border-radius:2px; }
 .ss-legend { display:flex; align-items:center; gap:8px; font-size:11px; color: var(--faint); margin-top:6px; }
 @media (max-width: 640px) {
-  .ss-svg text { font-size: 11.5px; }
   .ss-heat td.ss-cell { font-size: 11px; min-width: 24px; height: 22px; }
 }
 .ss-legend i { display:inline-block; width:140px; height:8px; border-radius:2px; background: linear-gradient(90deg, var(--ok), var(--high), var(--crit)); }
 `;
 
-const W = 360, H = 170, M = { l: 38, r: 10, t: 8, b: 22 };
 const heat = (pct) => {
   if (pct == null) return "transparent";
   const p = Math.max(0, Math.min(100, pct));
   if (p <= 60) return `color-mix(in srgb, var(--ok) ${(100 - (p / 60) * 100).toFixed(0)}%, var(--high))`;
   return `color-mix(in srgb, var(--high) ${(100 - ((p - 60) / 40) * 100).toFixed(0)}%, var(--crit))`;
 };
-const scale = (d0, d1, r0, r1) => (v) => r0 + ((v - d0) / (d1 - d0 || 1)) * (r1 - r0);
-
-function Axes({ x, y, xt, yt, yfmt = (v) => v }) {
-  return (<g>
-    <line x1={M.l} x2={W - M.r} y1={H - M.b} y2={H - M.b} stroke="var(--line)" />
-    {yt.map((v) => (<g key={v}><line x1={M.l} x2={W - M.r} y1={y(v)} y2={y(v)} stroke="var(--grid-major)" /><text x={M.l - 4} y={y(v) + 3} textAnchor="end">{yfmt(v)}</text></g>))}
-    {xt.map((v) => <text key={v} x={x(v)} y={H - 8} textAnchor="middle">{v}</text>)}
-  </g>);
-}
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const hh = (h) => `${String(h).padStart(2, "0")}:00`;
 
 /* ------------------------------------------------------------ motor start */
 function DipChart({ rows, crit }) {
-  const n = rows.length, bw = (W - M.l - M.r) / Math.max(n, 1);
   const ymax = Math.max(crit.bus_max_dip_pct * 1.2, ...rows.map((r) => r.dip_pct), 1);
-  const y = scale(0, ymax, H - M.b, M.t);
-  const ticks = [0, 0.5, 1].map((f) => +(f * ymax).toFixed(0));
+  const color = (v, i) => (rows[i].pass ? "var(--ok)" : "var(--crit)");
   return (
-    <svg className="ss-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Voltage dip per bus">
-      <Axes x={() => 0} y={y} xt={[]} yt={ticks} yfmt={(v) => v + "%"} />
-      <line x1={M.l} x2={W - M.r} y1={y(crit.bus_max_dip_pct)} y2={y(crit.bus_max_dip_pct)} stroke="var(--high)" strokeDasharray="4 3" />
-      {rows.map((r, i) => (
-        <g key={r.bus}>
-          <rect x={M.l + i * bw + bw * 0.15} width={bw * 0.7} y={y(Math.max(r.dip_pct, 0))} height={Math.max(0, H - M.b - y(Math.max(r.dip_pct, 0)))} fill={r.pass ? "var(--ok)" : "var(--crit)"} opacity={r.is_motor ? 1 : 0.8}>
-            <title>{`${r.label}: ${r.dip_pct.toFixed(2)} %`}</title></rect>
-          <text x={M.l + i * bw + bw / 2} y={H - 8} textAnchor="middle">{r.bus}</text>
-        </g>))}
-    </svg>
+    <Chart height={200} ariaLabel="Voltage dip per bus" reportTitle="Motor starting: voltage dip per bus"
+      x={{ type: "band", n: rows.length, labels: rows.map((r) => String(r.bus)), label: "Bus" }}
+      y={{ domain: [0, ymax], label: "Dip", unit: "%" }}
+      hover={{ render: (i) => { const r = rows[i]; return { title: r.label, rows: [{ label: r.is_motor ? "motor bus dip" : "dip", value: `${r.dip_pct.toFixed(2)} %`, color: color(0, i) }, { label: "during start", value: `${fmt(r.v_start, 4)} pu` }, { label: "result", value: r.pass ? "pass" : "fail" }] }; } }}>
+      <RefLine y={crit.bus_max_dip_pct} label={`limit ${crit.bus_max_dip_pct} %`} tone="warn" />
+      <Bars values={rows.map((r) => Math.max(r.dip_pct, 0))} color={color} labels={() => rows.length <= 10} format={(v) => v.toFixed(1)} />
+    </Chart>
   );
 }
 
@@ -90,8 +76,8 @@ export function MotorStartSection({ sys }) {
         <Field label="Bus min" unit="pu"><NumField value={criteria.bus_min_pu} onCommit={(v) => v > 0 && setCrit((c) => ({ ...c, bus_min_pu: v }))} /></Field>
         <Btn kind="primary" onClick={() => setRan((n) => n + 1)}>Run start study</Btn>
       </div>
-      {!res && <p className="ss-note">Choose a motor and starter, then run. The motor's running load is replaced by its locked-rotor impedance (LRC {cur.lrc} x, start pf {cur.start_pf ?? 0.2}) and the load flow is re-solved.</p>}
-      {res && !res.ok && <div className="notice notice-crit">{res.message}</div>}
+      {!res && <StateMsg title="No start study yet">Choose a motor and starter, then run. The motor's running load is replaced by its locked-rotor impedance (LRC {cur.lrc} x, start pf {cur.start_pf ?? 0.2}) and the load flow is re-solved.</StateMsg>}
+      {res && !res.ok && <StateMsg kind="error" title="Start study did not solve">{res.message}</StateMsg>}
       {res?.ok && (<>
         <div className="ss-tiles">
           <Tile label="Motor terminal" value={fmt(res.motor_terminal_pu * 100, 1)} unit="%" tone={res.pass.motor ? "ok" : "crit"} sub={res.pass.motor ? "meets minimum" : `below ${(criteria.motor_min_pu * 100).toFixed(0)} %`} />
@@ -100,7 +86,7 @@ export function MotorStartSection({ sys }) {
           <Tile label="Worst other bus" value={fmt(res.worst_other?.dip_pct, 1)} unit="% dip" tone={res.pass.others ? "ok" : "crit"} sub={res.worst_other ? res.worst_other.label : "no other buses"} />
         </div>
         <div className="ss-charts">
-          <div className="ss-chart"><h4>Voltage dip per bus (dashed: {criteria.bus_max_dip_pct} % limit)</h4><DipChart rows={res.rows} crit={criteria} /></div>
+          <div className="ss-chart"><h4>Voltage dip per bus <span>· dashed line is the {criteria.bus_max_dip_pct} % limit</span></h4><DipChart rows={res.rows} crit={criteria} /></div>
           <div className="table-wrap"><table className="grid-table">
             <thead><tr><th>Bus</th><th className="r">kV</th><th className="r">Pre<em>pu</em></th><th className="r">Start<em>pu</em></th><th className="r">Dip</th><th className="ss-barcell"></th><th>Result</th></tr></thead>
             <tbody>{res.rows.map((r) => (
@@ -119,46 +105,59 @@ export function MotorStartSection({ sys }) {
 }
 
 /* ------------------------------------------------------------ load profile */
-function AreaChart({ hours }) {
-  const x = scale(0, 23, M.l, W - M.r);
+/* Load and losses share the hour axis but not a scale, so they are two aligned charts rather than one dual-axis chart. */
+function hourHover(hours, rows) {
+  return { xs: HOURS, render: (i) => ({ title: hh(hours[i].hour), rows: rows(hours[i]) }) };
+}
+function LoadChart({ hours }) {
   const ymax = Math.max(...hours.map((h) => h.load_kw), 1) * 1.1;
-  const y = scale(0, ymax, H - M.b, M.t);
-  const lmax = Math.max(...hours.map((h) => h.loss_kw), 1e-9) * 1.1;
-  const yl = scale(0, lmax, H - M.b, M.t);
-  const area = (k, ys) => `M${x(0)},${H - M.b} ` + hours.map((h) => `L${x(h.hour).toFixed(1)},${ys(h[k]).toFixed(1)}`).join(" ") + ` L${x(23)},${H - M.b} Z`;
+  const data = hours.map((h) => ({ x: h.hour, y: h.load_kw }));
   return (
-    <svg className="ss-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Load and losses by hour">
-      <Axes x={x} y={y} xt={[0, 6, 12, 18, 23]} yt={[0, 0.5, 1].map((f) => +(f * ymax).toFixed(0))} />
-      <path d={area("load_kw", y)} fill="var(--accent)" opacity="0.28" stroke="var(--accent)" />
-      <path d={area("loss_kw", yl)} fill="var(--crit)" opacity="0.28" stroke="var(--crit)" />
-      <text x={W - M.r} y={M.t + 8} textAnchor="end" style={{ fill: "var(--accent)" }}>load kW</text>
-      <text x={W - M.r} y={M.t + 20} textAnchor="end" style={{ fill: "var(--crit)" }}>losses (own scale, peak {fmt(lmax / 1.1, 1)} kW)</text>
-    </svg>
+    <Chart height={170} ariaLabel="Load by hour" reportTitle="Load by hour"
+      x={{ domain: [0, 23], nice: false, ticks: [0, 6, 12, 18, 23], format: (v) => String(v), label: "Hour" }}
+      y={{ domain: [0, ymax], label: "Load", unit: "kW" }}
+      hover={{ ...hourHover(hours, (h) => [{ label: "load", value: `${fmt(h.load_kw, 0)} kW`, color: "var(--accent)" }, { label: "losses", value: `${fmt(h.loss_kw, 1)} kW`, color: "var(--crit)" }]), points: (i) => [{ y: hours[i].load_kw, color: "var(--accent)" }] }}>
+      <Area data={data} color="var(--accent)" opacity={0.14} />
+    </Chart>
+  );
+}
+function LossChart({ hours }) {
+  const lmax = Math.max(...hours.map((h) => h.loss_kw), 1e-9) * 1.1;
+  const data = hours.map((h) => ({ x: h.hour, y: h.loss_kw }));
+  return (
+    <Chart height={130} ariaLabel="Losses by hour" reportTitle="Losses by hour"
+      x={{ domain: [0, 23], nice: false, ticks: [0, 6, 12, 18, 23], format: (v) => String(v), label: "Hour" }}
+      y={{ domain: [0, lmax], count: 3, label: "Losses", unit: "kW" }}
+      hover={{ ...hourHover(hours, (h) => [{ label: "losses", value: `${fmt(h.loss_kw, 2)} kW`, color: "var(--crit)" }]), points: (i) => [{ y: hours[i].loss_kw, color: "var(--crit)" }] }}>
+      <Area data={data} color="var(--crit)" opacity={0.14} />
+    </Chart>
   );
 }
 function VoltChart({ hours }) {
   const vmin = Math.min(0.94, ...hours.map((h) => h.min_v)) - 0.005, vmax = Math.max(1.0, ...hours.map((h) => h.min_v)) + 0.005;
-  const x = scale(0, 23, M.l, W - M.r), y = scale(vmin, vmax, H - M.b, M.t);
-  const band = [0.95, 1.05].map((v) => Math.min(Math.max(v, vmin), vmax));
+  const data = hours.map((h) => ({ x: h.hour, y: h.min_v }));
   return (
-    <svg className="ss-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Minimum bus voltage by hour">
-      <Axes x={x} y={y} xt={[0, 6, 12, 18, 23]} yt={[vmin, (vmin + vmax) / 2, vmax].map((v) => +v.toFixed(3))} yfmt={(v) => v.toFixed(3)} />
-      <rect x={M.l} width={W - M.l - M.r} y={y(band[1])} height={Math.max(0, y(band[0]) - y(band[1]))} fill="var(--ok)" opacity="0.1" />
-      <line x1={M.l} x2={W - M.r} y1={y(0.95)} y2={y(0.95)} stroke="var(--high)" strokeDasharray="4 3" />
-      <polyline fill="none" stroke="var(--info)" strokeWidth="1.6" points={hours.map((h) => `${x(h.hour).toFixed(1)},${y(h.min_v).toFixed(1)}`).join(" ")} />
-    </svg>
+    <Chart height={200} ariaLabel="Minimum bus voltage by hour" reportTitle="Minimum bus voltage by hour"
+      x={{ domain: [0, 23], nice: false, ticks: [0, 6, 12, 18, 23], format: (v) => String(v), label: "Hour" }}
+      y={{ domain: [vmin, vmax], nice: false, count: 4, label: "Lowest bus voltage", unit: "pu" }}
+      hover={{ ...hourHover(hours, (h) => [{ label: "lowest bus", value: `${fmt(h.min_v, 4)} pu`, color: "var(--info)" }]), points: (i) => [{ y: hours[i].min_v, color: "var(--info)" }] }}>
+      <Band y0={0.95} y1={1.05} tone="ok" />
+      <RefLine y={0.95} label="0.95 pu" tone="warn" />
+      <Line data={data} color="var(--info)" />
+    </Chart>
   );
 }
 function DurationChart({ duration }) {
-  const x = scale(0, 100, M.l, W - M.r);
-  const ymax = Math.max(...duration.map((d) => d.load_kw), 1) * 1.1, y = scale(0, ymax, H - M.b, M.t);
-  const pts = [[0, duration[0].load_kw], ...duration.map((d) => [d.pct_time, d.load_kw])];
+  const ymax = Math.max(...duration.map((d) => d.load_kw), 1) * 1.1;
+  const pts = [{ x: 0, y: duration[0].load_kw }, ...duration.map((d) => ({ x: d.pct_time, y: d.load_kw }))];
+  const xs = pts.map((p) => p.x);
   return (
-    <svg className="ss-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Load duration curve">
-      <Axes x={x} y={y} xt={[0, 25, 50, 75, 100]} yt={[0, 0.5, 1].map((f) => +(f * ymax).toFixed(0))} />
-      <polyline fill="none" stroke="var(--accent)" strokeWidth="1.6" points={pts.map(([p, v]) => `${x(p).toFixed(1)},${y(v).toFixed(1)}`).join(" ")} />
-      <text x={W - M.r} y={M.t + 8} textAnchor="end">% of hours</text>
-    </svg>
+    <Chart height={200} ariaLabel="Load duration curve" reportTitle="Load-duration curve"
+      x={{ domain: [0, 100], nice: false, ticks: [0, 25, 50, 75, 100], format: (v) => String(v), label: "Share of hours", unit: "%" }}
+      y={{ domain: [0, ymax], label: "Load", unit: "kW" }}
+      hover={{ xs, render: (i) => ({ title: `${fmt(xs[i], 1)} % of hours`, rows: [{ label: "load at or above", value: `${fmt(pts[i].y, 0)} kW`, color: "var(--accent)" }] }), points: (i) => [{ x: xs[i], y: pts[i].y, color: "var(--accent)" }] }}>
+      <Line data={pts} color="var(--accent)" />
+    </Chart>
   );
 }
 
@@ -175,7 +174,7 @@ export function ProfileSection({ sys }) {
         <Field label="Profile"><select className="num-input" value={name} onChange={(e) => setName(e.target.value)}>
           {Object.entries(PROFILES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
       </div>
-      {!res.ok && <div className="notice notice-crit">{res.message}</div>}
+      {!res.ok && <StateMsg kind="error" title="Profile study did not solve">{res.message}</StateMsg>}
       {res.ok && (<>
         <div className="ss-tiles">
           <Tile label="Energy" value={fmt(res.energy.load_kwh, 0)} unit="kWh/day" sub={`load factor ${fmt(res.energy.load_factor * 100, 0)} %`} />
@@ -184,8 +183,8 @@ export function ProfileSection({ sys }) {
           <Tile label="Min voltage" value={fmt(res.min_v, 4)} unit="pu" tone={res.min_v < 0.95 ? "crit" : "ok"} sub="lowest bus, any hour" />
         </div>
         <div className="ss-charts">
-          <div className="ss-chart"><h4>Load and losses by hour</h4><AreaChart hours={res.hours} /></div>
-          <div className="ss-chart"><h4>Minimum bus voltage (band 0.95 pu and up)</h4><VoltChart hours={res.hours} /></div>
+          <div className="ss-chart"><h4>Load and losses by hour <span>· each on its own scale</span></h4><LoadChart hours={res.hours} /><LossChart hours={res.hours} /></div>
+          <div className="ss-chart"><h4>Minimum bus voltage <span>· band 0.95 pu and up</span></h4><VoltChart hours={res.hours} /></div>
           <div className="ss-chart"><h4>Load-duration curve</h4><DurationChart duration={res.duration} /></div>
         </div>
         <div className="table-wrap"><table className="ss-heat">

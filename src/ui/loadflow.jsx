@@ -4,7 +4,8 @@ import * as LF from "../engine/loadflow.js";
 import { bus } from "./bus.js";
 import { StudiesTab } from "./lfstudies.jsx";
 import { outageCase } from "../engine/contingency.js";
-import { Btn, FLAG_COLOR, Field, Icon, NumField, Pill, Section, Tile, V_MIN, V_MAX, busType, clone, cx, fmt, freeSpot, isXfmr, makeScenario, newId, sgn, vflagOf } from "./common.jsx";
+import { Btn, FLAG_COLOR, Field, Icon, NumField, Pill, Section, Tile, V_MIN, V_MAX, busType, clone, cx, fmt, freeSpot, isXfmr, makeScenario, newId, sgn, vflagOf, WsHeader, KpiStrip, StateMsg } from "./common.jsx";
+import { Chart, Bars, Line, Area, RefLine, Band, SERIES_VAR } from "./charts/index.js";
 
 /* ================================================================ DIAGRAM */
 function useGeometry(data, layout) {
@@ -521,58 +522,45 @@ function DataTab({ scenario, issues, update, renameBus, addBus, addBranchRow, de
 }
 
 /* ================================================================ CHARTS */
-function VoltageChart({ series, height = 220 }) {
-  const W = 760, H = height, L = 44, R = 12, T = 14, B = 28;
-  const all = series.flatMap((s) => s.values.map((v) => v.v));
+const FLAG_WORD = { low: "below 0.95", high: "above 1.05", ok: "in band" };
+function VoltageChart({ series, height = 240, reportTitle }) {
+  const all = series.flatMap((s) => s.values.map((v) => v.v)).filter((v) => v != null);
   const lo = Math.min(0.9, Math.floor(Math.min(...all) * 40) / 40), hi = Math.max(1.1, Math.ceil(Math.max(...all) * 40) / 40);
   const ids = series[0].values.map((v) => v.id);
-  const n = ids.length, band = (W - L - R) / n, gw = band * 0.72, bw = gw / series.length;
-  const y = (v) => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
   const ticks = []; for (let t = Math.ceil(lo * 20) / 20; t <= hi + 1e-9; t += 0.05) ticks.push(+t.toFixed(2));
-  const base = y(lo);
+  const one = series.length === 1;
+  const colors = one ? [null] : series.map((s, j) => SERIES_VAR[j]);
   return (
-    <div className="chart-scroll" style={{ "--chart-min": "560px" }}><svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Bus voltage profile">
-      <rect x={L} y={y(V_MAX)} width={W - L - R} height={y(V_MIN) - y(V_MAX)} className="band" />
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className={t === V_MIN || t === V_MAX ? "limit" : "gridline"} />
-          <text x={L - 6} y={y(t) + 3.5} textAnchor="end" className="tick">{t.toFixed(2)}</text>
-        </g>
-      ))}
-      {ids.map((id, i) => (
-        <g key={id}>
-          {series.map((s, j) => {
-            const v = s.values[i]?.v; if (v == null) return null;
-            const x = L + band * i + (band - gw) / 2 + bw * j;
-            const fill = series.length === 1 ? FLAG_COLOR[vflagOf(v)] : s.color;
-            return <rect key={j} x={x} y={Math.min(y(v), base)} width={Math.max(bw - 1.5, 1)} height={Math.abs(base - y(v))} fill={fill} rx="1.5"><title>{`Bus ${id}${series.length > 1 ? ` (${s.name})` : ""}: ${v.toFixed(4)} pu`}</title></rect>;
-          })}
-          <text x={L + band * i + band / 2} y={H - 10} textAnchor="middle" className="tick">{id}</text>
-        </g>
-      ))}
-      <text x={L} y={H - 0} className="tick" dy="-1">bus</text>
-    </svg></div>
+    <Chart height={height} minWidth={ids.length > 40 ? ids.length * 7 : 0} ariaLabel="Bus voltage profile" reportTitle={reportTitle}
+      x={{ type: "band", n: ids.length, labels: ids.map(String), label: "Bus" }}
+      y={{ domain: [lo, hi], nice: false, ticks, format: (t) => t.toFixed(2), label: "Voltage", unit: "pu" }}
+      legend={one ? null : series.map((s, j) => ({ name: s.name, color: colors[j], kind: "bar" }))}
+      hover={{ render: (i) => ({ title: `Bus ${ids[i]}`, rows: series.map((s, j) => { const v = s.values[i]?.v; return { label: one ? FLAG_WORD[vflagOf(v)] : s.name, value: v == null ? "—" : `${v.toFixed(4)} pu`, color: one ? FLAG_COLOR[vflagOf(v)] : colors[j] }; }) }) }}>
+      <Band y0={V_MIN} y1={V_MAX} tone="ok" />
+      <RefLine y={V_MIN} label="0.95" tone="low" align="start" />
+      <RefLine y={V_MAX} label="1.05" tone="warn" align="start" />
+      {series.map((s, j) => <Bars key={j} values={s.values.map((v) => v.v)} base={lo} groups={series.length} group={j}
+        color={one ? (v) => FLAG_COLOR[vflagOf(v)] : colors[j]} />)}
+    </Chart>
   );
 }
 
 function ConvergenceChart({ history, tol = 1e-8 }) {
-  const W = 300, H = 220, L = 38, R = 10, T = 14, B = 28;
-  const lg = history.map((m) => Math.log10(Math.max(m, 1e-16)));
-  const top = Math.max(1, Math.ceil(Math.max(...lg))), bot = -16;
+  const vals = history.map((m) => Math.max(m, 1e-16));
+  const top = Math.max(1, Math.ceil(Math.max(...vals.map((v) => Math.log10(v)))));
+  const ticks = []; for (let t = top; t >= -16; t -= 4) ticks.push(10 ** t);
+  const data = vals.map((v, i) => ({ x: i, y: v }));
+  const xs = vals.map((_, i) => i);
   const n = Math.max(history.length - 1, 1);
-  const x = (i) => L + ((W - L - R) * i) / n, y = (v) => T + ((H - T - B) * (top - v)) / (top - bot);
-  const ticks = []; for (let t = top; t >= bot; t -= 4) ticks.push(t);
-  const d = lg.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join("");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Newton-Raphson convergence">
-      {ticks.map((t) => (<g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="gridline" /><text x={L - 5} y={y(t) + 3.5} textAnchor="end" className="tick">1e{t}</text></g>))}
-      <line x1={L} x2={W - R} y1={y(Math.log10(tol))} y2={y(Math.log10(tol))} className="limit" />
-      <text x={W - R} y={y(Math.log10(tol)) - 4} textAnchor="end" className="tick accent">tol 1e-8</text>
-      <path d={`${d}L${x(lg.length - 1)},${y(bot)}L${x(0)},${y(bot)}Z`} className="area" />
-      <path d={d} className="line" />
-      {lg.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={i === lg.length - 1 ? 3.5 : 2.2} className={i === lg.length - 1 ? "pt-end" : "pt"}><title>{`iter ${i}: ${history[i].toExponential(2)} pu`}</title></circle>)}
-      {lg.map((_, i) => <text key={"t" + i} x={x(i)} y={H - 10} textAnchor="middle" className="tick">{i}</text>)}
-    </svg>
+    <Chart height={240} ariaLabel="Newton-Raphson convergence"
+      x={{ domain: [0, n], label: "Iteration", ticks: xs.length <= 12 ? xs : undefined, format: (v) => String(v) }}
+      y={{ type: "log", domain: [1e-16, 10 ** top], ticks, label: "Max mismatch", unit: "pu" }}
+      hover={{ xs, render: (i) => ({ title: `Iteration ${i}`, rows: [{ label: "max |ΔS|", value: `${history[i].toExponential(2)} pu`, color: "var(--info)" }] }), points: (i) => [{ y: vals[i], color: "var(--info)" }] }}>
+      <RefLine y={tol} label="tol 1e-8" tone="accent" />
+      <Area data={data} color="var(--info)" base={1e-16} opacity={0.1} />
+      <Line data={data} color="var(--info)" markers />
+    </Chart>
   );
 }
 
@@ -580,18 +568,16 @@ function ConvergenceChart({ history, tol = 1e-8 }) {
 function ResultsTab({ scenario, result, stale, solve, issues, saveFile, copyText, onSelectBus }) {
   if (!result) {
     return (
-      <div className="p-6"><div className="panel p-8 text-center flex flex-col items-center gap-3">
-        <div className="text-lg">No results yet</div>
-        <p className="text-muted">Solve the active network to see bus voltages, branch flows and losses.</p>
-        <Btn kind="primary" onClick={solve}><Icon name="bolt" size={15} />Solve load flow</Btn>
-      </div></div>
+      <div className="p-4"><StateMsg center title="No results yet" action={<Btn kind="primary" onClick={solve}><Icon name="bolt" size={15} />Solve load flow</Btn>}>
+        Solve the active network to see bus voltages, branch flows and losses.
+      </StateMsg></div>
     );
   }
   if (!result.buses) {
     return (
-      <div className="p-6"><div className="notice notice-crit">
-        <b>Solve failed.</b> {result.message}{" "}{result.issues?.some((x) => x.level === "error") && "Fix the errors on the Data tab, then solve again."}
-      </div></div>
+      <div className="p-4"><StateMsg kind="error" title="Solve failed">
+        {result.message}{" "}{result.issues?.some((x) => x.level === "error") && "Fix the errors on the Data tab, then solve again."}
+      </StateMsg></div>
     );
   }
   const r = result;
@@ -605,18 +591,18 @@ function ResultsTab({ scenario, result, stale, solve, issues, saveFile, copyText
     <div className="flex flex-col gap-4 p-4">
       {!r.converged && <div className="notice notice-crit"><b>Did not converge.</b> {r.message}. Values below are the last iterate and are not a valid operating point.</div>}
       {stale && <div className="notice notice-warn">The network changed since this solve. <button className="link" onClick={solve}>Solve again</button> to refresh.</div>}
-      <div className="tiles">
-        <Tile label="Status" value={r.converged ? "Converged" : "Diverged"} tone={r.converged ? "ok" : "crit"} sub={`${r.iterations} iter · max ΔS ${r.max_mismatch_pu.toExponential(1)} pu · ${r.solve_ms.toFixed(1)} ms`} />
-        <Tile label="Generation" value={fmt(r.total_gen_mw, 1)} unit="MW" sub={`${fmt(r.total_gen_mvar, 1)} Mvar`} />
-        <Tile label="Load" value={fmt(r.total_load_mw, 1)} unit="MW" sub={`${fmt(r.total_load_mvar, 1)} Mvar`} />
-        <Tile label="Losses" value={fmt(r.total_p_loss_mw, 3)} unit="MW" sub={`${fmt((100 * r.total_p_loss_mw) / Math.max(r.total_load_mw, 1e-9), 2)} % of load · ${fmt(r.total_q_loss_mvar, 2)} Mvar`} />
-        <Tile label="Voltage range" value={`${Math.min(...vs).toFixed(3)}–${Math.max(...vs).toFixed(3)}`} unit="pu"
-          tone={nLow + nHigh ? "warn" : "ok"} sub={nLow + nHigh ? `${nLow} below 0.95 · ${nHigh} above 1.05` : "All buses within 0.95–1.05"} />
-      </div>
+      <KpiStrip items={[
+        { label: "Status", value: r.converged ? "Converged" : "Diverged", status: r.converged ? "pass" : "fail", sub: `${r.iterations} iter · max ΔS ${r.max_mismatch_pu.toExponential(1)} pu · ${r.solve_ms.toFixed(1)} ms` },
+        { label: "Generation", value: fmt(r.total_gen_mw, 1), unit: "MW", sub: `${fmt(r.total_gen_mvar, 1)} Mvar` },
+        { label: "Load", value: fmt(r.total_load_mw, 1), unit: "MW", sub: `${fmt(r.total_load_mvar, 1)} Mvar` },
+        { label: "Losses", value: fmt(r.total_p_loss_mw, 3), unit: "MW", sub: `${fmt((100 * r.total_p_loss_mw) / Math.max(r.total_load_mw, 1e-9), 2)} % of load · ${fmt(r.total_q_loss_mvar, 2)} Mvar` },
+        { label: "Voltage range", value: `${Math.min(...vs).toFixed(3)}–${Math.max(...vs).toFixed(3)}`, unit: "pu",
+          status: nLow + nHigh ? "warn" : "pass", sub: nLow + nHigh ? `${nLow} below 0.95 · ${nHigh} above 1.05` : "All buses within 0.95–1.05" },
+      ]} />
 
       <div className="charts-row">
-        <Section title="Voltage profile" aside={<span className="text-faint text-[12px]">Shaded band is 0.95–1.05 pu</span>}><VoltageChart series={[{ name: scenario.name, values: r.buses }]} /></Section>
-        <Section title="Newton-Raphson convergence"><ConvergenceChart history={r.history} /></Section>
+        <Section title="Voltage profile" aside="shaded band 0.95–1.05 pu"><VoltageChart series={[{ name: scenario.name, values: r.buses }]} /></Section>
+        <Section title="Newton-Raphson convergence" aside="log scale"><ConvergenceChart history={r.history} /></Section>
       </div>
 
       <Section title="Bus results" aside={
@@ -843,8 +829,7 @@ function CasesTab({ scenarios, active, setActive, loadBuiltin, importCase, renam
             </div>
             <div className="charts-row">
               <div className="min-w-0">
-                <div className="flex gap-4 text-[12px] mb-1"><span className="flex items-center gap-1.5"><i className="sw" style={{ background: "var(--wire)" }} />{sa.name}</span><span className="flex items-center gap-1.5"><i className="sw" style={{ background: "var(--accent)" }} />{sb.name}</span></div>
-                <VoltageChart series={[{ name: sa.name, color: "var(--wire)", values: ids.map((id) => ({ id, v: mA[id]?.v })) }, { name: sb.name, color: "var(--accent)", values: ids.map((id) => ({ id, v: mB[id]?.v })) }]} />
+                <VoltageChart series={[{ name: sa.name, values: ids.map((id) => ({ id, v: mA[id]?.v })) }, { name: sb.name, values: ids.map((id) => ({ id, v: mB[id]?.v })) }]} />
               </div>
               <div className="min-w-0">
                 <div className="label mb-2">Network changes · {changes.length}</div>
@@ -1067,20 +1052,23 @@ export function LoadFlowWorkspace() {
 
   return (
     <div className="ws">
-      <header className="topbar">
-        <div className="ws-title">Load flow</div>
+      <WsHeader title="Load flow" context="Newton-Raphson power flow, scenarios and studies"
+        status={<>
+          <Pill tone={status.tone}>{status.text}</Pill>
+          {active.systemStale && <Pill tone="warn" title={`${active.systemStale}. Open the System in Load flow again for the current model.`}>System changed</Pill>}
+        </>}
+        actions={<>
+          <label className="live-toggle" title="Re-solve after every edit"><input id="live" type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /><span>Live solve</span></label>
+          <Btn onClick={() => setVerify(true)} title="Run IEEE 14-bus self-test"><Icon name="check" size={14} />Verify solver</Btn>
+          <Btn kind="primary" onClick={() => { solve(); setToast({ text: "Solved" }); }} title="Solve (Ctrl+Enter)"><Icon name="bolt" size={15} />Solve</Btn>
+        </>}>
         <div className="scn-chips" role="tablist" aria-label="Scenarios">
           {scenarios.map((s) => (
             <button key={s.id} className={cx("chip", s.id === activeId && "is-active")} onClick={() => { setActiveId(s.id); setSelection(null); }}>{s.name}</button>
           ))}
-          <button className="chip chip-add" onClick={() => duplicate(activeId)} title="Duplicate active scenario"><Icon name="dup" size={13} /></button>
+          <button className="chip chip-add" onClick={() => duplicate(activeId)} title="Duplicate active scenario" aria-label="Duplicate active scenario"><Icon name="dup" size={13} /></button>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
-          <label className="live-toggle" title="Re-solve after every edit"><input id="live" type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /><span>Live solve</span></label>
-          <Btn onClick={() => setVerify(true)} title="Run IEEE 14-bus self-test"><Icon name="check" size={14} />Verify solver</Btn>
-          <Btn kind="primary" onClick={() => { solve(); setToast({ text: "Solved" }); }} title="Solve (Ctrl+Enter)"><Icon name="bolt" size={15} />Solve</Btn>
-        </div>
-      </header>
+      </WsHeader>
 
       <nav className="tabs" role="tablist">
         {TABS.map(([k, l]) => (
@@ -1089,8 +1077,6 @@ export function LoadFlowWorkspace() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-3 pr-1 text-[12.5px]">
-          <Pill tone={status.tone}>{status.text}</Pill>
-          {active.systemStale && <Pill tone="warn" title={`${active.systemStale}. Open the System in Load flow again for the current model.`}>System changed</Pill>}
           {r?.converged && !stale && <span className="text-muted hidden md:inline">Losses <b className="text-fg font-mono">{fmt(r.total_p_loss_mw, 3)}</b> MW</span>}
         </div>
       </nav>
