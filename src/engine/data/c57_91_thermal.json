@@ -1,0 +1,52 @@
+{
+  "_meta": {
+    "standard": "IEEE C57.91 (Guide for loading mineral-oil-immersed transformers), Clause 7 exponential thermal model and the insulation aging clauses",
+    "edition": "C57.91-2011 as cited by the secondary sources below (C57.91-2025 is now the active edition; its revised Clause 7 model is not implemented here)",
+    "status": "UNVERIFIED",
+    "note": "The licensed standard was not read. Every value below comes from public secondary sources (an open-access paper, a journal paper and IEEE Transformers Committee slides) that cite C57.91. Nothing here may be set to VERIFIED until it is checked against a licensed copy. Transformer-specific values (rated rises, loss ratio R, time constants) are NOT stored as defaults: they are inputs taken from the unit's test report. The only preset is an illustrative parameter set published for one real 25 MVA ONAF unit.",
+    "sources": {
+      "arxiv_1703_01397": "Majzoobi, Mahoor, Khodaei, 'Machine Learning Applications in Estimating Transformer Loss of Life', arXiv:1703.01397 (2017), Section II eqs. 1-11, https://arxiv.org/pdf/1703.01397",
+      "gouda_2012": "Gouda, Amer, Salem, 'Predicting transformer temperature rise and loss of life in the presence of harmonic load currents', Ain Shams Engineering Journal (2012), doi:10.1016/j.asej.2012.01.003, Section 2 and Table 2",
+      "roizman_2021": "O. Roizman, 'Loading Guide C57.91 New Clause 7 and Annex A', IEEE PES Transformers Committee, Insulation Life SC, 16 Nov 2021, https://grouper.ieee.org/groups/transformers/subcommittees/insulation_life/c57.91/F21-PC57.91-OlegRoizman-Clause7,AnnexA.pdf"
+    }
+  },
+  "aging": {
+    "b_constant": 15000,
+    "reference_hot_spot_c": 110,
+    "insulation": "thermally upgraded paper, 65 C average winding rise basis",
+    "clause": "C57.91 aging acceleration factor (Clause 5 as cited)",
+    "status": "UNVERIFIED",
+    "confidence": "MED",
+    "source": "arxiv_1703_01397 eq. 2 (B = 15000 chosen in C57.91-2011, reference 110 C = 383 K); gouda_2012 eq. for F_AA"
+  },
+  "normal_life_h": {
+    "value": 180000,
+    "basis": "C57.91 normal insulation life (end-point as used for distribution transformers); the guide lets the user choose another end-point",
+    "status": "UNVERIFIED",
+    "confidence": "MED",
+    "source": "arxiv_1703_01397 Section II (180 000 h per C57.91-2011); gouda_2012 Section 5 (180 000 h, 20.6 years); roizman_2021 slide 'Proposed definitions (con't)' (180 000 h minimum life expectancy)"
+  },
+  "exponents": {
+    "_note": "n = oil exponent (top-oil rise), m = winding exponent (hot-spot gradient). The secondary sources give only the range 0.8 to 1.0 by cooling mode (C57.91 Table 4 as cited by arxiv_1703_01397), n = 0.8 for natural convection and 0.9 to 1.0 for forced cooling, and m typically 0.8 (gouda_2012). The per-mode split for OFAF and ODAF below is recalled, not read; it lies inside the published range. Editable in the UI; test-derived exponents should be used when known.",
+    "ONAN": { "n": 0.8, "m": 0.8, "status": "UNVERIFIED", "confidence": "MED", "source": "gouda_2012 Section 2 (n = 0.8 natural convection; m typical 0.8); arxiv_1703_01397 (range 0.8-1.0, C57.91 Table 4)" },
+    "ONAF": { "n": 0.9, "m": 0.8, "status": "UNVERIFIED", "confidence": "MED", "source": "gouda_2012 Table 2 (25 MVA ONAF unit: n = 0.9, m = 0.8) and Section 2 (n = 0.9-1.0 forced cooling)" },
+    "OFAF": { "n": 0.9, "m": 0.8, "status": "UNVERIFIED", "confidence": "LOW", "source": "Recalled C57.91 Table 4 (non-directed forced oil); inside the 0.8-1.0 range of arxiv_1703_01397 and the forced-cooling n range of gouda_2012" },
+    "ODAF": { "n": 1.0, "m": 1.0, "status": "UNVERIFIED", "confidence": "LOW", "source": "Recalled C57.91 Table 4 (directed forced oil); inside the 0.8-1.0 range of arxiv_1703_01397. Note: IEEE committee minutes (2004) report that the Clause 7 equations do not cover ODAF designs well." }
+  },
+  "presets": {
+    "gouda_2012_onaf_25mva": {
+      "label": "Illustrative only: 25 MVA ONAF unit (Gouda et al. 2012, Table 2)",
+      "cooling": "ONAF",
+      "d_to_r": 38.3,
+      "d_h_r": 23.5,
+      "r": 5,
+      "tau_to_min": 114,
+      "tau_w_min": 7,
+      "n": 0.9,
+      "m": 0.8,
+      "status": "UNVERIFIED",
+      "confidence": "MED",
+      "source": "gouda_2012 Table 2 (rated top-oil rise 38.3 C, rated hot-spot rise over top oil 23.5 C, R = 5, top-oil time constant 114 min, hot-spot time constant 7 min, n = 0.9, m = 0.8). These are the published values for ONE 25 MVA, 66/11 kV unit, not typical values for any other transformer: replace them with the test-report values of the unit studied."
+    }
+  }
+}
