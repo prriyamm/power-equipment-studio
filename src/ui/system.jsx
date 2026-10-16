@@ -15,6 +15,8 @@ import { designChecks } from "../engine/designchecks.js";
 import { CoordinationView } from "./tccView.jsx";
 import { useHistory, ProjectMenu } from "./systemProject.jsx";
 import { ArcFlashSection } from "./systemArcFlash.jsx";
+import { CodeCompliancePanel } from "./systemCompliance.jsx";
+import { protectionCodeChecks, complianceReportChecks, PROT_DATA_STATUS } from "../engine/protchecks.js";
 import { MotorStartSection, ProfileSection } from "./systemStudies.jsx";
 import { ReportButton, svgToString } from "./reportButton.jsx";
 import { planPush, applyPush, PUSH_MODULES, STUDY_LABELS } from "../engine/designPush.js";
@@ -544,6 +546,7 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc, dc
           <Field key={k} label={l} unit={u}><NumField id={`eq-${k}`} value={e[k]} placeholder={String(full[k])} onCommit={(v) => update(e.id, { [k]: v })} /></Field>
         ))}
         {e.type === "utility" && <Field label="SC level basis" hint="IEC: S″kQ includes c (IEC 60909). ANSI: plain E/Z bolted value."><select id="eq-scbasis" className="num-input" value={full.sc_basis} onChange={(ev) => update(e.id, { sc_basis: ev.target.value })}><option value="IEC">IEC (S″kQ)</option><option value="ANSI">ANSI (E/Z)</option></select></Field>}
+        {e.type === "transformer" && <Field label="OC location" hint="NEC Table 450.3(A): supervised = only qualified persons monitor and service the installation. Default unsupervised (conservative)."><select id="eq-supervised" className="num-input" value={e.oc_supervised ? "sup" : ""} onChange={(ev) => update(e.id, { oc_supervised: ev.target.value === "sup" ? true : undefined })}><option value="">Unsupervised</option><option value="sup">Supervised</option></select></Field>}
         {e.type === "motor" && <Field label="Fault contribution"><select id="eq-contrib" className="num-input" value={full.contributes ? "yes" : "no"} onChange={(ev) => update(e.id, { contributes: ev.target.value === "yes" })}><option value="yes">Included</option><option value="no">Excluded</option></select></Field>}
       </div>
       {r?.deenergized && <div className="notice notice-info">No supply reaches {e.id}. Close the feeder breaker or tie upstream to energize it.</div>}
@@ -670,7 +673,7 @@ function SystemSummary({ sys, analysis, checks = {} }) {
 }
 
 /* ============================================================== SCHEDULE */
-function Schedule({ sys, analysis, select, updateEq, checks = {} }) {
+function Schedule({ sys, analysis, select, updateEq, updateCon, setCode, checks = {} }) {
   const res = analysis?.equipment || {}, cres = analysis?.connectors || {};
   return (
     <div className="flex flex-col gap-4 p-4 overflow-auto">
@@ -687,6 +690,7 @@ function Schedule({ sys, analysis, select, updateEq, checks = {} }) {
           </table></div>
         </Section>
       )}
+      <CodeCompliancePanel sys={sys} analysis={analysis} select={select} updateEq={updateEq} updateCon={updateCon} setCode={setCode} />
       <Section title="Equipment schedule">
         <div className="table-wrap"><table className="grid-table">
           <thead><tr><th>Tag</th><th>Type</th><th>Description</th><th className="r">kV</th><th className="r">V<em>pu</em></th><th className="r">Loading</th><th className="r">I″k<em>kA</em></th><th className="r">Rating<em>kA</em></th><th className="r">Duty</th></tr></thead>
@@ -745,6 +749,8 @@ function systemReport(sys, analysis, host) {
     if (r.sc_duty_pct != null) checks.push({ name: `${e.id} short-circuit duty`, value: r.sc_duty_pct, limit: 100, unit: "%", pass: r.sc_duty_pct <= 100, clause: "Equipment short-circuit rating vs IEC 60909 Ik" });
   }
   for (const c of sys.connectors) { const r = cres[c.id]; if (r?.loading_pct != null) checks.push({ name: `${c.id} loading`, value: r.loading_pct, limit: 100, unit: "%", pass: r.loading_pct <= 100, clause: "Cable ampacity (NEC table)" }); }
+  const prot = protectionCodeChecks(sys, analysis);
+  checks.push(...complianceReportChecks(prot));
   const attention = [
     ...eq.filter(({ e, r }) => !["ok", "off", "muted"].includes(statusOf(e, r))).map(({ e, r }) =>
       `${e.id}: ${r.sc_duty_pct > 90 ? `fault duty ${fmt(r.sc_duty_pct, 0)} %` : r.vflag !== "ok" ? `voltage ${r.v_pu.toFixed(3)} pu` : `loading ${fmt(r.loading_pct, 0)} %`}`),
@@ -767,12 +773,16 @@ function systemReport(sys, analysis, host) {
           r?.loading_pct != null ? fmt(r.loading_pct, 0) : "", r && !r.open ? fmt(r.vd_pct, 2) : "", r && !r.open ? fmt(r.loss_kw, 2) : ""]; }) },
       ...(analysis.sc ? [{ title: "Short circuit, IEC 60909 three-phase bolted", columns: ["Bus", "Equipment", "kV", "c", "Ik (kA)", "S''k (MVA)", "X/R", "kappa", "ip (kA)"],
         rows: analysis.sc.buses.map((b, i) => [b.id, analysis.compiled.busMeta[i].members.join(", "), b.kv, b.c.toFixed(2), fmt(b.ik_ka, 2), fmt(b.sk_mva, 1), fmt(b.xr, 1), b.kappa.toFixed(3), fmt(b.ip_ka, 2)]) }] : []),
+      { title: `Protection code compliance (${prot.code}, data ${PROT_DATA_STATUS})`, columns: ["Equipment", "Check", "Result", "Value", "Limit", "Clause", "Note"],
+        rows: prot.checks.length ? prot.checks.map((k) => [k.group, k.name, k.status === "warn" ? "REVIEW" : k.status.toUpperCase(), k.value != null ? fmt(k.value, 1) : "", k.limit != null ? fmt(k.limit, 1) : "", k.clause, k.note]) : [["-", "No protection code checks apply.", "", "", "", "", ""]] },
       { title: "Attention list", columns: ["Item"], rows: attention.length ? attention.map((a) => [a]) : [["No overloads, voltage or short-circuit duty issues."]] },
     ],
     figures: svg ? [{ title: "One-line diagram", svg, dark: true }] : [],
     notes: ["Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with cmax.", "Cable R uses DC resistance at conductor temperature; reactance from NEC Chapter 9 Table 9 (UNVERIFIED).",
+      `Protection code checks under ${prot.code}: transformer overcurrent limits (NEC 450.3 / CEC 26-250, 26-254), NEC 240.87 arc energy reduction and NEC 110.16(B) service label. REVIEW rows need an input or data the model does not have; they are not counted as pass or fail.`, ...prot.notes,
       ...(svg ? [] : ["The one-line diagram is omitted: open the One-line view in the System workspace before exporting to include it."])],
-    dataStatus: [{ table: "NEC Table 310.16 ampacity", status: AMPACITY_STATUS, source: "Check against a licensed NFPA 70 copy." }, { table: "NEC Chapter 9 Table 9 reactance", status: "UNVERIFIED", source: "Entered from memory." }],
+    dataStatus: [{ table: "NEC Table 310.16 ampacity", status: AMPACITY_STATUS, source: "Check against a licensed NFPA 70 copy." }, { table: "NEC Chapter 9 Table 9 reactance", status: "UNVERIFIED", source: "Entered from memory." },
+      { table: "Protection code limits (NEC 450.3, 240.87, 110.16(B); CEC 26-250, 26-254)", status: PROT_DATA_STATUS, source: "Public secondary sources and recall; not read in the code text (engine/data/protection_code_checks.json)." }],
   };
 }
 
@@ -960,7 +970,7 @@ export function SystemWorkspace({ goTo }) {
                 : <SystemSummary sys={sys} analysis={analysis} checks={checks} />}
             </aside>
           </div>
-        ) : view === "tcc" ? <CoordinationView sys={sys} analysis={analysis} updateCon={updateCon} /> : <Schedule updateEq={updateEq} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
+        ) : view === "tcc" ? <CoordinationView sys={sys} analysis={analysis} updateCon={updateCon} /> : <Schedule updateEq={updateEq} updateCon={updateCon} setCode={(code) => setSys((s) => ({ ...s, code }))} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
       </main>
       {lineupFor && sys.equipment.some((e) => e.id === lineupFor) && <GearLineupModal sys={sys} analysis={analysis} gearId={lineupFor} onClose={() => setLineupFor(null)} />}
     </div>
