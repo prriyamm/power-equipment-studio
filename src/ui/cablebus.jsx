@@ -194,7 +194,10 @@ const FIELD_STEPS = [
 ];
 const stepOf = (b) => FIELD_STEPS.find((s) => b < s.max);
 
-function FieldMap({ inp, res }) {
+function FieldMap({ inp: liveInp, res: liveRes }) {
+  // the grid solve is heavy: defer it so typing in the inputs stays responsive (React renders the
+  // urgent update first, then this map with the latest values)
+  const inp = React.useDeferredValue(liveInp), res = React.useDeferredValue(liveRes);
   const data = useMemo(() => {
     const od = res.cable_od_mm;
     const cs = buildLayout(inp, res.pattern, od);
