@@ -2,7 +2,11 @@
    SVG string as the Python for the same inputs.
 
    inp: cableBusInput() object (with enclosure_width_mm / enclosure_height_mm for the housing);
-   result: analyse() result. */
+   result: analyse() result.
+
+   opts.tier_dims (JS-only extension, default false): when the layout has more than one tier, widen the
+   left margin and dimension the centre-to-centre spacing between adjacent tiers (title and legend stay at
+   the 40 px margin). With the default the output is byte-identical to the Python. */
 import { pyFixed, pyRound } from "./util.js";
 
 export const PHASE_FILL = { A: "#d64545", B: "#2f6fd6", C: "#2e9d5b" };
@@ -20,7 +24,7 @@ export function escapeHtml(s) {
 function mmIn(v) { return `${pyFixed(v, 0)} mm (${pyFixed(v / 25.4, 2)} in)`; }
 
 export function cablebusSvg(inp, result, opts = {}) {
-  const { block_material = "GPO-3", block_lip_mm = 10.0, width_px = 900 } = opts;
+  const { block_material = "GPO-3", block_lip_mm = 10.0, width_px = 900, tier_dims = false } = opts;
   const rows = result.conductors;
   const od = result.cable_od_mm;
   const xs = rows.map((c) => c.x_mm);
@@ -33,7 +37,10 @@ export function cablebusSvg(inp, result, opts = {}) {
   // model extents (mm), y up
   const x0 = xc - w_in / 2 - ts, x1 = xc + w_in / 2 + ts;
   const y0 = yc - h_in / 2 - tc, y1 = yc + h_in / 2 + tc;
-  const [pad_l, pad_r, pad_t, pad_b] = [40, 140, 70, 80];
+  const tiers = [...new Set(ys.map((y) => pyRound(y, 3)))].sort((a, b) => a - b);
+  const showTiers = tier_dims && tiers.length > 1;
+  const margin_l = 40;
+  const [pad_l, pad_r, pad_t, pad_b] = [showTiers ? 120 : margin_l, 140, 70, 80];
   const scale = (width_px - pad_l - pad_r) / (x1 - x0);
   const height_px = Math.trunc((y1 - y0) * scale + pad_t + pad_b);
   const X = (x) => pad_l + (x - x0) * scale;
@@ -56,7 +63,6 @@ export function cablebusSvg(inp, result, opts = {}) {
       `height='${f1((h_in + 2 * tc) * scale)}' fill='${RAIL_FILL}'/>`);
   }
   // support blocks, one per tier
-  const tiers = [...new Set(ys.map((y) => pyRound(y, 3)))].sort((a, b) => a - b);
   for (const ty of tiers) {
     const bh = od + 2 * block_lip_mm;
     s.push(`<rect x='${f1(X(xc - w_in / 2))}' y='${f1(Y(ty + bh / 2))}' width='${f1(w_in * scale)}' ` +
@@ -89,11 +95,26 @@ export function cablebusSvg(inp, result, opts = {}) {
     s.push(`<text x='${f1((X(a.x_mm) + X(b.x_mm)) / 2)}' y='${f1(yb + 15)}' text-anchor='middle'>` +
       `pitch ${pyFixed(b.x_mm - a.x_mm, 0)} mm</text>`);
   }
+  if (showTiers) {
+    // tier spacing (centre to centre), left of the enclosure, with dashed tier centrelines
+    const xl = X(x0) - 16;
+    for (const ty of tiers) {
+      s.push(`<line x1='${f1(xl - 6)}' y1='${f1(Y(ty))}' x2='${f1(X(xc - w_in / 2))}' y2='${f1(Y(ty))}' ` +
+        "stroke='#333' stroke-width='0.6' stroke-dasharray='3 3'/>");
+    }
+    for (let k = 1; k < tiers.length; k++) {
+      const lo = tiers[k - 1], hi = tiers[k];
+      s.push(`<line x1='${f1(xl)}' y1='${f1(Y(hi))}' x2='${f1(xl)}' y2='${f1(Y(lo))}' stroke='#333' ` +
+        "marker-start='url(#a)' marker-end='url(#a)'/>");
+      s.push(`<text x='${f1(xl - 6)}' y='${f1(Y((lo + hi) / 2) - 4)}' text-anchor='end'>tier pitch</text>`);
+      s.push(`<text x='${f1(xl - 6)}' y='${f1(Y((lo + hi) / 2) + 12)}' text-anchor='end'>${pyFixed(hi - lo, 0)} mm</text>`);
+    }
+  }
   // legend (bottom row) and title
   const ly = height_px - 22;
   const items = ["A", "B", "C"].map((p) => ["circle", PHASE_FILL[p], `Phase ${p}`]).concat([
     ["rect", BLOCK_FILL, `${block_material} support block`], ["rect", RAIL_FILL, "Al side rail / cover"]]);
-  let lx = pad_l;
+  let lx = margin_l;
   for (const [kind, col, text] of items) {
     if (kind === "circle") s.push(`<circle cx='${lx + 7}' cy='${ly - 4}' r='7' fill='${col}'/>`);
     else s.push(`<rect x='${lx}' y='${ly - 10}' width='14' height='11' fill='${col}' stroke='#777'/>`);
@@ -102,7 +123,7 @@ export function cablebusSvg(inp, result, opts = {}) {
   }
   const title = `${inp.conductors_per_phase} x ${result.input.size} ${inp.material} per phase, ` +
     `${inp.tiers} tier(s), pattern ${result.pattern}, cable OD ${pyFixed(od, 1)} mm`;
-  s.push(`<text x='${pad_l}' y='22' font-size='14' font-weight='bold'>${escapeHtml(title)}</text>`);
+  s.push(`<text x='${margin_l}' y='22' font-size='14' font-weight='bold'>${escapeHtml(title)}</text>`);
   s.push("<defs><marker id='a' viewBox='0 0 10 10' refX='5' refY='5' markerWidth='6' markerHeight='6' " +
     "orient='auto-start-reverse'><path d='M0,0 L10,5 L0,10 z' fill='#333'/></marker></defs>");
   s.push("</svg>");

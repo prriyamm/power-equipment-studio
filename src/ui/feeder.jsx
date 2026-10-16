@@ -137,6 +137,7 @@ export function FeederWorkspace({ goTo }) {
       ...(kv ? { voltage_v: Math.round(kv * 1000) } : {}), ...(current_a > 0 ? { load: Math.round(current_a) } : {}),
       ...(c.length_ft ? { length: c.length_ft } : {}), ...(c.material ? { material: c.material } : {}),
       ...([60, 75, 90].includes(c.insulation_c) ? { insulation_temp_c: c.insulation_c } : {}),
+      terminal_temp_c: [60, 75, 90].includes(c.terminal_c) ? c.terminal_c : null, // null: 110.14(C) default
       ...(["pvc", "aluminum", "steel"].includes(c.raceway) ? { conduit: c.raceway } : {}),
       ...(fault_ka > 0 ? { fault_ka: Math.round(fault_ka * 10) / 10 } : {}),
     }));

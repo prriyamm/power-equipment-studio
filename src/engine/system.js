@@ -14,13 +14,14 @@ import AMPACITY from "./pecalc/data/ampacity_nec.json" with { type: "json" };
 import TABLE9 from "./pecalc/data/reactance_nec_table9.json" with { type: "json" };
 import { reactancePer1000ft } from "./reactanceDerived.js";
 import { racOhmPerM, cableOdMm } from "./pecalc/conductors.js";
+import { defaultTerminalTemp } from "./pecalc/lugs.js";
 
 export const SQRT3 = Math.sqrt(3);
 
 /* ---------------------------------------------------------------- catalogue */
 // kv: nominal line-to-line kV. Ratings are inputs, never fixed products.
 export const EQUIPMENT = {
-  utility: { label: "Utility source", terminals: ["out"], defaults: { kv: 13.8, mva_sc: 500, xr: 15, v_pu: 1.0 } },
+  utility: { label: "Utility source", terminals: ["out"], defaults: { kv: 13.8, mva_sc: 500, xr: 15, v_pu: 1.0, sc_basis: "IEC" } },
   generator: { label: "Generator", terminals: ["out"], defaults: { kv: 0.48, kva: 1000, pf: 0.8, p_kw: 600, v_pu: 1.0, xd2: 0.15, xr: 30 } },
   transformer: { label: "Transformer", terminals: ["hv", "lv"], defaults: { kva: 2500, hv_kv: 13.8, lv_kv: 0.48, z_pct: 5.75, xr: 7, tap_pct: 0, conn: "Dyn1", cooling: "ONAN", style: "padmount" } },
   switchgear: { label: "Switchgear", terminals: ["bus"], defaults: { kv: 0.48, bus_a: 4000, sc_ka: 65, sections: 5 } },
@@ -72,6 +73,34 @@ export function tableAmpacity(kind, size, material = "Cu", tempC = 75) {
   return row[i >= 0 ? i : 1];
 }
 export const AMPACITY_STATUS = AMPACITY._meta.status;
+
+// Terminal temperature for a connector (NEC 110.14(C) / CEC 4-006): the equipment marking `terminal_c`
+// when set, else the pecalc lugs.js default (60 C for circuits <= 100 A or 14-1 AWG, else 75 C). The
+// circuit rating is not known when the model compiles, so the conductor's own ampacity (all sets) stands in
+// for it; above 1 AWG every table ampacity already exceeds 100 A, so in practice the size rule decides.
+export function connectorTerminalC(c, insulationAmpacityA = null) {
+  if (c.terminal_c != null) return [c.terminal_c, "equipment marking"];
+  const circuit = insulationAmpacityA ?? (tableAmpacity(c.kind, c.size, c.material, c.insulation_c) ?? 0) * (c.sets ?? 1);
+  return defaultTerminalTemp("NEC", circuit, String(c.size));
+}
+
+// Allowable ampacity per set (A) used for loading and the 240.4(B)/(C) checks: the lesser of the
+// insulation-column ampacity and the terminal-temperature column (NEC 110.14(C)), as in pecalc sizing.js.
+// Cable in raceway takes the terminal column from 310.16; cable bus takes it from the free-air table, as
+// the pecalc cable bus check does. Above 2 kV (kv > 2) the 60/75 C termination rule does not apply and the
+// insulation column is returned unchanged. A user `ampacity_a` overrides everything.
+export function connectorAmpacity(c, kv = null) {
+  if (c.kind === "direct") return { per_set_a: null, insulation_a: null, terminal_a: null, terminal_c: null, terminal_basis: null };
+  const insulation_a = tableAmpacity(c.kind, c.size, c.material, c.insulation_c);
+  let terminal_a = null, terminal_c = null, terminal_basis = null, per_set_a = insulation_a;
+  if (insulation_a != null && !(kv > 2)) {
+    [terminal_c, terminal_basis] = connectorTerminalC(c, insulation_a * (c.sets ?? 1));
+    terminal_a = tableAmpacity(c.kind, c.size, c.material, terminal_c);
+    if (terminal_a != null) per_set_a = Math.min(insulation_a, terminal_a);
+  }
+  if (c.ampacity_a != null) per_set_a = c.ampacity_a;
+  return { per_set_a, insulation_a, terminal_a, terminal_c, terminal_basis };
+}
 
 /* ------------------------------------------------------------------ helpers */
 const withDefaults = (e) => ({ ...(EQUIPMENT[e.type]?.defaults || {}), ...e });
@@ -173,7 +202,11 @@ export function compileSystem(sys) {
       else add("error", e.id, `More than one utility source. Only one swing source is supported; use a generator for the others.`);
       // IEC 60909-0 network feeder: Z_Q = c_Q·U_nQ²/S″_kQ, so a fault at the feeder bus reproduces the stated
       // S″_kQ (the solver applies c again at the fault; without c_Q here the PCC fault came out c_Q × too high).
-      const z = (cMax(kv) * base_mva) / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
+      // sc_basis says how the utility quoted mva_sc (S). The solver gives I″k = c·I_base/|z| (pu, c = cMax(kv)).
+      //   "IEC":  S already includes c_max. z = c·base/S  → I″k = S/(√3·U),   Ibf = I″k/c = S/(c·√3·U).
+      //   "ANSI": S is a plain E/Z bolted value at nominal U (no c). z = base/S → I″k = c·S/(√3·U), Ibf = S/(√3·U).
+      const cQ = e.sc_basis === "ANSI" ? 1 : cMax(kv);
+      const z = (cQ * base_mva) / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
       scSources.push({ bus: bid, r, x: r * e.xr, id: e.id, kind: "utility" });
     } else if (e.type === "generator") {
       if (b.type !== "slack") { b.type = "PV"; b.v = e.v_pu; b.p_gen = (b.p_gen ?? 0) + e.p_kw / 1000; }
@@ -219,8 +252,8 @@ export function compileSystem(sys) {
     if (!kv) continue;
     const zb = (kv * kv) / base_mva;
     branches.push({ from: f, to: t, r: rOhm / zb, x: xOhm / zb });
-    const perSet = c.ampacity_a ?? tableAmpacity(c.kind, c.size, c.material, c.insulation_c);
-    branchMeta.push({ kind: c.kind, id: c.id, ampacity_a: perSet != null ? perSet * c.sets : null, ohms: { r: rOhm, x: xOhm }, kv });
+    const amp = connectorAmpacity(c, kv), perSet = amp.per_set_a;
+    branchMeta.push({ kind: c.kind, id: c.id, ampacity_a: perSet != null ? perSet * c.sets : null, terminal_c: c.ampacity_a != null ? null : amp.terminal_c, ohms: { r: rOhm, x: xOhm }, kv });
   }
 
   // Energization: keep only buses reachable from the swing source through closed branches.
@@ -314,7 +347,7 @@ export function analyseSystem(sys, opts = {}) {
     out.connectors[b.meta.id] = {
       i_a: ia, p_kw: b.p_from_mw * 1000, q_kvar: b.q_from_mvar * 1000, loss_kw: b.p_loss_mw * 1000,
       vd_pct: (100 * (busRes(b.from).v - busRes(b.to).v)) / busRes(b.from).v,
-      ampacity_a: b.meta.ampacity_a, loading_pct: b.meta.ampacity_a ? (100 * ia) / b.meta.ampacity_a : null,
+      ampacity_a: b.meta.ampacity_a, terminal_c: b.meta.terminal_c, loading_pct: b.meta.ampacity_a ? (100 * ia) / b.meta.ampacity_a : null,
       dir: b.p_from_mw >= 0 ? 1 : -1, from_bus: b.from, to_bus: b.to, ohms: b.meta.ohms,
     };
   });

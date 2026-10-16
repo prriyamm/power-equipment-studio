@@ -29,6 +29,7 @@ export function toProject(sys) {
 }
 export const serializeSystem = (sys) => JSON.stringify(toProject(sys), null, 2) + "\n";
 
+const SC_BASES = ["IEC", "ANSI"];
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 const STRUCTURAL = /Unknown equipment type|Duplicate equipment id|does not exist|has no terminal|connects a terminal to itself/;
 
@@ -55,6 +56,7 @@ export function parseSystem(text) {
       if (typeof full[k] !== typeof def) throw new Error(`${e.id}: "${k}" must be a ${typeof def}.`);
       if (typeof def === "number" && !isFinite(full[k])) throw new Error(`${e.id}: "${k}" must be a finite number.`);
     }
+    if (e.type === "utility" && !SC_BASES.includes(full.sc_basis)) throw new Error(`${e.id}: "sc_basis" must be one of ${SC_BASES.map((x) => `"${x}"`).join(", ")}.`);
     if (full.name === undefined) full.name = e.id;
     return full;
   });
@@ -66,7 +68,9 @@ export function parseSystem(text) {
     seen.add(c.id);
     if (!CONNECTORS[c.kind]) throw new Error(`Unknown connector kind "${c.kind}" on ${c.id}.`);
     for (const k of ["from", "to"]) if (typeof c[k] !== "string" || !/^[^.\s]+\.[^.\s]+$/.test(c[k])) throw new Error(`${c.id}: "${k}" must look like "EQUIPMENT-ID.terminal".`);
-    return { ...CONNECTORS[c.kind].defaults, ...c };
+    const full = { ...CONNECTORS[c.kind].defaults, ...c };
+    if (full.terminal_c != null && ![60, 75, 90].includes(full.terminal_c)) throw new Error(`${c.id}: "terminal_c" must be 60, 75, 90 or null (code default).`);
+    return full;
   });
   const sys = { name: d.name ?? "Untitled package", base_mva, equipment, connectors };
   const bad = compileSystem(sys).issues.find((x) => x.level === "error" && STRUCTURAL.test(x.msg));

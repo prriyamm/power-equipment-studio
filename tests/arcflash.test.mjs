@@ -125,3 +125,23 @@ test("regression: above 600 V the AFB is interpolated from per-level boundaries 
     assert.ok(Math.abs(r.scenarios.full.afb_mm - want) < 1e-6 * want, `${V} kV: ${r.scenarios.full.afb_mm} vs ${want}`);
   }
 });
+
+test("utility sc_basis: ANSI E/Z quote gives Ibf = quoted current at the utility bus; IEC (default) gives quoted/c", () => {
+  // Utility 500 MVA at 13.8 kV, switchgear on the utility bus. c_max = 1.10 above 1 kV.
+  //   Quoted current S/(√3·U) = 500/(√3·13.8) = 20.9185 kA.
+  //   ANSI: Z_Q = U²/S (no c). I″k = c·U/(√3·Z_Q) = 1.1 × 20.9185 = 23.0103 kA; Ibf = I″k/c = 20.9185 kA.
+  //   IEC:  Z_Q = c·U²/S.     I″k = S/(√3·U) = 20.9185 kA;            Ibf = I″k/c = 20.9185/1.1 = 19.0168 kA.
+  const mk = (sc_basis) => ({ base_mva: 10, equipment: [
+    { id: "U", type: "utility", kv: 13.8, mva_sc: 500, xr: 15, ...(sc_basis ? { sc_basis } : {}) },
+    { id: "S", type: "switchgear", kv: 13.8 }, { id: "L", type: "load", kw: 100 }],
+    connectors: [{ id: "a", kind: "direct", from: "U.out", to: "S.bus" }, { id: "b", kind: "direct", from: "S.bus", to: "L.in" }] });
+  const quoted = 500 / (Math.sqrt(3) * 13.8); // 20.9185 kA
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9 * b, `${a} vs ${b}`);
+  const study = (sys) => { const an = analyseSystem(sys); return { ik: an.equipment.S.ik_ka, ibf: arcFlashStudy(an, sys, { allow_placeholder_data: true }).find((r) => r.id === "S").input.ibf_ka }; };
+  const ansi = study(mk("ANSI"));
+  near(ansi.ibf, quoted); near(ansi.ik, 1.1 * quoted);
+  const iec = study(mk("IEC"));
+  near(iec.ibf, quoted / 1.1); near(iec.ik, quoted);
+  const dflt = study(mk());
+  near(dflt.ibf, iec.ibf); near(dflt.ik, iec.ik);
+});
