@@ -18,6 +18,7 @@ import { ArcFlashSection } from "./systemArcFlash.jsx";
 import { CodeCompliancePanel } from "./systemCompliance.jsx";
 import { protectionCodeChecks, complianceReportChecks, PROT_DATA_STATUS } from "../engine/protchecks.js";
 import { MotorStartSection, ProfileSection } from "./systemStudies.jsx";
+import { TransformerLoadingSection, withTransformerLoading } from "./transformerLoading.jsx";
 import { ReportButton, svgToString } from "./reportButton.jsx";
 import { planPush, applyPush, PUSH_MODULES, STUDY_LABELS } from "../engine/designPush.js";
 
@@ -732,6 +733,7 @@ function Schedule({ sys, analysis, select, updateEq, updateCon, setCode, checks 
       <ArcFlashSection sys={sys} analysis={analysis} updateEq={updateEq} />
       <MotorStartSection sys={sys} />
       <ProfileSection sys={sys} />
+      <TransformerLoadingSection sys={sys} />
     </div>
   );
 }
@@ -758,7 +760,7 @@ function systemReport(sys, analysis, host) {
     ...eq.filter(({ r }) => r?.deenergized).map(({ e }) => `${e.id}: de-energized`),
   ];
   const svg = svgToString(host?.querySelector("svg.sld"));
-  return {
+  return withTransformerLoading({
     title: sys.name || "System study", module: "system", subtitle: "Load flow and IEC 60909 short circuit",
     inputs: [{ label: "Equipment count", value: sys.equipment.length }, { label: "Cable runs", value: sys.connectors.length },
       ...eq.flatMap(({ e, f }) => Object.entries(f).filter(([k, v]) => !["id", "name", "type", "gx", "gy"].includes(k) && ["number", "string"].includes(typeof v)).map(([k, v]) => ({ label: `${e.id} ${k.replace(/_/g, " ")}`, value: v })))],
@@ -783,7 +785,7 @@ function systemReport(sys, analysis, host) {
       ...(svg ? [] : ["The one-line diagram is omitted: open the One-line view in the System workspace before exporting to include it."])],
     dataStatus: [{ table: "NEC Table 310.16 ampacity", status: AMPACITY_STATUS, source: "Check against a licensed NFPA 70 copy." }, { table: "NEC Chapter 9 Table 9 reactance", status: "UNVERIFIED", source: "Entered from memory." },
       { table: "Protection code limits (NEC 450.3, 240.87, 110.16(B); CEC 26-250, 26-254)", status: PROT_DATA_STATUS, source: "Public secondary sources and recall; not read in the code text (engine/data/protection_code_checks.json)." }],
-  };
+  });
 }
 
 /* ============================================================== WORKSPACE */
