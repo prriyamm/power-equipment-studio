@@ -64,7 +64,7 @@ export function FieldMap({ inp: liveInp, res: liveRes }) {
   /* geometry, current sharing and the full (zoom 1) frame; heavy part, once per input change */
   const base = useMemo(() => {
     const od = res.cable_od_mm;
-    const cs = buildLayout(inp, res.pattern, od);
+    const cs = buildLayout(inp, res.pattern, od, res.cable_data);
     const sol = solveSharing(cs, cableBusGroups(inp, inp.shield_bonding === "both_ends"), inp.frequency_hz);
     const xs = res.conductors.map((c) => c.x_mm), ys = res.conductors.map((c) => c.y_mm);
     const xc = (Math.min(...xs) + Math.max(...xs)) / 2, yc = (Math.min(...ys) + Math.max(...ys)) / 2;

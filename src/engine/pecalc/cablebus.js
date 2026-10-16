@@ -21,6 +21,7 @@ import { pyRound, pyFixed, pyRepr, lookup, cabs, cdiv, cpolar, csub, cscale } fr
 import * as validate from "./validate.js";
 import NEC from "./data/ampacity_nec.json" with { type: "json" };
 import CEC from "./data/ampacity_cec.json" with { type: "json" };
+import DLO from "./data/dlo_cables.json" with { type: "json" };
 
 export const PHASES = ["A", "B", "C"];
 export const CU_RHO20 = 1.7241e-8; // ohm m, annealed copper (shield tapes / wires)
@@ -63,6 +64,9 @@ const _DEFAULTS = {
   length_m: 60.0,
   material: "Cu",
   size: "750",
+  // Cable library: "standard" (default), "mv_construction" (same path) or "dlo_2000v" (manufacturer row, see cable_id).
+  cable_type: "standard",
+  cable_id: null,             // e.g. "southwire_dlo_2000v:444.4" (cable_type 'dlo_2000v' only)
   conductors_per_phase: 3,
   tiers: 1,
   cable_od_mm: null,          // required above 2000 V; estimated for LV if omitted
@@ -124,6 +128,166 @@ export function cableBusInput(overrides = {}) {
   return out;
 }
 
+// --- cable library (manufacturer rows) --------------------------------------
+// Port of cablebus.py. Library cables are only reachable through cable_type "dlo_2000v", so the non-standard
+// DLO sizes (262.6 ... 1111 kcmil) stay out of the NEC size list used by the code tables.
+
+export const CABLE_TYPES = ["standard", "mv_construction", "dlo_2000v"];
+export const DLO_STRANDING_FACTOR = cond.STRANDING_FACTOR; // 1.02, not verified for Class I stranding
+// Conductor diameter / sqrt(area) for Class I stranding: 0.782 in / (sqrt(444 400 cmil) / 1000 in) = 1.173.
+export const DLO_DIAMETER_RATIO = 0.782 / (Math.sqrt(444400) / 1000); // [UNVERIFIED proxy, used when not printed]
+
+const _thousands = (s) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+function _librarySizeLabel(size) {
+  if (size.includes("/") || Number(size) < 250) return `${size} AWG`;
+  return `${size} kcmil`;
+}
+
+/** Library row as a plain object with the same fields as the Python CableSpec. */
+export function cableSpec(cable_id) {
+  const text = String(cable_id);
+  const sep = text.indexOf(":");
+  const key = sep >= 0 ? text.slice(0, sep) : "";
+  const size = sep >= 0 ? text.slice(sep + 1) : "";
+  const series = sep >= 0 && Object.prototype.hasOwnProperty.call(DLO.series, key) ? DLO.series[key] : null;
+  if (series === null) {
+    throw new Error(`Unknown cable_id ${pyRepr(cable_id)}; use '<series>:<size>', e.g. 'southwire_dlo_2000v:444.4'`);
+  }
+  const row = series.rows.find((r) => r.id === size);
+  if (row === undefined) {
+    throw new Error(`cable_id ${pyRepr(cable_id)}: size ${pyRepr(size)} is not in series ${pyRepr(key)}`);
+  }
+  const meta = DLO._meta.sources[row.source];
+  const area = Number(row.area_cmil);
+  let d_mm, d_src;
+  if (row.conductor_diameter_in) {
+    d_mm = Number(row.conductor_diameter_in) * 25.4;
+    d_src = "printed";
+  } else {
+    d_mm = (Math.sqrt(area) / 1000) * DLO_DIAMETER_RATIO * 25.4;
+    d_src = "proxy";
+  }
+  const rdc = row.dc_resistance_ohm_per_kft;
+  const basis = row.ampacity_basis || (meta.ampacity_basis ? meta.ampacity_basis.free_air : "NOT STATED");
+  return {
+    cable_id: `${key}:${row.id}`, manufacturer: series.manufacturer, series: series.series,
+    size: row.size, size_label: _librarySizeLabel(row.size), area_cmil: area,
+    od_mm: Number(row.nominal_od_mm), insulation_mm: Number(row.insulation_mm),
+    diameter_mm: d_mm, diameter_source: d_src,
+    rdc_ref: rdc === null || rdc === undefined ? null : [Number(rdc.value), Number(rdc.temp_c)],
+    rated_voltage_v: Number(series.voltage_v), temp_c: Number(series.temp_c),
+    ampacity_free_air_a: Number(row.ampacity_free_air_90c_30c_a),
+    ampacity_ref_ambient_c: Number(row.ampacity_ref_ambient_c), ampacity_basis: basis,
+    basis_stated: !basis.includes("NOT STATED"), standard_nec_size: Boolean(row.standard_nec_size),
+    listed_rhh: Boolean(row.listing_rhh_rhw), status: row.status,
+    source_name: meta.title, source_url: meta.url, source_date: meta.date,
+    flags: [...(row.flags || []), ...(d_src === "printed" ? [] : ["DIAMETER_PROXY"])],
+  };
+}
+
+/** Every library row (for the UI select and the calc package). */
+export function libraryEntries() {
+  const out = [];
+  for (const key of Object.keys(DLO.series)) {
+    for (const r of DLO.series[key].rows) out.push(cableSpec(`${key}:${r.id}`));
+  }
+  return out;
+}
+
+export function resolveCable(inp) {
+  if (!CABLE_TYPES.includes(inp.cable_type)) throw new Error(`cable_type must be one of ${CABLE_TYPES.join(", ")}`);
+  if (inp.cable_type !== "dlo_2000v") {
+    if (inp.cable_id) throw new Error("cable_id is only used with cable_type 'dlo_2000v'");
+    return null;
+  }
+  if (!inp.cable_id) throw new Error("cable_type 'dlo_2000v' needs cable_id (see library_entries())");
+  return cableSpec(inp.cable_id);
+}
+
+function _checkLibrary(inp, spec) {
+  if (inp.material !== "Cu") throw new Error(`${spec.cable_id} is tinned copper: set material 'Cu'`);
+  if (inp.voltage_v > spec.rated_voltage_v) {
+    throw new Error(`${spec.cable_id} is rated ${pyFixed(spec.rated_voltage_v, 0)} V; voltage_v ${pyFixed(inp.voltage_v, 0)} ` +
+      "is above the cable rating");
+  }
+  if (inp.insulation_temp_c !== spec.temp_c) {
+    throw new Error(`${spec.cable_id} is rated ${spec.temp_c} C: set insulation_temp_c to ${spec.temp_c}`);
+  }
+  if (inp.insulation_mm !== null && inp.insulation_mm !== undefined) {
+    throw new Error("insulation_mm is not used with a library cable (its insulation comes from the data file)");
+  }
+}
+
+function _libraryRdc(spec, temp_c) {
+  if (spec.rdc_ref === null) return cond.rdcFromAreaOhmPerM(spec.area_cmil, "Cu", temp_c, DLO_STRANDING_FACTOR);
+  return cond.rdcDatasheetOhmPerM(spec.rdc_ref[0], spec.rdc_ref[1], "Cu", temp_c);
+}
+
+function _libraryMethod(inp, spec) {
+  const m = inp.ampacity_method;
+  if (m === "calculated") {
+    throw new Error("The calculated method is not available for library cables: use 'table' (standard NEC sizes " +
+      "listed RHH/RHW) or 'datasheet'");
+  }
+  if (!["auto", "table", "datasheet"].includes(m)) {
+    throw new Error("ampacity_method must be auto, table or datasheet for library cables");
+  }
+  const table_ok = spec.standard_nec_size && spec.listed_rhh;
+  if (m === "auto") return table_ok ? "table" : "datasheet";
+  if (m === "table" && !table_ok) {
+    throw new Error(`${spec.size_label} has no code-table basis (non-standard NEC size or not listed RHH/RHW): ` +
+      "use 'datasheet'");
+  }
+  return m;
+}
+
+function _libraryAmpacity(inp, spec) {
+  let base, ref, src;
+  if (inp.cable_ampacity_a) {
+    base = inp.cable_ampacity_a; ref = inp.cable_ampacity_ambient_c; src = "Supplied rating";
+  } else {
+    base = spec.ampacity_free_air_a; ref = spec.ampacity_ref_ambient_c; src = `${spec.manufacturer} printed rating`;
+  }
+  const f = amp.ambientFactor(inp.ambient_c, spec.temp_c, ref);
+  return [base * f, `${src} ${pyFixed(base, 0)} A at ${pyFixed(ref, 0)} C (${spec.temp_c} C conductor, basis: ` +
+    `${spec.ampacity_basis}) x ambient factor ${pyFixed(f, 3)} (${pyFixed(inp.ambient_c, 0)} C)`];
+}
+
+function _libraryNotes(inp, spec, method) {
+  const out = [`Library cable ${spec.cable_id}: ${spec.manufacturer}, ${spec.series}; ${spec.size_label} ` +
+    `${_thousands(pyFixed(spec.area_cmil, 0))} cmil; data status ${spec.status} (${spec.source_name}; ` +
+    `${spec.source_date}). Rated ${pyFixed(spec.rated_voltage_v, 0)} V, ${spec.temp_c} C.`];
+  if (spec.rdc_ref === null) {
+    out.push(`DC resistance: no printed value for this cable; calculated from ${_thousands(pyFixed(spec.area_cmil, 0))} ` +
+      `cmil, annealed copper, stranding factor ${DLO_STRANDING_FACTOR} (UNVERIFIED for Class I stranding; ` +
+      "tinned-copper resistivity not applied).");
+  } else {
+    out.push(`DC resistance: printed ${spec.rdc_ref[0]} ohm per 1000 ft at ${pyFixed(spec.rdc_ref[1], 0)} C, ` +
+      `corrected to ${inp.insulation_temp_c} C.`);
+  }
+  if (spec.diameter_source === "proxy") {
+    out.push(`Conductor diameter not printed for this size: estimated ${pyFixed(spec.diameter_mm, 2)} mm ` +
+      "(sqrt(area) x 1.173, UNVERIFIED); used for GMR and skin effect only.");
+  }
+  if (method === "table") {
+    out.push(`Ampacity basis: ${inp.code} free-air table (90 C column), used because the size is a standard NEC size ` +
+      "and the cable is listed RHH/RHW.");
+  } else {
+    out.push(`Ampacity basis: manufacturer free-air rating (${spec.ampacity_basis}), corrected from ` +
+      `${pyFixed(spec.ampacity_ref_ambient_c, 0)} C to ${pyFixed(inp.ambient_c, 0)} C with the NEC 310.15(B)(1) ` +
+      "ambient equation. Used because the size is non-standard or not listed RHH/RHW.");
+  }
+  if (!spec.basis_stated) {
+    out.push("WARNING: the maker does not state the ampacity basis for this row. The 30 C free-air basis is an " +
+      "assumption (UNVERIFIED); confirm with the manufacturer before using this rating.");
+  }
+  out.push("Termination: fine-stranded (Class I/K) conductors need lugs or connectors listed for that stranding " +
+    "and this cable (NEC 110.14 / UL 486A-B, as attributed; UNVERIFIED here). Check the equipment listing and the " +
+    "lug catalogue. The termination check applies to the table basis only.");
+  return out;
+}
+
 // --- layout -----------------------------------------------------------------
 
 const _ROT = { A: "C", B: "A", C: "B" };
@@ -165,12 +329,18 @@ function _checkPattern(pattern, n_per_phase, tiers) {
   return rows;
 }
 
-export function buildLayout(inp, pattern, od) {
+export function buildLayout(inp, pattern, od, spec = null) {
   const rows = _checkPattern(pattern, inp.conductors_per_phase, inp.tiers);
   const pitch = inp.spacing_mm || 2 * od;
   const tier_pitch = inp.tier_spacing_mm || pitch;
-  const r_core = cond.racOhmPerM(inp.size, inp.material, inp.insulation_temp_c, inp.frequency_hz, pitch);
-  const gmr = cond.gmrMm(inp.size);
+  let r_core, gmr;
+  if (spec === null) {
+    r_core = cond.racOhmPerM(inp.size, inp.material, inp.insulation_temp_c, inp.frequency_hz, pitch);
+    gmr = cond.gmrMm(inp.size);
+  } else {
+    r_core = cond.racFromRdcOhmPerM(_libraryRdc(spec, inp.insulation_temp_c), spec.diameter_mm, inp.frequency_hz, pitch);
+    gmr = cond.gmrFromDiameterMm(spec.diameter_mm);
+  }
   const out = [];
   rows.forEach((row, t) => {
     [...row].forEach((ph, i) => {
@@ -257,7 +427,8 @@ export function construction(inp) {
   });
 }
 
-export function resolveMethod(inp) {
+export function resolveMethod(inp, spec = null) {
+  if (spec !== null) return _libraryMethod(inp, spec);
   const m = inp.ampacity_method;
   if (m === "auto") {
     if (inp.cable_ampacity_a) return "datasheet";
@@ -275,8 +446,9 @@ function _loadRatedAmbient(code) {
 }
 
 /** Returns [ampacity_a, basis_text] for one cable (datasheet or code table methods). */
-export function perCableAmpacity(inp) {
-  if (resolveMethod(inp) === "datasheet") {
+export function perCableAmpacity(inp, spec = null) {
+  if (resolveMethod(inp, spec) === "datasheet") {
+    if (spec !== null) return _libraryAmpacity(inp, spec);
     if (!inp.cable_ampacity_a) throw new Error("ampacity_method 'datasheet' needs cable_ampacity_a");
     const f = amp.ambientFactor(inp.ambient_c, inp.insulation_temp_c, inp.cable_ampacity_ambient_c);
     return [inp.cable_ampacity_a * f,
@@ -548,10 +720,18 @@ export function analyse(inp, compareBonding = true) {
   if (inp.fault_clearing_s !== null && inp.fault_clearing_s !== undefined) {
     validate.clearingTime("fault_clearing_s", inp.fault_clearing_s);
   }
-  const size = cond.normalizeSize(inp.size);
+  const spec = resolveCable(inp);
+  let size;
+  if (spec === null) {
+    size = cond.normalizeSize(inp.size);
+  } else {
+    _checkLibrary(inp, spec);
+    size = spec.size;
+  }
   inp.size = size;
-  const cons = construction(inp);
-  const od = inp.cable_od_mm || (cons ? cons.de_mm : null) || (inp.voltage_v <= 2000 ? cond.cableOdMm(size) : null);
+  const cons = spec === null ? construction(inp) : null;
+  const od = inp.cable_od_mm || (spec ? spec.od_mm : null) || (cons ? cons.de_mm : null) ||
+    (inp.voltage_v <= 2000 ? cond.cableOdMm(size) : null);
   if (!od) {
     throw new Error("Above 2000 V give cable_od_mm or the cable construction (insulation_mm, shield_mm, jacket_mm)");
   }
@@ -560,14 +740,15 @@ export function analyse(inp, compareBonding = true) {
     inp.shield_mean_diameter_mm = inp.shield_mean_diameter_mm || cons.shield_mean_diameter_mm;
     inp.shield_area_mm2 = inp.shield_area_mm2 || Math.PI * cons.shield_mean_diameter_mm * cons.shield_mm;
   }
-  const method = resolveMethod(inp);
-  const notes = [];
+  const method = resolveMethod(inp, spec);
+  const notes = spec ? _libraryNotes(inp, spec, method) : [];
+  const size_text = spec ? spec.size_label : cond.sizeLabel(size);
 
   const patterns = inp.pattern === "auto" ? candidatePatterns(inp.conductors_per_phase, inp.tiers)
     : [inp.pattern.toUpperCase()];
   const scored = [];
   for (const p of patterns) {
-    const cs = buildLayout(inp, p, od);
+    const cs = buildLayout(inp, p, od, spec);
     const res = solveSharing(cs, cableBusGroups(inp, with_shields), inp.frequency_hz);
     const phase_idx = [];
     cs.forEach((c, i) => { if (PHASES.includes(c.group)) phase_idx.push(i); });
@@ -611,7 +792,7 @@ export function analyse(inp, compareBonding = true) {
       "315.60(B) under engineering supervision; model constants are UNVERIFIED pending check against " +
       "IEC 60287. Each cable's own shield loss factor (lambda1) from the sharing solve is included.");
   } else {
-    [a_cable, basis_fixed] = perCableAmpacity(inp);
+    [a_cable, basis_fixed] = perCableAmpacity(inp, spec);
     if (method === "table") a_term = amp.tableAmpacity(inp.code, "free_air", inp.material, size, inp.terminal_temp_c);
   }
 
@@ -695,7 +876,11 @@ export function analyse(inp, compareBonding = true) {
   };
 
   const min_size = lookup(lookup(amp.PARALLEL_MIN, inp.code), inp.material);
-  if (inp.conductors_per_phase > 1) {
+  if (inp.conductors_per_phase > 1 && spec !== null) {
+    check("Minimum size for paralleled conductors", clauses.parallel, spec.area_cmil,
+      cond.AREA_CMIL[min_size], "cmil", spec.area_cmil >= cond.AREA_CMIL[min_size],
+      `min ${cond.sizeLabel(min_size)} (area comparison for ${spec.size_label})`);
+  } else if (inp.conductors_per_phase > 1) {
     check("Minimum size for paralleled conductors", clauses.parallel, cond.sizeIndex(size),
       cond.sizeIndex(min_size), "size index", cond.sizeIndex(size) >= cond.sizeIndex(min_size),
       `min ${cond.sizeLabel(min_size)}`);
@@ -730,12 +915,12 @@ export function analyse(inp, compareBonding = true) {
       `${pyFixed(support, 0)} lbf (static; compare with tested block strength).`);
     if (inp.fault_clearing_s) {
       // ICEA P-32-382 adiabatic withstand of all paralleled conductors of one phase (equal fault sharing).
-      const area = cond.AREA_CMIL[size] * inp.conductors_per_phase;
+      const area = (spec !== null ? spec.area_cmil : cond.AREA_CMIL[size]) * inp.conductors_per_phase;
       const withstand_ka = cond.adiabaticWithstandA(inp.material, area, inp.insulation_temp_c,
         inp.insulation_sc_limit_c, inp.fault_clearing_s) / 1000;
       check("Conductor short-circuit withstand", "ICEA P-32-382", withstand_ka, inp.fault_ka, "kA",
         withstand_ka >= inp.fault_ka,
-        `${inp.conductors_per_phase} x ${cond.sizeLabel(size)} ${inp.material} per phase, ` +
+        `${inp.conductors_per_phase} x ${size_text} ${inp.material} per phase, ` +
         `${pyFloat(inp.fault_clearing_s)} s clearing, ${inp.insulation_temp_c}->${pyFloat(inp.insulation_sc_limit_c)} C, ` +
         "equal fault sharing among paralleled conductors assumed");
     } else {
@@ -820,6 +1005,7 @@ export function analyse(inp, compareBonding = true) {
     checks, notes, cable_od_mm: pyRound(od, 2), pitch_mm: pyRound(pitch, 2),
     tier_pitch_mm: pyRound(inp.tier_spacing_mm || pitch, 2),
     sheath,
+    cable_data: spec,
     passed: checks.every((c) => c.passed),
   };
 }
