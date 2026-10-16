@@ -3,6 +3,7 @@
 const { useState, useEffect } = React;
 import { cx, Pill } from "./common.jsx";
 import { WORKSPACES } from "./workspaces.jsx";
+import { QualityMenu } from "./qualityMenu.jsx";
 
 export function App() {
   const [active, setActive] = useState(() => {
@@ -54,6 +55,7 @@ export function App() {
             </button>
           ))}
         </div>
+        <QualityMenu />
         {menu && <div className="rail-scrim" onClick={() => setMenu(false)} />}
       </nav>
       <div className="shell-main">

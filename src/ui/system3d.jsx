@@ -167,10 +167,17 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
     st.current = s;
     const m4 = new THREE.Matrix4(), tmp = new THREE.Vector3();
     let tFlag = 0;
+    // runs only when the viewer renders; returns true while something moves so frames keep coming.
+    // Motion needs the global Animations switch on and a tier above low (../quality.js).
     s.onFrame((dt) => {
-      tFlag += dt;
-      if (s.flags.children.length) for (const f of s.flags.children) { f.rotation.y += dt * 1.6; f.position.y = f.userData.y + Math.sin(tFlag * 3) * 0.08; }
-      const P = s.particles; if (!s.animate || !P) return;
+      const q = s.quality, motion = q.animations && q.settings.particles;
+      s.flows.visible = s.animate && motion;
+      const flagsMove = motion && s.flags.children.length > 0;
+      if (flagsMove) {
+        tFlag += dt;
+        for (const f of s.flags.children) { f.rotation.y += dt * 1.6; f.position.y = f.userData.y + Math.sin(tFlag * 3) * 0.08; }
+      }
+      const P = s.particles; if (!s.flows.visible || !P) return flagsMove;
       for (let k = 0; k < P.list.length; k++) {
         const p = P.list[k];
         p.t = (p.t + dt * p.speed) % 1;
@@ -183,6 +190,7 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
         m4.makeScale(0.07, 0.07, 0.07).setPosition(tmp); P.mesh.setMatrixAt(k, m4);
       }
       P.mesh.instanceMatrix.needsUpdate = true;
+      return true;
     });
     return () => {
       dropBuilt(s);
@@ -193,7 +201,7 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
   }, []);
 
   useEffect(() => { if (st.current) st.current.onPick((p) => setSelection(p ? { kind: p.kind, id: p.id } : null)); }, [setSelection]);
-  useEffect(() => { if (st.current) { st.current.animate = animate; st.current.showLabels = showTags; st.current.flows.visible = animate; } }, [animate, showTags]);
+  useEffect(() => { if (st.current) { st.current.animate = animate; st.current.showLabels = showTags; st.current.invalidate(); } }, [animate, showTags]);
 
   // rebuild instanced meshes when the model changes
   useEffect(() => {
@@ -217,6 +225,7 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
       s.flows.add(mesh); s.particles = { mesh, list };
     }
     if (!s.framed && frameSite(s, model.extent)) s.framed = true;
+    s.invalidate();
   }, [model]);
 
   // the toolbar's Fit button (and opening a project) re-aims the camera at the whole site
@@ -257,16 +266,17 @@ export function Site3D({ sys, analysis, selection, setSelection, animate, showTa
       m.userData.y = b.max.y + 0.45; m.position.set(c.x, m.userData.y, c.z);
       s.flags.add(m);
     }
+    s.invalidate();
   }, [model, ov, showFault]); // eslint-disable-line
 
   // selection highlight from the instanced bounds
   useEffect(() => {
     const s = st.current; if (!s) return;
-    if (s.selBox) { s.scene.remove(s.selBox); s.selBox.geometry.dispose(); s.selBox.material.dispose(); s.selBox = null; }
+    if (s.selBox) { s.scene.remove(s.selBox); s.selBox.geometry.dispose(); s.selBox.material.dispose(); s.selBox = null; s.invalidate(); }
     if (!selection || !s.built) return;
     const b = s.built.bounds[(selection.kind === "eq" ? "eq" : "con") + ":" + selection.id];
     if (!b) return;
-    s.selBox = new THREE.Box3Helper(b.clone().expandByScalar(0.04), 0xd8b25a); s.scene.add(s.selBox);
+    s.selBox = new THREE.Box3Helper(b.clone().expandByScalar(0.04), 0xd8b25a); s.scene.add(s.selBox); s.invalidate();
   }, [selection, model]);
 
   if (failed) return <div className="canvas-wrap grid place-items-center text-muted p-6 text-center">3D view needs WebGL, which this browser or frame does not provide. The isometric view shows the same model.</div>;
