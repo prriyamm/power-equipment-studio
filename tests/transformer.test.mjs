@@ -63,6 +63,23 @@ test("golden: vector set covers the required ranges", () => {
   assert.ok(ok.some((v) => v.inputs.doe_min_efficiency_pct) && ok.some((v) => v.kind === "tuned"));
 });
 
+test(`golden: ${G.doe_direct.length} direct DOE 10 CFR 431.196 checks match Python`, () => {
+  G.doe_direct.forEach((v, i) => {
+    const call = () => T.doe_efficiency_check(...v.args, v.kwargs);
+    const label = `doe_direct ${i} ${JSON.stringify(v.args)} ${JSON.stringify(v.kwargs)}`;
+    if (v.error !== undefined) assert.throws(call, (e) => e.message === v.error, `${label}: expected "${v.error}"`);
+    else close(call(), v.result, REL, label);
+  });
+});
+
+test("golden: DOE vectors cover every status, category and window", () => {
+  const docs = G.vectors.filter((v) => v.result).map((v) => v.result.doe).concat(G.doe_direct.filter((v) => v.result).map((v) => v.result));
+  for (const st of ["pass", "fail", "not_in_table", "needs_input", "not_covered"]) assert.ok(docs.some((d) => d.status === st), st);
+  for (const id of ["(a)(1)", "(a)(2)", "(a)(3)", "(b)(1)", "(b)(2)", "(b)(3)", "(b)(4)", "(c)(1)", "(c)(2)", "(c)(3)"]) {
+    assert.ok(docs.some((d) => d.window && d.window.id === id), id);
+  }
+});
+
 test("golden: helper functions match Python", () => {
   for (const [h, w, kr] of G.helpers.rogowski) close(T.rogowski_factor(h, w), kr, REL, `rogowski(${h},${w})`);
   for (const [b, wkg] of G.helpers.core_loss) close(T.specific_core_loss(b), wkg, REL, `core_loss(${b})`);
@@ -125,4 +142,49 @@ test("error messages match the Python module", () => {
   assert.throws(() => R({ conductor: "Fe" }), { message: "conductor must be Cu or Al" });
   assert.throws(() => T.design_for_impedance(T.transformerInput()), { message: "target_z_pct is required to tune impedance" });
   assert.throws(() => T.transformerInput({ nope: 1 }), TypeError);
+});
+
+/* ---- DOE 10 CFR 431.196 hand checks (ported from calculations/tests/test_doe.py) ----
+   eta = L S / (L S + P0 + L^2 Pk) x 100, unity pf output basis (App. A 5.1-5.3), compared with the table minimum. */
+const eta = (kva, L, p0, pk) => (L * kva * 1000) / (L * kva * 1000 + p0 + L * L * pk) * 100;
+
+test("DOE hand check: liquid 3-ph 1000 kVA (Table 5 99.43 %)", () => {
+  // 500,000 / (500,000 + 1000 + 0.25 x 8000) = 99.40358 % -> fail by 0.0264
+  const e = eta(1000, 0.5, 1000, 8000);
+  near(e, 99.40358, 1e-4);
+  const r = T.doe_efficiency_check("liquid", 3, 1000, null, e, "2020-06-01");
+  assert.equal(r.required_pct, 99.43);
+  assert.equal(r.status, "fail");
+  near(r.margin_pct, -0.02642, 1e-4);
+});
+
+test("DOE hand check: LV dry 3-ph 75 kVA at 35 % (Table 2 98.60 %, (a)(1) 98.0 %)", () => {
+  // 26,250 / (26,250 + 250 + 0.1225 x 2000) = 98.14919 %
+  const e = eta(75, 0.35, 250, 2000);
+  near(e, 98.14919, 1e-4);
+  assert.equal(T.doe_efficiency_check("lv_dry", 3, 75, null, e, "2020-01-01").status, "fail");
+  assert.equal(T.doe_efficiency_check("lv_dry", 3, 75, null, e, "2012-01-01").status, "pass");
+});
+
+test("DOE hand check: MV dry 3-ph 1000 kVA BIL 95 kV (Table 10 99.28 %)", () => {
+  // 500,000 / (500,000 + 1500 + 0.25 x 7000) = 99.35420 %
+  const e = eta(1000, 0.5, 1500, 7000);
+  near(e, 99.3542, 1e-4);
+  const r = T.doe_efficiency_check("mv_dry", 3, 1000, 95, e, "2029-04-23");
+  assert.deepEqual([r.window.id, r.bil_band, r.required_pct, r.status], ["(c)(3)", "46-95 kV", 99.28, "pass"]);
+});
+
+test("DOE interpolation and not-in-table", () => {
+  // Table 6: 300 kVA 99.42, 500 kVA 99.38 -> 400 kVA 99.40 (the law's step, interpolated as written)
+  near(T.doe_efficiency_check("liquid", 3, 400, null, 99.5, "2029-04-23").required_pct, 99.40, 1e-9);
+  const r = T.doe_efficiency_check("lv_dry", 3, 1500, null, 99.5, "2020-01-01");
+  assert.equal(r.status, "not_in_table");
+  assert.deepEqual(r.nearest_rows, [[1000, 99.28]]);
+});
+
+test("DOE check is in the design checks with the design's own losses", () => {
+  const r = R({ kva: 1500, hv_v: 13800, lv_v: 480, doe_date: "2020-01-01" });
+  const c = r.checks.find((x) => x.name === T.DOE_CHECK_NAME);
+  near(c.value, eta(1500, 0.5, r.doe.losses.no_load_w, r.doe.losses.load_loss_w), 5e-4);
+  assert.equal(c.limit, 99.48);
 });
