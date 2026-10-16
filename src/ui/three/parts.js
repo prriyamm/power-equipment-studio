@@ -72,5 +72,12 @@ export function plateWithHoles(mat, x0, x1, y0, y1, z0, z1, holes) {
   return m;
 }
 
-/* Wrap-up shared by the detail views: dispose a group's geometries and drop its children. */
-export function disposeGroup(grp) { grp.traverse((o) => { o.geometry?.dispose?.(); }); grp.clear(); }
+/* Wrap-up shared by the detail views: dispose a group's geometries and materials (built per rebuild,
+   never shared across builds) with their textures, and drop its children. */
+export function disposeGroup(grp) {
+  grp.traverse((o) => {
+    o.geometry?.dispose?.();
+    for (const m of o.material ? [].concat(o.material) : []) { for (const k in m) if (m[k]?.isTexture) m[k].dispose(); m.dispose?.(); }
+  });
+  grp.clear();
+}
