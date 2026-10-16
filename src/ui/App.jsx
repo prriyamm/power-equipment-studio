@@ -14,6 +14,20 @@ export function App() {
   // phone width: the rail collapses to a top bar with a menu button (head.html .rail-* rules)
   const [menu, setMenu] = useState(false);
   const open = (k) => { setActive(k); setOpened((s) => new Set(s).add(k)); setMenu(false); };
+  // Alt+1..6 opens a workspace (shown in the rail tooltips)
+  useEffect(() => {
+    const k = (e) => { if (!e.altKey || e.ctrlKey || e.metaKey) return; const w = WORKSPACES[Number(e.key) - 1]; if (w) { e.preventDefault(); open(w.key); } };
+    window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+  }, []);
+  // arrow keys move focus along the rail
+  const railKey = (e) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const btns = [...e.currentTarget.querySelectorAll(".rail-btn")], i = btns.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    const n = e.key === "Home" ? 0 : e.key === "End" ? btns.length - 1 : (i + (e.key === "ArrowDown" ? 1 : -1) + btns.length) % btns.length;
+    btns[n].focus();
+  };
   useEffect(() => {
     if (!menu) return;
     const k = (e) => e.key === "Escape" && setMenu(false);
@@ -30,12 +44,13 @@ export function App() {
         <button className="rail-menu-btn" aria-expanded={menu} aria-controls="rail-list" aria-label={menu ? "Close workspace menu" : "Open workspace menu"} onClick={() => setMenu(!menu)}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><path d={menu ? "M6 6l12 12M18 6L6 18" : "M4 7h16M4 12h16M4 17h16"} /></svg>
         </button>
-        <div className="rail-list" id="rail-list">
-          {WORKSPACES.map((w) => (
-            <button key={w.key} className={cx("rail-btn", active === w.key && "is-active", !w.Component && "is-planned")} onClick={() => open(w.key)} title={w.title} aria-current={active === w.key ? "page" : undefined}>
+        <div className="rail-list" id="rail-list" onKeyDown={railKey}>
+          {WORKSPACES.map((w, i) => (
+            <button key={w.key} className={cx("rail-btn", active === w.key && "is-active", !w.Component && "is-planned")} onClick={() => open(w.key)} aria-label={w.title} aria-keyshortcuts={`Alt+${i + 1}`} aria-current={active === w.key ? "page" : undefined}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={w.icon} /></svg>
-              <span className="rail-short">{w.short}</span>
+              <span className="rail-short" aria-hidden="true">{w.short}</span>
               <span className="rail-long">{w.title}</span>
+              <span className="rail-tip" aria-hidden="true">{w.title}<kbd>Alt {i + 1}</kbd></span>
             </button>
           ))}
         </div>

@@ -1,7 +1,8 @@
 /* Feeder & cable workspace: conductor sizing with parallel sets, voltage drop, withstand and lug schedule
    (pecalc sizing + lugs port), live as inputs change. */
-const { useState, useMemo, useEffect } = React;
-import { Btn, Field, NumField, Pill, Section, Tile, fmt } from "./common.jsx";
+const { useState, useMemo, useEffect, useRef } = React;
+import { Btn, Field, NumField, Pill, Section, fmt, WsHeader, KpiStrip, ChecksTable, StateMsg, checkMeter, checkStatus } from "./common.jsx";
+import { Chart, Line, RefLine, Dot, SERIES_VAR } from "./charts/index.js";
 import { bus } from "./bus.js";
 import { PushToSystem } from "./systemPush.jsx";
 import { feederDesign } from "../engine/designPush.js";
@@ -10,7 +11,7 @@ import { selectLugs, lugInput } from "../engine/pecalc/lugs.js";
 import { cableOdMm, diameterMm, sizeIndex } from "../engine/pecalc/conductors.js";
 import { kvRows, checkRows } from "../engine/report.js";
 import { tableInfo } from "../engine/pecalc/ampacity.js";
-import { ReportButton } from "./reportButton.jsx";
+import { ReportButton, reportFigures } from "./reportButton.jsx";
 
 const FT = 0.3048;
 
@@ -82,7 +83,7 @@ function solve(ui) {
 }
 
 /* Calculation package (see engine/report.js). */
-function feederReport(ui) {
+function feederReport(ui, host) {
   const { result: r, lugs, error } = solve(ui);
   if (!r) throw new Error(error || "no result");
   const i = r.input, b = r.recommended, info = tableInfo(i.code, i.installation);
@@ -100,6 +101,7 @@ function feederReport(ui) {
       ...(lugs ? [{ title: "Lugs", columns: ["End", "Qty", "Conductor", "Style", "Material", "Stud (in)"],
         rows: [["Source", lugs.source], ["Load", lugs.load]].flatMap(([e, l]) => l.lines.map((x) => [e, x.quantity, x.conductor, x.style, x.lug_material, x.stud_in])) }] : []),
     ],
+    figures: reportFigures(host),
     notes: [...r.notes, ...(lugs ? lugs.source.notes : [])],
     dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
   };
@@ -127,6 +129,7 @@ function candidates(result) {
 export function FeederWorkspace({ goTo }) {
   const [ui, setUi] = useState(EXAMPLE);
   const [link, setLink] = useState(null);            // System cable run this feeder is designed for
+  const hostRef = useRef(null);
   const { result: r, lugs, amps, error, placeholder } = useMemo(() => solve(ui), [ui]);
   const push = useMemo(() => { if (!r) return { error }; try { return { design: feederDesign(r) }; } catch (e) { return { error: e.message }; } }, [r, error]);
 
@@ -159,19 +162,19 @@ export function FeederWorkspace({ goTo }) {
   );
 
   return (
-    <div className="ws fd">
+    <div className="ws fd" ref={hostRef}>
       <style>{CSS}</style>
-      <header className="topbar">
-        <div className="ws-title">Feeder &amp; cable</div>
-        <span className="text-muted text-[12.5px]">Conductor sizing, voltage drop, withstand and lugs</span>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <PushToSystem module="feeder" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
+      <WsHeader title="Feeder & cable" context="Conductor sizing, voltage drop, withstand and lugs"
+        status={<>
           {r && <Pill tone={r.recommended ? "ok" : "crit"}>{r.recommended ? "Conductor found" : "No size passes"}</Pill>}
           {r && r.data_status !== "VERIFIED" && <Pill tone="warn" title={r.notes.find((n) => n.startsWith("WARNING")) || ""}>Data {r.data_status}</Pill>}
-          {r && <ReportButton filename="feeder-calc" getReport={() => feederReport(ui)} />}
+          {error && <Pill tone="crit">Input error</Pill>}
+        </>}
+        actions={<>
+          <PushToSystem module="feeder" design={push.design || null} designError={push.error} link={link} setLink={setLink} goTo={goTo} />
+          {r && <ReportButton filename="feeder-calc" getReport={() => feederReport(ui, hostRef.current)} />}
           <Btn onClick={() => setUi(EXAMPLE)} title="Restore the 480 V 400 A example inputs">Reset to example</Btn>
-        </div>
-      </header>
+        </>} />
 
       <div className="main">
         <div className="fd-grid">
@@ -224,8 +227,8 @@ export function FeederWorkspace({ goTo }) {
 
           <div className="fd-results">
             {error && (
-              <div className="notice notice-crit">
-                <b>Cannot size.</b> {error}
+              <StateMsg kind="error" title="Cannot size this feeder">
+                {error}. Correct the input on the left; results update as you type.
                 {placeholder && (
                   <div className="mt-2">
                     <label className="live-toggle">
@@ -235,7 +238,7 @@ export function FeederWorkspace({ goTo }) {
                     </label>
                   </div>
                 )}
-              </div>
+              </StateMsg>
             )}
             {r && <Results r={r} lugs={lugs} ui={ui} amps={amps} setUi={setUi} />}
           </div>
@@ -258,18 +261,19 @@ function Results({ r, lugs, ui, amps, setUi }) {
   const kva = (Math.sqrt(3) * i.voltage_v * amps) / 1000;
   return (
     <>
-      {!b && <div className="notice notice-crit"><b>No conductor passes every check</b> within {i.max_sets} parallel sets. The table below shows the largest size tried for each set count and the rules that fail.</div>}
-      <div className="tiles">
-        <Tile label="Selected conductor" value={b ? `${b.sets} × ${b.size}` : "—"} unit={b ? (sizeIndex(b.size) >= sizeIndex("250") ? "kcmil" : "AWG") : ""}
-          tone={b ? "ok" : "crit"} sub={b ? `${i.material} · ${b.total_area_mm2} mm² total · ${i.insulation_temp_c} °C` : "see candidates"} />
-        <Tile label="Ampacity vs required" value={b ? fmt(b.ampacity_per_set_a * b.sets, 0) : "—"} unit="A"
-          tone={b ? "ok" : undefined} sub={b ? `need ${fmt(required, 0)} A · load ${fmt(amps, 0)} A` : `need ${fmt(required, 0)} A`} />
-        <Tile label="Voltage drop" value={b ? fmt(b.vd_pct, 2) : "—"} unit="%"
-          tone={b ? (b.vd_pct <= i.max_vd_pct ? "ok" : "crit") : undefined} sub={b ? `${fmt(b.vd_v, 1)} V of ${fmt(i.voltage_v, 0)} V · limit ${i.max_vd_pct} %` : ""} />
-        <Tile label="Losses" value={b ? fmt(b.loss_w / 1000, 2) : "—"} unit="kW" sub={b ? `${fmt((b.loss_w / (kva * 1000 * i.power_factor)) * 100, 2)} % of ${fmt(kva * i.power_factor, 0)} kW` : ""} />
-        <Tile label="Short-circuit withstand" value={sc ? fmt(sc.value, 1) : "—"} unit={sc ? "kA" : ""}
-          tone={sc ? (sc.passed ? "ok" : "crit") : undefined} sub={sc ? `fault ${sc.limit} kA · ${sc.note.split(",")[0]}` : "enter fault kA and time"} />
-      </div>
+      {!b && <StateMsg kind="error" title="No conductor passes every check">Nothing within {i.max_sets} parallel sets meets all rules. The candidates table shows the largest size tried for each set count and the rules that fail; try more sets, a larger voltage-drop limit or a different installation.</StateMsg>}
+      <KpiStrip items={[
+        { label: "Selected conductor", value: b ? `${b.sets} × ${b.size}` : "—", unit: b ? (sizeIndex(b.size) >= sizeIndex("250") ? "kcmil" : "AWG") : "",
+          status: b ? "pass" : "fail", badge: true, sub: b ? `${i.material} · ${b.total_area_mm2} mm² total · ${i.insulation_temp_c} °C` : "see candidates" },
+        { label: "Ampacity vs required", value: b ? fmt(b.ampacity_per_set_a * b.sets, 0) : "—", unit: "A", status: b ? "pass" : undefined,
+          sub: b ? `need ${fmt(required, 0)} A · load ${fmt(amps, 0)} A` : `need ${fmt(required, 0)} A`,
+          meter: b ? { u: required / (b.ampacity_per_set_a * b.sets), label: `${fmt((100 * required) / (b.ampacity_per_set_a * b.sets), 0)} % of ampacity used` } : null },
+        { label: "Voltage drop", value: b ? fmt(b.vd_pct, 2) : "—", unit: "%", status: b ? (b.vd_pct <= i.max_vd_pct ? "pass" : "fail") : undefined,
+          sub: b ? `${fmt(b.vd_v, 1)} V of ${fmt(i.voltage_v, 0)} V · limit ${i.max_vd_pct} %` : "", meter: b ? { u: b.vd_pct / i.max_vd_pct } : null },
+        { label: "Losses", value: b ? fmt(b.loss_w / 1000, 2) : "—", unit: "kW", sub: b ? `${fmt((b.loss_w / (kva * 1000 * i.power_factor)) * 100, 2)} % of ${fmt(kva * i.power_factor, 0)} kW` : "" },
+        { label: "Short-circuit withstand", value: sc ? fmt(sc.value, 1) : "—", unit: sc ? "kA" : "", status: checkStatus(sc),
+          sub: sc ? `fault ${sc.limit} kA · ${sc.note.split(",")[0]}` : "enter fault kA and time", meter: checkMeter(sc) },
+      ]} />
 
       <Section title="Candidate options" aside={<span className="text-faint text-[12px]">smallest passing size per number of sets · governing rule shaded</span>}>
         <div className="table-wrap">
@@ -308,22 +312,7 @@ function Results({ r, lugs, ui, amps, setUi }) {
 
       {b && (
         <Section title="Checks" aside={<Pill tone={failing.length ? "crit" : "ok"}>{failing.length ? `${failing.length} fail` : "All pass"}</Pill>}>
-          <div className="table-wrap">
-            <table className="grid-table">
-              <thead><tr><th>Check</th><th className="r">Value</th><th className="r">Limit</th><th>Result</th><th>Clause</th></tr></thead>
-              <tbody>
-                {b.checks.map((c) => (
-                  <tr key={c.name} title={c.note}>
-                    <td className="fd-wrap">{c.name}<div className="fd-note">{c.note}</div></td>
-                    <td className="r">{std(c.value)} <em className="fd-unit">{c.unit}</em></td>
-                    <td className="r">{std(c.limit)} <em className="fd-unit">{c.unit}</em></td>
-                    <td><Pill tone={c.passed ? "ok" : "crit"}>{c.passed ? "Pass" : "Fail"}</Pill></td>
-                    <td className="fd-wrap fd-clause">{c.clause}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ChecksTable checks={b.checks} format={std} />
         </Section>
       )}
 
@@ -352,10 +341,10 @@ function Results({ r, lugs, ui, amps, setUi }) {
 
       <div className="fd-vis">
         <Section title="Raceway cross-section" aside={<span className="text-faint text-[12px]">to scale</span>}>
-          {b ? <Raceway r={r} ui={ui} setUi={setUi} /> : <div className="text-muted text-[13px]">No conductor selected.</div>}
+          {b ? <Raceway r={r} ui={ui} setUi={setUi} /> : <StateMsg title="No conductor selected">The drawing appears once a size passes every check.</StateMsg>}
         </Section>
-        <Section title="Voltage drop along the run" aside={<span className="text-faint text-[12px]">{ui.unit}</span>}>
-          {b ? <DropChart r={r} ui={ui} /> : <div className="text-muted text-[13px]">No conductor selected.</div>}
+        <Section title="Voltage drop along the run" aside="hover or tap for values">
+          {b ? <DropChart r={r} ui={ui} /> : <StateMsg title="No conductor selected">The voltage-drop profile appears once a size passes every check.</StateMsg>}
         </Section>
       </div>
 
@@ -458,35 +447,31 @@ function DropChart({ r, ui }) {
   const maxL = b.vd_pct > 0 ? (L * lim) / b.vd_pct : Infinity;
   const xMax = Math.min(Math.max(L, Math.min(maxL, 3 * L)) * 1.08, 4 * L);
   const yMax = Math.max(lim, b.vd_pct * (xMax / L)) * 1.1;
-  const w = 420, h = 220, m = { l: 44, r: 14, t: 12, b: 34 };
-  const X = (x) => m.l + (x / xMax) * (w - m.l - m.r);
-  const Y = (y) => h - m.b - (y / yMax) * (h - m.t - m.b);
-  const nice = (v) => { const p = 10 ** Math.floor(Math.log10(v)); const f = v / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; };
-  const xs = nice(xMax / 4), ys = nice(yMax / 4);
-  const xt = [], yt = [];
-  for (let v = 0; v <= xMax + 1e-9; v += xs) xt.push(v);
-  for (let v = 0; v <= yMax + 1e-9; v += ys) yt.push(v);
   const alts = r.alternatives.slice(0, 3);
-  const line = (o) => `M${X(0)},${Y(0)} L${X(xMax)},${Y((o.vd_pct * xMax) / L)}`;
+  const at = (o, x) => (o.vd_pct * x) / L;
+  const seg = (o) => [{ x: 0, y: 0 }, { x: xMax, y: at(o, xMax) }];
+  const name = (o) => `${o.sets} × ${o.size_label}`;
+  const xs = useMemo(() => { const n = 48, a = Array.from({ length: n + 1 }, (_, k) => (k * xMax) / n); a.push(L); return [...new Set(a)].sort((p, q) => p - q); }, [xMax, L]);
+  const series = [{ o: b, color: "var(--accent)" }, ...alts.map((o, k) => ({ o, color: SERIES_VAR[k] }))];
   return (
-    <div className="fd-draw">
-      <svg viewBox={`0 0 ${w} ${h}`} className="fd-svg fd-chart" role="img" aria-label="Voltage drop versus distance">
-        {yt.map((v) => <g key={"y" + v}><line x1={m.l} x2={w - m.r} y1={Y(v)} y2={Y(v)} className="fd-grid-l" /><text x={m.l - 6} y={Y(v) + 3} textAnchor="end">{fmt(v, v < 1 ? 1 : 0)}</text></g>)}
-        {xt.map((v) => <g key={"x" + v}><line x1={X(v)} x2={X(v)} y1={h - m.b} y2={h - m.b + 4} className="fd-axis" /><text x={X(v)} y={h - m.b + 15} textAnchor="middle">{fmt(v, 0)}</text></g>)}
-        <line x1={m.l} x2={w - m.r} y1={h - m.b} y2={h - m.b} className="fd-axis" />
-        <line x1={m.l} x2={m.l} y1={m.t} y2={h - m.b} className="fd-axis" />
-        <line x1={m.l} x2={w - m.r} y1={Y(lim)} y2={Y(lim)} className="fd-limit" />
-        <text x={w - m.r - 2} y={Y(lim) - 5} textAnchor="end" className="fd-limit-t">limit {lim} %</text>
-        {alts.map((o, k) => <path key={k} d={line(o)} className="fd-alt-l"><title>{o.sets} × {o.size_label}</title></path>)}
-        <path d={line(b)} className="fd-main-l" />
-        <circle cx={X(L)} cy={Y(b.vd_pct)} r="4" className="fd-dot" />
-        <text x={X(L)} y={Y(b.vd_pct) - 9} textAnchor="middle" className="fd-dot-t">{fmt(b.vd_pct, 2)} %</text>
-        <text x={(m.l + w - m.r) / 2} y={h - 3} textAnchor="middle" className="fd-axis-t">distance from source ({ui.unit})</text>
-        <text transform={`translate(11 ${(m.t + h - m.b) / 2}) rotate(-90)`} textAnchor="middle" className="fd-axis-t">voltage drop (%)</text>
-      </svg>
-      <div className="fd-caption">
-        {b.sets} × {b.size_label} reaches the {lim} % limit at {Number.isFinite(maxL) ? <b>{fmt(maxL, 0)} {ui.unit}</b> : "—"} (run is {fmt(L, 0)} {ui.unit}).
-        {alts.length > 0 && " Thin lines: next-larger passing options."}
+    <div>
+      <Chart height={240} ariaLabel="Voltage drop versus distance from the source" reportTitle="Voltage drop along the run"
+        x={{ domain: [0, xMax], label: "Distance from source", unit: ui.unit }} y={{ domain: [0, yMax], label: "Voltage drop", unit: "%" }}
+        legend={series.length > 1 ? series.map((s) => ({ name: name(s.o), color: s.color })) : null}
+        hover={{
+          xs,
+          render: (k) => ({ title: `${fmt(xs[k], 0)} ${ui.unit} from source`, rows: series.map((s) => ({ label: name(s.o), value: `${fmt(at(s.o, xs[k]), 2)} %`, color: s.color })) }),
+          points: (k) => series.map((s) => ({ y: at(s.o, xs[k]), color: s.color })),
+        }}>
+        <RefLine y={lim} label={`limit ${lim} %`} tone="crit" />
+        <RefLine x={L} label={`run ${fmt(L, 0)} ${ui.unit}`} tone="muted" />
+        {alts.map((o, k) => <Line key={k} data={seg(o)} color={SERIES_VAR[k]} width={1.5} opacity={0.85} />)}
+        <Line data={seg(b)} color="var(--accent)" width={2.25} />
+        <Dot x={L} y={b.vd_pct} label={`${fmt(b.vd_pct, 2)} %`} />
+      </Chart>
+      <div className="ck-caption">
+        {name(b)} reaches the {lim} % limit at {Number.isFinite(maxL) ? <b>{fmt(maxL, 0)} {ui.unit}</b> : "—"} (run is {fmt(L, 0)} {ui.unit}).
+        {alts.length > 0 && " Thinner lines: next-larger passing options."}
       </div>
     </div>
   );
@@ -496,7 +481,6 @@ const CSS = `
   .fd-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
   .fd-form, .fd-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .fd-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
-  .fd-results .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .fd .grid-table th.c, .fd .grid-table td.c { text-align: center; }
   .fd-wrap { white-space: normal !important; min-width: 120px; font-family: var(--font-ui) !important; }
   .fd-note { font-size: 11px; color: var(--faint); margin-top: 2px; }
@@ -522,15 +506,6 @@ const CSS = `
   .fd-caption b.fd-bad { color: var(--crit); }
   .fd-conduit-pick { display: flex; align-items: center; gap: 8px; margin-top: 8px; max-width: 220px; }
   .fd-conduit-pick .field-label { white-space: nowrap; }
-  .fd-chart .fd-grid-l { stroke: var(--line); stroke-width: 0.6; }
-  .fd-chart .fd-axis { stroke: var(--faint); stroke-width: 1; }
-  .fd-chart .fd-limit { stroke: var(--crit); stroke-width: 1; stroke-dasharray: 5 3; }
-  .fd-chart .fd-limit-t { fill: var(--crit); }
-  .fd-chart .fd-main-l { fill: none; stroke: var(--accent); stroke-width: 2; }
-  .fd-chart .fd-alt-l { fill: none; stroke: var(--wire); stroke-width: 1; opacity: 0.6; }
-  .fd-chart .fd-dot { fill: var(--accent); }
-  .fd-chart .fd-dot-t { fill: var(--fg); }
   @media (max-width: 899px) { .fd-grid { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 520px) { .fd-grid { padding: 10px 16px; } .fd-fields { gap: 8px; } }
-  @media (max-width: 899px) { .fd-chart text { font-size: 12.5px; } }
 `;

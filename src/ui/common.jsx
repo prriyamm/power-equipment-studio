@@ -1,6 +1,7 @@
 /* Shared UI primitives for every workspace. React is the global UMD build. */
 const { useState, useEffect } = React;
 import { autoLayout } from "../engine/loadflow.js";
+import { checkDirection, checkUtilization, meterFill, utilTone } from "./checks.js";
 
 /* ---------------------------------------------------------------- helpers */
 let uid = 0;
@@ -61,8 +62,8 @@ export function Section({ title, aside, children, className }) {
   return (
     <section className={cx("panel", className)}>
       <header className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3 pb-2">
-        <h3 className="label">{title}</h3>
-        {aside}
+        <h3 className="sec-title">{title}</h3>
+        {typeof aside === "string" ? <span className="sec-aside">{aside}</span> : aside}
       </header>
       <div className="px-4 pb-4 min-w-0">{children}</div>
     </section>
@@ -85,6 +86,9 @@ export function Icon({ name, size = 16 }) {
     dup: "M8 8h12v12H8zM4 4h12v2M4 4v12h2",
     x: "M6 6l12 12M18 6L6 18",
     play: "M7 4l13 8-13 8z",
+    alert: "M12 3l10 18H2zM12 10v5M12 18h.01",
+    info: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 11v6M12 7.5h.01",
+    empty: "M4 13l3-8h10l3 8v6H4zM4 13h5l1 2h4l1-2h5",
   }[name];
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -114,3 +118,113 @@ export function Tile({ label, value, unit, sub, tone }) {
   );
 }
 
+
+/* ------------------------------------------------------- workspace header */
+/* One header pattern for every workspace: identity (title + context line), an optional middle slot (mode
+   switch, scenario chips), then status pills and the primary actions, separated by a hairline. */
+export function WsHeader({ title, context, children, status, actions }) {
+  return (
+    <header className="topbar ws-head">
+      <div className="ws-head-id">
+        <h1 className="ws-title">{title}</h1>
+        {context && <span className="ws-context">{context}</span>}
+      </div>
+      {children && <div className="ws-head-mid">{children}</div>}
+      <div className="ws-head-end">
+        <div className="ws-head-status">{status}</div>
+        <div className="ws-head-actions">{actions}</div>
+      </div>
+    </header>
+  );
+}
+
+/* --------------------------------------------------------- status badge */
+const BADGE = { pass: ["Pass", "check"], fail: ["Fail", "x"], warn: ["Check", "alert"], na: ["Not checked", null] };
+export function StatusBadge({ status = "na", children, title }) {
+  const [text, icon] = BADGE[status] || BADGE.na;
+  return (
+    <span className={cx("badge", `badge-${status}`)} title={title}>
+      {icon && <Icon name={icon} size={12} />}{children ?? text}
+    </span>
+  );
+}
+
+export const Clause = ({ children }) => (children ? <span className="clause">{children}</span> : null);
+
+/* ------------------------------------------------------------ KPI strip */
+/* Instrument-style readouts: big tabular value with unit, a status rail, optional pass/fail badge and an
+   optional utilisation meter (value against a limit, limit tick at 80 % of the track).
+   items: [{ label, value, unit, sub, status: "pass"|"fail"|"warn", badge: bool, meter: { u, label } }] */
+export function KpiStrip({ items, className }) {
+  return (
+    <div className={cx("kpis", className)}>
+      {items.filter(Boolean).map((k, i) => (
+        <div key={k.key || k.label || i} className={cx("kpi", k.status && `kpi-${k.status}`)}>
+          <div className="kpi-head"><span>{k.label}</span>{k.badge && k.status && <StatusBadge status={k.status} />}</div>
+          <div className="kpi-value">{k.value}{k.unit && <span className="kpi-unit">{k.unit}</span>}</div>
+          {k.sub && <div className="kpi-sub">{k.sub}</div>}
+          {k.meter && k.meter.u != null && (
+            <>
+              <div className="kpi-meter" role="meter" aria-valuemin={0} aria-valuemax={125} aria-valuenow={Math.round(k.meter.u * 100)} aria-label={`${k.label}: ${Math.round(k.meter.u * 100)} % of limit`}>
+                <i style={{ width: `${meterFill(k.meter.u) * 100}%` }} /><b style={{ left: "80%" }} />
+              </div>
+              <div className="kpi-meter-l"><span>{k.meter.label ?? `${fmt(k.meter.u * 100, 0)} % of limit`}</span></div>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* Utilisation meter for a KPI from an engine check. */
+export const checkMeter = (c, label) => (c ? { u: checkUtilization(c), label } : null);
+export const checkStatus = (c) => (c ? (c.passed ? "pass" : "fail") : undefined);
+
+/* ---------------------------------------------------------- checks table */
+/* Engine checks as rows: pass/fail badge, name and note, value against limit with a utilisation bar, clause chip.
+   format(v) prints numbers (the workspace's own precision rule). */
+export function ChecksTable({ checks, format = (v) => fmt(v, 2) }) {
+  return (
+    <div className="chk" role="table" aria-label="Design checks">
+      <div className="chk-row chk-th" role="row">
+        <span role="columnheader">Result</span><span role="columnheader">Check</span><span role="columnheader">Value vs limit</span><span role="columnheader" className="chk-cl">Clause</span>
+      </div>
+      {checks.map((c, k) => {
+        const u = checkUtilization(c), dir = checkDirection(c);
+        const tone = c.passed ? (u != null && u >= 0.9 ? "warn" : "pass") : "fail";
+        const fill = meterFill(u);
+        const num = (v) => (typeof v === "number" ? format(v) : v ?? "—");
+        return (
+          <div key={c.name + k} className={cx("chk-row", !c.passed && "is-fail")} role="row" title={c.note || undefined}>
+            <span role="cell"><StatusBadge status={c.passed ? "pass" : "fail"} /></span>
+            <div role="cell" className="min-w-0"><div className="chk-name">{c.name}</div>{c.note && <div className="chk-note">{c.note}</div>}</div>
+            <div role="cell" className="chk-mid min-w-0">
+              <div className="chk-vals">
+                <span>{num(c.value)}<em>{c.unit}</em></span>
+                <span className="chk-lim">{c.limit != null && c.limit !== "" ? <>{dir === "max" ? "≤" : "≥"} {num(c.limit)}<em>{c.unit}</em></> : "—"}</span>
+              </div>
+              {u != null && (
+                <div className="chk-bar" aria-hidden="true">
+                  <i style={{ width: `${fill * 100}%`, background: `var(--st-${tone})` }} /><b style={{ left: "80%" }} />
+                </div>
+              )}
+              {u != null && <div className="chk-util">{fmt(u * 100, 0)} % of limit</div>}
+            </div>
+            <div role="cell" className="chk-cl min-w-0"><Clause>{c.clause}</Clause></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------- empty / loading / error */
+export function StateMsg({ kind = "empty", title, children, action, center }) {
+  return (
+    <div className={cx("state", `state-${kind}`, center && "state-center")} role={kind === "error" ? "alert" : kind === "loading" ? "status" : undefined}>
+      {kind === "loading" ? <span className="spin" aria-hidden="true" /> : <Icon name={kind === "error" ? "alert" : "info"} size={18} />}
+      <div className="min-w-0">{title && <b>{title}</b>}{children}{action && <div className="mt-3">{action}</div>}</div>
+    </div>
+  );
+}
