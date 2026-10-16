@@ -1,0 +1,7 @@
+# Files compared byte-for-byte by tests or emitted by the build: keep LF on
+# every platform (core.autocrlf=true would otherwise check them out as CRLF).
+# src/head.html is copied verbatim into dist/index.html by scripts/build.mjs.
+tests/fixtures/** text eol=lf
+tests/golden/** text eol=lf
+src/head.html text eol=lf
+dist/index.html text eol=lf

@@ -133,7 +133,7 @@ function cableBusReport(f) {
     checks: checkRows(res.checks),
     tables: [{ title: "Conductor currents", columns: ["Phase", "Tier", "x (mm)", "Current (A)", "% of equal share", "Ampacity (A)", "Loading %"],
       rows: res.conductors.map((c) => [c.phase, c.tier, c.x_mm, c.current_a, c.share_pct, c.ampacity_a, c.loading_pct]) }],
-    figures: i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res) }] : [],
+    figures: i.enclosure_width_mm ? [{ title: "Cross-section", svg: cablebusSvg(inp, res, { tier_dims: true }) }] : [],
     notes: res.notes,
     dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
   };
@@ -169,7 +169,7 @@ function SharingChart({ res }) {
 
 function CrossSection({ inp, res }) {
   const html = useMemo(() => {
-    let s = cablebusSvg(inp, res);
+    let s = cablebusSvg(inp, res, { tier_dims: true }); // support blocks per tier + tier pitch dimension
     // restyle the white-paper drawing for the dark theme, and phase colours A red / B yellow / C blue
     s = s.replace("fill='#ffffff'", "fill='#0a0f14'").replace("font-size='12'>", "font-size='12' fill='#d6dfe6'>")
       .replace(/stroke='#333'/g, "stroke='#8a9aa7'").replace(/fill='#333'/g, "fill='#8a9aa7'")
@@ -412,7 +412,7 @@ function Results({ inp, res }) {
       </Section>
 
       <div className="cb-two">
-        <Section title="Cross-section" aside={<span className="text-faint text-[12px]">to scale · pitch {fmt(res.pitch_mm, 0)} mm · OD {fmt(res.cable_od_mm, 1)} mm</span>}>
+        <Section title="Cross-section" aside={<span className="text-faint text-[12px]">to scale · pitch {fmt(res.pitch_mm, 0)} mm{res.input.tiers > 1 ? ` · tier pitch ${fmt(res.tier_pitch_mm, 0)} mm` : ""} · OD {fmt(res.cable_od_mm, 1)} mm</span>}>
           <CrossSection inp={inp} res={res} />
         </Section>
         <Section title="Magnetic field" aside={<span className="text-faint text-[12px]">µT, RMS</span>}>
