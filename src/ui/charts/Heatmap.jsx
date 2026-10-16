@@ -14,8 +14,10 @@ const toRgb = (c) => (Array.isArray(c) ? c : typeof c === "string" && c[0] === "
  * legend: { steps: [{ max, color, label }], unit } (binned) or { stops, domain, log, unit, ticks } (continuous).
  * overlay: { viewBox: "minx miny w h", children } drawn on top, same extent as the grid.
  * readout(i, j, v) -> string for the hover box.
+ * imageRect: optional { x, y, w, h } (fractions of the plot) where the grid image is drawn instead of filling the plot,
+ *   so a zoomable map can show its previous image scaled and moved while the new grid is computed.
  */
-export function Heatmap({ nx, ny, values, color, legend, overlay, readout, ariaLabel, reportTitle, maxHeight = 520 }) {
+export function Heatmap({ nx, ny, values, color, legend, overlay, readout, ariaLabel, reportTitle, maxHeight = 520, imageRect = null }) {
   const wrapRef = useRef(null), canvasRef = useRef(null);
   const cw = useWidth(wrapRef, 560);
   const vb = overlay?.viewBox ? overlay.viewBox.split(/[ ,]+/).map(Number) : [0, 0, nx, ny];
@@ -49,8 +51,11 @@ export function Heatmap({ nx, ny, values, color, legend, overlay, readout, ariaL
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     const g = cv.getContext("2d"); if (!g) return;
     g.imageSmoothingEnabled = false;
-    g.drawImage(img, 0, 0, cv.width, cv.height);
-  }, [img, W, H]);
+    if (imageRect) {
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.drawImage(img, imageRect.x * cv.width, imageRect.y * cv.height, imageRect.w * cv.width, imageRect.h * cv.height);
+    } else g.drawImage(img, 0, 0, cv.width, cv.height);
+  }, [img, W, H, imageRect?.x, imageRect?.y, imageRect?.w, imageRect?.h]);
 
   const onMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect();

@@ -70,6 +70,9 @@ CASES = [
          cycles=2),
     dict(bus=dict(MV, cable_ampacity_a=900.0, ampacity_method="datasheet", shield_bonding="both_ends"), cycles=2),
     dict(bus=dict(LV, spacing_mm=60.0), cycles=2),
+    # 4 tiers
+    dict(bus=dict(LV, conductors_per_phase=8, tiers=4, enclosure_height_mm=400.0, x_over_r=25.0), cycles=2, **RATED),
+    dict(bus=dict(LV, conductors_per_phase=4, tiers=4, enclosure_height_mm=300.0, fault_clearing_s=None), cycles=2),
     # errors
     dict(bus=LV, cycles=0.0),
     dict(bus=LV, load_scale=0.0),

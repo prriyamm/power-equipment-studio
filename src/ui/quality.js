@@ -56,6 +56,12 @@ export function tierSettings(tier) {
   }
 }
 
+/* Cells across the magnetic-field map (Cable bus Check tab); every zoom step recomputes this many cells on the
+   visible window, so the tier sets how much work a step costs. */
+export function fieldGridNx(tier) {
+  return tier === "low" ? 48 : tier === "high" ? 96 : 64;
+}
+
 /* Resolve the effective state from stored prefs + detection. Pure. */
 export function resolveQuality({ mode = "auto", animations = null } = {}, autoTier = "medium", reducedMotion = false) {
   const m = MODES.includes(mode) ? mode : "auto";
