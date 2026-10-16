@@ -1,0 +1,31 @@
+{
+ "_meta": {
+  "source": "Public physics and handbook constants for the cable bus short-circuit and temperature-rise simulation (cablebus_sim). No value is taken from IEEE C37.23 or CSA C22.2 No. 273, whose texts are licensed and were not read.",
+  "edition": "n/a",
+  "status": "UNVERIFIED",
+  "note": "Every entry carries its own status and citation. Test durations, rise limits and pass criteria of C37.23 / CSA 273 are NOT FOUND publicly, so they are user inputs taken from the product's test report and have no defaults here. The peak-factor entries are informational reference rows only; the simulation computes the peak from X/R in the time domain."
+ },
+ "peak_factors": {
+  "ansi_peak_over_rms_sym": {"value": 2.7, "unit": "peak kA / rms sym kA", "status": "UNVERIFIED",
+   "citation": "ANSI convention quoted in a secondary source; check 170 kA / 63 kA = 2.70 in the bus duct example", "url": "https://forums.mikeholt.com/threads/bus-duct-short-circuit-ratings.137341/latest", "confidence": "LOW"},
+  "iec_peak_over_rms_sym_60hz": {"value": 2.6, "unit": "peak kA / rms sym kA", "status": "UNVERIFIED",
+   "citation": "IEC convention 2.5 at 50 Hz / 2.6 at 60 Hz quoted in a secondary source", "url": "https://forums.mikeholt.com/goto/post?id=1929431", "confidence": "LOW"},
+  "asym_rms_over_rms_sym": {"value": 1.6, "unit": "asymmetric rms kA / rms sym kA", "status": "UNVERIFIED",
+   "citation": "Switchgear (ANSI) context asymmetrical rms factor, Schneider Electric FAQ FA301513", "url": "https://www.se.com/ca/en/faqs/FA301513", "confidence": "MED, switchgear context only"}
+ },
+ "volumetric_heat_capacity_j_per_m3_k": {
+  "_meta": {"status": "UNVERIFIED", "note": "Cu and Al: 3.45 and 2.5 MJ/(m3 K) as listed in a cable-engineering knowledge base (IEC 60364-5-54 k-factor inputs). XLPE, EPR, PE 2.4 and PVC 1.7 MJ/(m3 K) are the values commonly tabulated with IEC 60287-2-1 / IEC 60853 as remembered; no public page confirming them was found. Replace from the cable maker's data if available.",
+            "url": "https://mycableengineering.com/knowledge-base/calculation-of-k-factor"},
+  "Cu": 3.45e6, "Al": 2.5e6,
+  "XLPE": 2.4e6, "EPR": 2.4e6, "PE": 2.4e6, "XHHW": 2.4e6, "RW90": 2.4e6, "PVC": 1.7e6
+ },
+ "enclosure_convection": {
+  "_meta": {"status": "UNVERIFIED",
+            "note": "Simplified laminar free-convection equations for air at atmospheric pressure, h = C (dT / L)^0.25 in W/(m2 K), dT in K and L in m: vertical plate C = 1.42, horizontal plate facing up 1.32 (engineersedge.com summary of Holman, Heat Transfer), horizontal plate facing down 0.59 (Holman, not confirmed on the page). Radiation: grey surface to ambient, h_r = eps sigma (Ts^4 - Ta^4) / (Ts - Ta).",
+            "url": "https://engineersedge.com/heat_transfer/convection_heat_transfer_coefficients_13855.htm"},
+  "c_vertical": 1.42, "c_top": 1.32, "c_bottom": 0.59,
+  "stefan_boltzmann": 5.670374419e-8,
+  "default_emissivity": 0.3,
+  "default_emissivity_note": "FLAGGED DEFAULT: weathered / oxidised aluminium is roughly 0.2 to 0.3, bright sheet about 0.1, painted or anodised 0.8 to 0.9 (Incropera, Fundamentals of Heat and Mass Transfer, emissivity table; not read). Set the actual enclosure finish."
+ }
+}

@@ -26,6 +26,53 @@ export function peakFactor(x_over_r, freq = 60.0) {
   return Math.sqrt(2) * (1.02 + 0.98 * Math.exp(-3 / x_over_r));
 }
 
+/** Pair geometry: [2e-7 / d, ux, uy] for every ordered pair of phase conductors, keyed "i,j". */
+export function forceGeometry(conductors, idx) {
+  const pos = {};
+  for (const i of idx) pos[i] = [conductors[i].x_mm / 1000, conductors[i].y_mm / 1000];
+  const geo = {};
+  for (const i of idx) {
+    for (const j of idx) {
+      if (i !== j) {
+        const dx = pos[i][0] - pos[j][0], dy = pos[i][1] - pos[j][1];
+        const d = Math.hypot(dx, dy);
+        geo[`${i},${j}`] = [2e-7 / d, dx / d, dy / d];
+      }
+    }
+  }
+  return geo;
+}
+
+/** Instantaneous conductor currents; sh[i] is the complex share {re, im} of conductor i. */
+export function instCurrents(conductors, sh, idx, phases, amp, w, t, decay, alpha, phi) {
+  const inst = {};
+  for (const i of idx) {
+    const k = phases.indexOf(conductors[i].group);
+    const s = sh[i];
+    const th = alpha - phi - (2 * Math.PI * k) / 3 + Math.atan2(s.im, s.re);
+    inst[i] = cabs(s) * amp * (Math.sin(w * t + th) - Math.sin(th) * decay);
+  }
+  return inst;
+}
+
+/** Force per metre [fx, fy] on every conductor from the instantaneous currents. */
+export function forcesAt(idx, geo, inst) {
+  const out = {};
+  for (const i of idx) {
+    let fx = 0.0, fy = 0.0;
+    for (const j of idx) {
+      if (i !== j) {
+        const [k_d, ux, uy] = geo[`${i},${j}`];
+        const f = k_d * inst[i] * inst[j]; // attractive if same sign
+        fx -= f * ux;
+        fy -= f * uy;
+      }
+    }
+    out[i] = [fx, fy];
+  }
+  return out;
+}
+
 /**
  * share[i] = conductor i's complex fraction of its phase current (from solveSharing);
  * an array or an object keyed by conductor index, values {re, im} or numbers.
@@ -50,19 +97,7 @@ export function faultForces(conductors, share, fault_ka_rms, x_over_r, opts = {}
   const amp = Math.sqrt(2) * fault_ka_rms * 1000;
   const idx = [];
   conductors.forEach((c, i) => { if (phases.includes(c.group)) idx.push(i); });
-  const pos = {};
-  for (const i of idx) pos[i] = [conductors[i].x_mm / 1000, conductors[i].y_mm / 1000];
-  // Pre-compute geometry: unit vectors and 2e-7/d.
-  const geo = {};
-  for (const i of idx) {
-    for (const j of idx) {
-      if (i !== j) {
-        const dx = pos[i][0] - pos[j][0], dy = pos[i][1] - pos[j][1];
-        const d = Math.hypot(dx, dy);
-        geo[`${i},${j}`] = [2e-7 / d, dx / d, dy / d];
-      }
-    }
-  }
+  const geo = forceGeometry(conductors, idx);
   const sh = {};
   for (const i of idx) sh[i] = toC(share[i]);
 
@@ -79,28 +114,16 @@ export function faultForces(conductors, share, fault_ka_rms, x_over_r, opts = {}
     for (let t_step = 0; t_step < n_t; t_step++) {
       const t = t_step / (steps_per_cycle * freq);
       const decay = Math.exp(-t / tau);
-      // Instantaneous phase currents; conductor share applied via magnitude/angle.
-      const inst = {};
+      const inst = instCurrents(conductors, sh, idx, phases, amp, w, t, decay, alpha, phi);
       for (const i of idx) {
-        const k = phases.indexOf(conductors[i].group);
-        const s = sh[i];
-        const th = alpha - phi - (2 * Math.PI * k) / 3 + Math.atan2(s.im, s.re);
-        const as = cabs(s);
-        inst[i] = as * amp * (Math.sin(w * t + th) - Math.sin(th) * decay);
+        const as = cabs(sh[i]);
         i_peak = Math.max(i_peak, as > 1e-12 ? Math.abs(inst[i]) / as : 0);
       }
       const acc = {};
       for (const b of body_names) acc[b] = [0.0, 0.0];
+      const fxy = forcesAt(idx, geo, inst);
       for (const i of idx) {
-        let fx = 0.0, fy = 0.0;
-        for (const j of idx) {
-          if (i !== j) {
-            const [k_d, ux, uy] = geo[`${i},${j}`];
-            const f = k_d * inst[i] * inst[j]; // attractive if same sign
-            fx -= f * ux;
-            fy -= f * uy;
-          }
-        }
+        const [fx, fy] = fxy[i];
         const mag = Math.hypot(fx, fy);
         if (mag > worst[i]) worst[i] = mag;
         if (hasBodies && bodies[i] !== undefined) {

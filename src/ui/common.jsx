@@ -197,13 +197,14 @@ export function ChecksTable({ checks, format = (v) => fmt(v, 2), bar = (c) => !o
         <span role="columnheader">Result</span><span role="columnheader">Check</span><span role="columnheader">Value vs limit</span><span role="columnheader" className="chk-cl">Clause</span>
       </div>
       {checks.map((c, k) => {
-        const u = bar(c) ? checkUtilization(c) : null, dir = checkDirection(c);
+        const unset = c.passed === null;   // limit / rating not entered: shown as "Not set", not as a failure
+        const u = bar(c) && !unset ? checkUtilization(c) : null, dir = checkDirection(c);
         const tone = c.passed ? (u != null && u >= 0.9 ? "warn" : "pass") : "fail";
         const fill = meterFill(u);
         const num = (v) => (typeof v === "number" ? format(v) : v ?? "—");
         return (
-          <div key={c.name + k} className={cx("chk-row", !c.passed && "is-fail")} role="row" title={c.note || undefined}>
-            <span role="cell"><StatusBadge status={c.passed ? "pass" : "fail"} /></span>
+          <div key={c.name + k} className={cx("chk-row", !c.passed && !unset && "is-fail")} role="row" title={c.note || undefined}>
+            <span role="cell">{unset ? <StatusBadge status="na">Not set</StatusBadge> : <StatusBadge status={c.passed ? "pass" : "fail"} />}</span>
             <div role="cell" className="min-w-0"><div className="chk-name">{c.name}</div>{c.note && <div className="chk-note">{c.note}</div>}</div>
             <div role="cell" className="chk-mid min-w-0">
               <div className="chk-vals">
