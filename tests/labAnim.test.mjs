@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { labInput, runLabTest, findFailureCurrent, buildContext } from "../src/engine/scLabTest.js";
 import { labLayout, labState, fragmentCells, fragmentPose, fillSparks, smokePuffs, flashAt, shakeAt, whipAt, shapeWeight, utilColor,
-  playEnd, stillTime, budgetFor, TIER_BUDGET } from "../src/ui/labAnim.js";
+  playEnd, stillTime, budgetFor, TIER_BUDGET, railBulge, coverPanelPose, coverPanelIndex, POP_DELAY, COVER_MODES } from "../src/ui/labAnim.js";
 
 const BUS = {
   voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 1,
@@ -130,4 +130,62 @@ test("4-tier specimen builds a layout with 4 plates", () => {
   const r = runLabTest(L, c);
   const s = labState(r, ly, 0.01, { tier: "medium" });
   assert.equal(s.conductors.length, c.phase_idx.length);
+});
+
+test("layout: one top cover panel per span, from end flange to end flange; block thickness option", () => {
+  assert.equal(layout.panels.length, 3);
+  assert.ok(Math.abs(layout.panels[0].z0 + 0.1) < 1e-12);
+  assert.ok(Math.abs(layout.panels[2].z1 - (layout.L + 0.1)) < 1e-12);
+  for (let k = 1; k < 3; k++) assert.ok(Math.abs(layout.panels[k].z0 - layout.panels[k - 1].z1) < 1e-12, "panels abut");
+  assert.ok(Math.abs(layout.plates[0].d - 0.0254) < 1e-12, "default block thickness 25.4 mm");
+  const thick = labLayout(ctx, 3, 0.4, { block_thickness_mm: 50 });
+  assert.ok(Math.abs(thick.plates[0].d - 0.05) < 1e-12);
+  assert.equal(COVER_MODES.join(","), "cut,transparent,closed");
+});
+
+test("cover panel lifts off only after the failure, after POP_DELAY, and only on tiers that allow it", () => {
+  const tf = fail.failure.t_s;
+  const before = labState(fail, layout, tf - 1e-6, { tier: "high" });
+  assert.equal(before.cover.popped, false);
+  assert.equal(before.cover.pose, null);
+  assert.equal(before.bulge, null);
+  const k = coverPanelIndex(fail.failure.block_index, layout.panels.length);
+  const early = labState(fail, layout, tf + 0.5 * POP_DELAY / 100, { tier: "high", scale: 100 });
+  assert.equal(early.cover.popped, false);
+  // 0.0006 s x 100 = 0.06 effect s: 0.02 s past the pop delay, the panel is above its seat
+  const later = labState(fail, layout, tf + 0.0006, { tier: "high", scale: 100 });
+  assert.equal(later.cover.popped, true);
+  assert.equal(later.cover.panel, k);
+  assert.ok(later.cover.pose.pos[1] > layout.base + layout.H - layout.tc, "panel is lifted above its seat");
+  const landed = labState(fail, layout, tf + 0.02, { tier: "high", scale: 100 });
+  assert.ok(landed.cover.pose.pos[1] < layout.base + layout.H - layout.tc, "and has come back down 2 effect s after the lift-off");
+  const med = labState(fail, layout, tf + 0.02, { tier: "medium", scale: 100 });
+  assert.equal(med.cover.popped, true);
+  const low = labState(fail, layout, tf + 0.02, { tier: "low", scale: 100 });
+  assert.equal(low.cover.popped, false, "low tier: no popping cover");
+  assert.equal(low.bulge, null, "low tier: no buckling rails");
+  const pass_ = labState(pass, layout, pass.t_s[pass.t_s.length - 1], { tier: "high" });
+  assert.equal(pass_.cover.popped, false);
+});
+
+test("rail bulge: zero before failure, outward at the failed station, decays along the run and settles", () => {
+  const zf = layout.zs[1], span = layout.span;
+  assert.equal(railBulge(zf, zf, 0, span), 0);
+  const peak = railBulge(zf, zf, 0.05, span);
+  assert.ok(peak > 0.005 && peak <= 0.014 + 1e-12);
+  assert.ok(railBulge(zf + span, zf, 0.05, span) < peak * 0.2, "decays a span away");
+  assert.ok(railBulge(zf, zf, 2, span) < peak, "settles to a permanent set below the peak");
+  assert.ok(railBulge(zf, zf, 2, span) > 0.5 * peak, "keeps a permanent set");
+  const st = labState(fail, layout, fail.failure.t_s + 0.02, { tier: "high" });
+  assert.ok(st.bulge && st.bulge.zf === layout.zs[Math.min(fail.failure.block_index, layout.zs.length - 1)]);
+});
+
+test("ballistics on a floor: fragments land on the given floor height", () => {
+  const cell = fragmentCells(layout.plates[0], 1, 2, 1)[0];
+  const f = fragmentPose(cell, 6, 0.4);
+  assert.equal(f.landed, true);
+  assert.ok(Math.abs(f.pos[1] - (0.4 + Math.min(cell.size[1], cell.size[2]) / 2)) < 1e-12);
+  const p = coverPanelPose(layout, 0, 5);
+  assert.equal(p.landed, true);
+  assert.ok(p.pos[1] < 0.05);
 });

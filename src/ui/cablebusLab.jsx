@@ -18,8 +18,9 @@ import { labState, labLayout, playEnd, stillTime, utilColor } from "./labAnim.js
 
 export const LAB_STATE = {
   ka: undefined, xr: undefined, dur: 0.5, angle: undefined, mat: "GPO-3", thk: 25.4, sf: 2, blk: undefined, frc: undefined,
-  dmg: undefined, spans: 3, scale: 100, visited: false,
+  dmg: undefined, spans: 3, scale: 100, cover: "cut", visited: false,
 };
+const COVERS = [["cut", "cut-away"], ["transparent", "transparent"], ["closed", "closed"]];
 const SCALES = [[10, "1 ms = 10 ms"], [100, "1 ms = 100 ms"], [1000, "1 ms = 1 s"]];
 
 const CSS = `
@@ -77,10 +78,10 @@ export function computeLab(inp, ctx, lab) {
 }
 
 /* ------------------------------------------------------------ 3D stage */
-function Stage({ run, layout, tier, scale, t, playing, end, onTime, onEnd, onFail }) {
+function Stage({ run, layout, tier, cover, scale, t, playing, end, onTime, onEnd, onFail }) {
   const wrapRef = useRef(null), canvasRef = useRef(null), vRef = useRef(null), handleRef = useRef(null);
   const live = useRef({});
-  live.current = { run, layout, tier, scale, end, playing, onTime, onEnd };
+  live.current = { run, layout, tier, cover, scale, end, playing, onTime, onEnd };
   const tRef = useRef(t), lastEmit = useRef(0), shaken = useRef(false);
 
   const apply = (tt) => {
@@ -127,7 +128,7 @@ function Stage({ run, layout, tier, scale, t, playing, end, onTime, onEnd, onFai
   useEffect(() => {
     const v = vRef.current; if (!v) return;
     disposeGroup(v.group); v.clearLabels();
-    const h = buildLab(v.group, v, layout, run, { tier });
+    const h = buildLab(v.group, v, layout, run, { tier, cover: live.current.cover });
     handleRef.current = h;
     if (!v.framed) {
       v.orbit.target.copy(h.center); v.sun.target.position.copy(h.center);
@@ -137,6 +138,12 @@ function Stage({ run, layout, tier, scale, t, playing, end, onTime, onEnd, onFai
     apply(tRef.current);
     v.invalidate();
   }, [run, layout, tier]);
+
+  // cover mode: material and visibility only, no rebuild
+  useEffect(() => {
+    const v = vRef.current, h = handleRef.current; if (!v || !h) return;
+    h.setCover(cover); apply(tRef.current); v.invalidate();
+  }, [cover]);
 
   // scrub / reset while not playing
   useEffect(() => {
@@ -190,7 +197,7 @@ export function LabView({ active, inp, ctx, ss, setSs }) {
   const labKey = [lab.ka, lab.xr, lab.dur, lab.angle, lab.mat, lab.thk, lab.sf, lab.blk, lab.frc, lab.dmg, lab.spans].join("|");
   const res = useMemo(() => computeLab(inp, ctx, lab), [inp, ctx, labKey]);
   const run = res.run;
-  const layout = useMemo(() => (ctx ? labLayout(ctx, lab.spans ?? 3) : null), [ctx, lab.spans]);
+  const layout = useMemo(() => (ctx ? labLayout(ctx, lab.spans ?? 3, 0.4, { block_thickness_mm: lab.thk ?? 25.4 }) : null), [ctx, lab.spans, lab.thk]);
   const scale = lab.scale ?? 100;
   const [t, setT] = useState(0), [playing, setPlaying] = useState(false), [noGl, setNoGl] = useState(false);
   const [ff, setFf] = useState(null);
@@ -331,7 +338,7 @@ export function LabView({ active, inp, ctx, ss, setSs }) {
             <div className="lab-stage" data-testid="lab-stage">
               {noGl || typeof THREE === "undefined"
                 ? <SvgStage run={run} layout={layout} tier={q.tier} t={tc} scale={scale} />
-                : <Stage run={run} layout={layout} tier={q.tier} scale={scale} t={tc} playing={playing} end={end}
+                : <Stage run={run} layout={layout} tier={q.tier} cover={lab.cover ?? "cut"} scale={scale} t={tc} playing={playing} end={end}
                   onTime={(v) => setT(v)} onEnd={(v) => { setPlaying(false); setT(v); }} onFail={() => setNoGl(true)} />}
               <div className="lab-hud">t = {fmt(tc * 1000, 2)} ms · screen {fmt(tc * scale, 2)} s · {SCALES.find((s) => s[0] === scale)?.[1]}</div>
               <div className="lab-legend">
@@ -349,6 +356,10 @@ export function LabView({ active, inp, ctx, ss, setSs }) {
                 ? <Btn onClick={play} active={playing} title="Play or pause the slow-motion test">{playing ? "Pause" : t >= end - 1e-9 ? "Replay" : "Play"}</Btn>
                 : <span className="text-faint text-[12px]" title="Animations are off in the graphics menu or by the system motion setting">Animation off: final state shown</span>}
               <Btn onClick={() => { setPlaying(false); setT(0); }} title="Back to before the test">Reset</Btn>
+              <span className="text-[12px] text-faint" id="lab-cover-lbl">Cover</span>
+              <div role="group" aria-labelledby="lab-cover-lbl" style={{ display: "inline-flex", gap: 4 }}>
+                {COVERS.map(([v, l]) => <Btn key={v} active={(lab.cover ?? "cut") === v} onClick={() => setLab({ cover: v })} title={`Enclosure cover: ${l}`}>{l}</Btn>)}
+              </div>
               <input type="range" min="0" max={kEnd} step="1" value={kc} aria-label="Test time" onChange={(e) => { setPlaying(false); setT(Number(e.target.value) * dt); }} />
               <label className="text-[12px] text-faint">Slow motion{" "}
                 <select className="num-input" style={{ width: "auto" }} value={scale} onChange={(e) => setLab({ scale: Number(e.target.value) })} aria-label="Time scale">

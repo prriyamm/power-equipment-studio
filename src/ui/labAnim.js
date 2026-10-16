@@ -6,11 +6,15 @@
    e = (t - t_fail) x slow-motion factor, i.e. screen seconds since the failure.
    Scene frame: metres, x across the enclosure, y up, z along the run. */
 
+/* pop: the top cover panel nearest the failure can lift off; bulge: rails buckle; slots: ventilation slot detail
+   (0 none, 1 coarse pitch, 2 full pitch). Low tier: simple boxes, no popping cover, no bulge. */
 export const TIER_BUDGET = {
-  low: { fragments: 3, sparks: 0, smoke: 0, shake: false, light: false },
-  medium: { fragments: 6, sparks: 300, smoke: 4, shake: true, light: true },
-  high: { fragments: 10, sparks: 900, smoke: 8, shake: true, light: true },
+  low: { fragments: 3, sparks: 0, smoke: 0, shake: false, light: false, pop: false, bulge: false, slots: 0 },
+  medium: { fragments: 6, sparks: 300, smoke: 4, shake: true, light: true, pop: true, bulge: true, slots: 1 },
+  high: { fragments: 10, sparks: 900, smoke: 8, shake: true, light: true, pop: true, bulge: true, slots: 2 },
 };
+export const POP_DELAY = 0.04; // effect seconds between the failure and the top cover panel lifting off
+export const COVER_MODES = ["cut", "transparent", "closed"];
 export const budgetFor = (tier) => TIER_BUDGET[tier] || TIER_BUDGET.medium;
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -37,8 +41,8 @@ export function sampleAt(arr, t, dt) {
 }
 
 /* ------------------------------------------------------------------ layout */
-/** Specimen geometry in metres from a buildContext() result. */
-export function labLayout(ctx, n_spans = 3, base = 0.4) {
+/** Specimen geometry in metres from a buildContext() result. opts.block_thickness_mm: GPO-3 block thickness along the run. */
+export function labLayout(ctx, n_spans = 3, base = 0.4, opts = {}) {
   const inp = ctx.inp, od = ctx.od;
   const rows = ctx.phase_idx.map((i) => ({ i, phase: ctx.cs[i].group, x_mm: ctx.cs[i].x_mm, y_mm: ctx.cs[i].y_mm }));
   const xs = rows.map((r) => r.x_mm), ys = rows.map((r) => r.y_mm);
@@ -50,7 +54,7 @@ export function labLayout(ctx, n_spans = 3, base = 0.4) {
   const bx = (r) => (ts + w_in / 2 + (r.x_mm - xc)) / 1000, by = (r) => (tc + h_in / 2 + (r.y_mm - yc)) / 1000;
   const cables = rows.map((r) => ({ i: r.i, phase: r.phase, x: bx(r), y: by(r) + base }));
   const tiers = [...new Set(rows.map((r) => r.y_mm))].sort((a, b) => a - b);
-  const lip = 14, thick = 25.4;
+  const lip = 14, thick = opts.block_thickness_mm > 0 ? opts.block_thickness_mm : 25.4;
   const plates = tiers.map((ty) => {
     const tr = rows.filter((r) => r.y_mm === ty);
     const yt = by(tr[0]) * 1000 + base * 1000;
@@ -61,12 +65,23 @@ export function labLayout(ctx, n_spans = 3, base = 0.4) {
   });
   const span = inp.support_span_m;
   const zs = Array.from({ length: n_spans + 1 }, (_, k) => k * span);
-  return { od: od / 1000, W: W / 1000, H: H / 1000, ts: ts / 1000, tc: tc / 1000, cables, plates, zs, span, n_spans, L: n_spans * span, tiers: tiers.length, base };
+  const L = n_spans * span, ez = 0.1;
+  // top cover / enclosure panels between the supports; the first and last run out to the end flanges
+  const panels = Array.from({ length: n_spans }, (_, k) => ({ z0: k === 0 ? -ez : zs[k], z1: k === n_spans - 1 ? L + ez : zs[k + 1] }));
+  return { od: od / 1000, W: W / 1000, H: H / 1000, ts: ts / 1000, tc: tc / 1000, cables, plates, zs, span, n_spans, L, tiers: tiers.length, base, panels };
 }
 
 /* ------------------------------------------------------------------ shapes */
 /** Normalised fixed-fixed deflection shape, peak 1 at mid span (s in 0..1). */
 export const spanShape = (s) => (s <= 0 || s >= 1 ? 0 : 16 * s * s * (1 - s) * (1 - s));
+
+/** Outward buckle (m) of a side rail at z after the failure at station zf: a Gaussian bulge that builds in ~0.03 s
+    and settles to about 60 % of its peak (permanent set). Zero before the failure. */
+export function railBulge(z, zf, e, span, amp = 0.014) {
+  if (!(e > 0)) return 0;
+  const sig = 0.45 * span, g = Math.exp(-0.5 * ((z - zf) / sig) ** 2);
+  return amp * (1 - Math.exp(-e / 0.03)) * (0.6 + 0.4 * Math.exp(-e / 0.5)) * g;
+}
 
 /** Deflection weight at z. After the failure the two spans next to the failed block act as one long span. */
 export function shapeWeight(z, zs, failedBlock = null) {
@@ -111,15 +126,15 @@ export function fragmentCells(plate, z, nx, ny, seed = 7) {
   return out;
 }
 const G_EFFECT = 5.0;
-/** Ballistic pose of a fragment at effect time e (s): position, Euler rotation; rests on the floor (y = 0). */
-export function fragmentPose(f, e) {
+/** Ballistic pose of a fragment at effect time e (s): position, Euler rotation; rests on the floor (y = floor, default 0). */
+export function fragmentPose(f, e, floor = 0) {
   const ee = Math.max(0, e);
   const half = Math.min(f.size[1], f.size[2]) / 2;
-  const a = 0.5 * G_EFFECT, b = -f.v[1], c = half - f.p0[1];
+  const a = 0.5 * G_EFFECT, b = -f.v[1], c = half + floor - f.p0[1];
   const tl = c >= 0 && f.v[1] <= 0 ? 0 : (-b + Math.sqrt(Math.max(0, b * b - 4 * a * c))) / (2 * a); // first floor contact
   const landed = ee >= tl;
   const te = Math.min(ee, tl);
-  const y = landed ? half : f.p0[1] + f.v[1] * ee - a * ee * ee;
+  const y = landed ? floor + half : f.p0[1] + f.v[1] * ee - a * ee * ee;
   const slide = landed ? 0.12 * (1 - Math.exp(-(ee - tl) / 0.3)) : 0; // skids to a stop
   return {
     pos: [f.p0[0] + f.v[0] * (te + slide), y, f.p0[2] + f.v[2] * (te + slide)],
@@ -240,15 +255,33 @@ export function labState(run, layout, t_s, opts = {}) {
     blocks: layout.zs.map((_, b) => ({ util: failed && b === fail.block_index ? 1 : blockU, broken: failed && b === fail.block_index })),
     conductors, failed_block: failed ? fail.block_index : null, whip,
     fragments: [], flash: { i: 0, mix: 0 }, shake: [0, 0, 0], origin: null,
+    cover: { panel: null, popped: false, pose: null }, bulge: null,
   };
   if (failed) {
     st.origin = failureOrigin(run, layout);
     st.fragments = fragmentsFor(run, layout, budget).map((f) => ({ ...fragmentPose(f, e), size: f.size }));
     st.flash = flashAt(e);
     st.shake = budget.shake ? shakeAt(e) : [0, 0, 0];
+    const k = coverPanelIndex(fail.block_index, layout.panels.length);
+    const lifted = budget.pop && e >= POP_DELAY;
+    st.cover = { panel: k, popped: lifted, pose: lifted ? coverPanelPose(layout, k, e - POP_DELAY) : null };
+    st.bulge = budget.bulge ? { zf: layout.zs[Math.min(fail.block_index, layout.zs.length - 1)], span: layout.span, e } : null;
   }
   return st;
 }
+
+/** Rigid top cover panel k after it lifts off: pose of its centre and rotation, from the same ballistics as fragments. */
+export function coverPanelPose(layout, k, e) {
+  const p = layout.panels[k];
+  const f = {
+    size: [layout.W - 2 * layout.ts, layout.tc, p.z1 - p.z0],
+    p0: [layout.W / 2, layout.base + layout.H - layout.tc / 2, (p.z0 + p.z1) / 2],
+    v: [-0.25, 1.5, 0.5], om: [1.6, 0.9, 2.2],
+  };
+  return fragmentPose(f, e, 0);
+}
+/** Index of the top cover panel nearest a failed support station. */
+export const coverPanelIndex = (block, n) => Math.min(Math.max(0, block), n - 1);
 
 /** Time the animation is worth playing to: the end of the test, or a few screen seconds after the failure. */
 export function playEnd(run, scale, post_s = 4) {
