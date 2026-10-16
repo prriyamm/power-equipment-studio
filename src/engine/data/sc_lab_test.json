@@ -1,0 +1,13 @@
+{
+ "_meta": {
+  "source": "Constants for the virtual short-circuit lab test animation scale (scLabTest.js). Failure limits come from existing screening data (cablebus_design BLOCK_MATERIALS, insulation short-circuit limit) or user inputs, not from this file.",
+  "edition": "n/a",
+  "status": "UNVERIFIED",
+  "note": "Young's modulus is used only to label how much the on-screen conductor deflection is exaggerated; it does not affect pass/fail. Values are common handbook figures recalled, not read from a primary source."
+ },
+ "youngs_modulus_gpa": {
+  "Cu": {"value": 110, "status": "UNVERIFIED", "note": "annealed/hard-drawn copper handbook range roughly 110 to 130 GPa"},
+  "Al": {"value": 69, "status": "UNVERIFIED", "note": "aluminium alloys handbook value about 69 GPa"}
+ },
+ "stiffness_note": "Stranded conductors are softer than a solid rod of the same diameter, so the true deflection is larger and the stated exaggeration factor is an upper estimate."
+}

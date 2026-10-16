@@ -11,13 +11,14 @@ import { BLOCK_MATERIALS } from "../engine/pecalc/cablebus_design.js";
 import { simInput, buildContext, simulateShortCircuit, simulateTemperatureRise, SIM_DATA } from "../engine/pecalc/cablebusSim.js";
 import { checkRows } from "../engine/report.js";
 import { reportFigures } from "./reportButton.jsx";
+import { LabView, LAB_STATE, labReportParts } from "./cablebusLab.jsx";
 
 const FT = 0.3048;
 const TEMP_HEX = TEMP_STOPS.map(([t, c]) => [t, rgbToHex(c)]);
 export const SIM_STATE = {
   sub: "sc", angle: undefined, load_pct: 100, emis: undefined, block_material: "GPO-3",
   pk: undefined, st_ka: undefined, st_s: undefined, blk: undefined, frc: undefined,
-  rise_c: undefined, rise_e: undefined, rise_t: undefined, term: undefined,
+  rise_c: undefined, rise_e: undefined, rise_t: undefined, term: undefined, lab: LAB_STATE,
 };
 
 const CSS = `
@@ -440,6 +441,7 @@ export function SimulateTab({ f, setF, ss, setSs, inp, error, hostRef }) {
         <div className="seg" role="tablist" aria-label="Simulation">
           <Btn active={ss.sub === "sc"} onClick={() => setSs((s) => ({ ...s, sub: "sc" }))}>Short circuit</Btn>
           <Btn active={ss.sub === "tr"} onClick={() => setSs((s) => ({ ...s, sub: "tr" }))}>Temperature rise</Btn>
+          <Btn active={ss.sub === "lab"} onClick={() => setSs((s) => ({ ...s, sub: "lab" }))}>Lab test</Btn>
         </div>
         <span className="text-faint text-[12px]">Framed by IEEE C37.23 and CSA C22.2 No. 273; ratings and limits come from your test report.</span>
       </div>
@@ -447,6 +449,7 @@ export function SimulateTab({ f, setF, ss, setSs, inp, error, hostRef }) {
       {/* both views stay mounted so every chart is captured in the calculation package */}
       {ctxRes.ctx && <div style={ss.sub === "sc" ? undefined : { display: "none" }}><ShortCircuit f={f} setF={setF} ss={ss} setSs={setSs} inp={inp} ctx={ctxRes.ctx} /></div>}
       {ctxRes.ctx && <div style={ss.sub === "tr" ? undefined : { display: "none" }}><TempRise f={f} setF={setF} ss={ss} setSs={setSs} inp={inp} ctx={ctxRes.ctx} /></div>}
+      {ctxRes.ctx && <div style={ss.sub === "lab" ? undefined : { display: "none" }}><LabView active={ss.sub === "lab"} inp={inp} ctx={ctxRes.ctx} ss={ss} setSs={setSs} /></div>}
     </div>
   );
 }
@@ -467,7 +470,8 @@ export function simReport(inp, ss, host) {
   rows.push({ label: "Hottest conductor", value: tr.hottest.theta_c, unit: "C" }, { label: "Hottest conductor rise", value: tr.hottest.rise_k, unit: "K" },
     { label: "Enclosure surface temperature (estimate)", value: tr.enclosure ? tr.enclosure.surface_c : "not modelled", unit: tr.enclosure ? "C" : "" },
     { label: "Warm-up time constant", value: tr.warmup.tau_s / 60, unit: "min" });
-  const checks = [...(sc ? sc.checks : []), ...tr.checks];
+  const lab = labReportParts(inp, ctx, ss.lab);
+  const checks = [...(sc ? sc.checks : []), ...tr.checks, ...(lab ? lab.checks : [])];
   return {
     title: "Cable bus short-circuit and temperature-rise simulation", module: "cablebus-sim",
     subtitle: `${inp.voltage_v} V, ${inp.current_a} A, ${inp.conductors_per_phase} x ${inp.size} ${inp.material} per phase; framed by IEEE C37.23 / CSA C22.2 No. 273`,
@@ -479,12 +483,13 @@ export function simReport(inp, ss, host) {
       ...[["Tested momentary peak", ss.pk, "kA"], ["Tested short-time current", ss.st_ka, "kA rms"], ["Tested short-time duration", ss.st_s, "s"], ["Tested block load", ss.blk, "N"],
         ["Tested force per metre", ss.frc, "N/m"], ["Conductor rise limit", ss.rise_c, "K"], ["Enclosure rise limit", ss.rise_e, "K"], ["Termination rise limit", ss.rise_t, "K"],
         ["Termination rise estimate", ss.term, "K"]].map(([label, v, unit]) => ({ label, value: v ?? "NOT SET (enter from test report)", unit: v === undefined ? "" : unit })),
+      ...(lab ? lab.inputs : []),
     ],
-    results: rows, checks: checkRows(checks),
+    results: [...rows, ...(lab ? lab.results : [])], checks: checkRows(checks),
     tables: [{ title: "Steady-state cable temperatures", columns: ["Phase", "x (mm)", "Current (A)", "Ampacity (A)", "lambda1", "Conductor (C)", "Rise (K)", "Surface (C)", "Heat (W/m)"],
       rows: tr.cables.map((c) => [c.phase, c.x_mm, c.current_a, c.ampacity_a, c.lambda1, c.theta_c, c.rise_k, c.surface_c, c.heat_w_per_m]) }],
     figures: reportFigures(host),
-    notes: [...(sc ? sc.notes : []), ...tr.notes],
-    dataStatus: [...(sc ? sc.data_status : []), ...tr.data_status].map((d) => ({ table: `${d.name}: ${d.value}`, status: d.status, source: d.source })),
+    notes: [...(sc ? sc.notes : []), ...tr.notes, ...(lab ? lab.notes : [])],
+    dataStatus: [...(sc ? sc.data_status : []), ...tr.data_status, ...(lab ? lab.dataStatus : [])].map((d) => ({ table: `${d.name}: ${d.value}`, status: d.status, source: d.source })),
   };
 }
