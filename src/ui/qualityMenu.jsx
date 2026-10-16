@@ -6,10 +6,10 @@ import { quality, useQuality, MODES } from "./quality.js";
 
 const CSS = `
 .qm { margin-top: auto; padding-top: 6px; }
-.qm-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; padding: 7px 2px; border-radius: 7px; color: var(--muted); font-size: 10px; letter-spacing: 0.02em; }
+.qm-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; padding: 7px 2px; border-radius: var(--r-md); color: var(--muted); font-size: 10px; letter-spacing: 0.02em; }
 .qm-btn:hover, .qm-btn[aria-expanded="true"] { color: var(--fg); background: var(--panel-2); }
 .qm-btn:focus-visible, .qm-menu [role^="menuitem"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.qm-tier { font-family: var(--font-data); font-size: 9.5px; color: var(--faint); text-transform: uppercase; }
+.qm-tier { font-family: var(--font-data); font-size: 10px; color: var(--faint); }
 .menu.qm-menu { position: fixed; top: auto; left: auto; z-index: 60; min-width: 220px; }
 .qm-head { padding: 6px 10px 4px; font-size: 12px; color: var(--fg); font-weight: 600; }
 .qm-why { padding: 0 10px 6px; font-size: 11px; color: var(--faint); max-width: 240px; line-height: 1.35; }

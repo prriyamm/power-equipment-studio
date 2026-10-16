@@ -140,11 +140,11 @@ export function WsHeader({ title, context, children, status, actions }) {
 
 /* --------------------------------------------------------- status badge */
 const BADGE = { pass: ["Pass", "check"], fail: ["Fail", "x"], warn: ["Check", "alert"], na: ["Not checked", null] };
-export function StatusBadge({ status = "na", children, title }) {
+export function StatusBadge({ status = "na", children, title, iconOnly }) {
   const [text, icon] = BADGE[status] || BADGE.na;
   return (
-    <span className={cx("badge", `badge-${status}`)} title={title}>
-      {icon && <Icon name={icon} size={12} />}{children ?? text}
+    <span className={cx("badge", `badge-${status}`, iconOnly && "is-icon")} title={title ?? (iconOnly ? text : undefined)}>
+      {icon && <Icon name={icon} size={12} />}{iconOnly ? <span className="sr-only">{text}</span> : children ?? text}
     </span>
   );
 }
@@ -154,21 +154,22 @@ export const Clause = ({ children }) => (children ? <span className="clause">{ch
 /* ------------------------------------------------------------ KPI strip */
 /* Instrument-style readouts: big tabular value with unit, a status rail, optional pass/fail badge and an
    optional utilisation meter (value against a limit, limit tick at 80 % of the track).
-   items: [{ label, value, unit, sub, status: "pass"|"fail"|"warn", badge: bool, meter: { u, label } }] */
+   items: [{ label, value, unit, sub, status: "pass"|"fail"|"warn", meter: { u, label } }]; a status shows as
+   the coloured rail plus an icon badge (check / cross / alert) so it never relies on colour alone. */
 export function KpiStrip({ items, className }) {
   return (
     <div className={cx("kpis", className)}>
       {items.filter(Boolean).map((k, i) => (
         <div key={k.key || k.label || i} className={cx("kpi", k.status && `kpi-${k.status}`)}>
-          <div className="kpi-head"><span>{k.label}</span>{k.badge && k.status && <StatusBadge status={k.status} />}</div>
+          <div className="kpi-head"><span>{k.label}</span>{k.status && <StatusBadge status={k.status} iconOnly />}</div>
           <div className="kpi-value">{k.value}{k.unit && <span className="kpi-unit">{k.unit}</span>}</div>
-          {k.sub && <div className="kpi-sub">{k.sub}</div>}
+          {k.sub && <div className="kpi-sub">{typeof k.sub === "string" ? glue(k.sub) : k.sub}</div>}
           {k.meter && k.meter.u != null && (
             <>
               <div className="kpi-meter" role="meter" aria-valuemin={0} aria-valuemax={125} aria-valuenow={Math.round(k.meter.u * 100)} aria-label={`${k.label}: ${Math.round(k.meter.u * 100)} % of limit`}>
                 <i style={{ width: `${meterFill(k.meter.u) * 100}%` }} /><b style={{ left: "80%" }} />
               </div>
-              <div className="kpi-meter-l"><span>{k.meter.label ?? `${fmt(k.meter.u * 100, 0)} % of limit`}</span></div>
+              <div className="kpi-meter-l"><span>{glue(k.meter.label ?? `${fmt(k.meter.u * 100, 0)} % of limit`)}</span></div>
             </>
           )}
         </div>
@@ -177,21 +178,26 @@ export function KpiStrip({ items, className }) {
   );
 }
 
+/* Keep a number and its unit on one line ("27.1 %", "400 A") when a sub-line wraps. */
+const glue = (s) => s.replace(/(\d) (?=[%A-Za-zµ°Ω])/g, "$1\u00a0");
+
 /* Utilisation meter for a KPI from an engine check. */
 export const checkMeter = (c, label) => (c ? { u: checkUtilization(c), label } : null);
 export const checkStatus = (c) => (c ? (c.passed ? "pass" : "fail") : undefined);
 
 /* ---------------------------------------------------------- checks table */
 /* Engine checks as rows: pass/fail badge, name and note, value against limit with a utilisation bar, clause chip.
-   format(v) prints numbers (the workspace's own precision rule). */
-export function ChecksTable({ checks, format = (v) => fmt(v, 2) }) {
+   format(v) prints numbers (the workspace's own precision rule). bar(c) says whether value / limit is a
+   meaningful utilisation (not for ordinal values such as a size index, or two-sided tolerance checks). */
+const ordinalCheck = (c) => /index/i.test(String(c.unit || ""));
+export function ChecksTable({ checks, format = (v) => fmt(v, 2), bar = (c) => !ordinalCheck(c) }) {
   return (
     <div className="chk" role="table" aria-label="Design checks">
       <div className="chk-row chk-th" role="row">
         <span role="columnheader">Result</span><span role="columnheader">Check</span><span role="columnheader">Value vs limit</span><span role="columnheader" className="chk-cl">Clause</span>
       </div>
       {checks.map((c, k) => {
-        const u = checkUtilization(c), dir = checkDirection(c);
+        const u = bar(c) ? checkUtilization(c) : null, dir = checkDirection(c);
         const tone = c.passed ? (u != null && u >= 0.9 ? "warn" : "pass") : "fail";
         const fill = meterFill(u);
         const num = (v) => (typeof v === "number" ? format(v) : v ?? "—");

@@ -5,7 +5,7 @@ const { useState, useMemo, useEffect, useRef, useCallback } = React;
 import {
   analyseSystem, EQUIPMENT, CONNECTORS, NODE_KINDS, EXAMPLE_SYSTEM, CONDUCTOR_SIZES, tableAmpacity, connectorAmpacity, AMPACITY_STATUS, motorKw,
 } from "../engine/system.js";
-import { Btn, Pill, Section, Field, NumField, Tile, Icon, cx, fmt, clone } from "./common.jsx";
+import { Btn, Pill, Section, Field, NumField, Tile, Icon, cx, fmt, clone, WsHeader } from "./common.jsx";
 import { bus } from "./bus.js";
 import { dims, siteRoutes } from "./systemGeometry.js";
 import { Site3D } from "./system3d.jsx";
@@ -21,6 +21,8 @@ import { planPush, applyPush, PUSH_MODULES, STUDY_LABELS } from "../engine/desig
 
 /* System-side styles for design pushes coming back from the module workspaces. */
 const CSS = `
+.sys-name { width: 240px; max-width: 100%; }
+@media (max-width: 640px) { .sys-name { width: 100%; } }
 .sys-push { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 16px 0; }
 .sys-push .sys-push-studies { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .sys-push .ml-auto { margin-left: auto; }
@@ -897,21 +899,20 @@ export function SystemWorkspace({ goTo }) {
   return (
     <div className="ws" ref={hostRef}>
       <style>{CSS}</style>
-      <header className="topbar">
-        <div className="ws-title">System</div>
-        <input id="sys-name" className="num-input" style={{ width: 240, maxWidth: "100%" }} value={sys.name} onChange={(ev) => setSys((s) => ({ ...s, name: ev.target.value }))} aria-label="Package name" />
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+      <WsHeader title="System" context="Package model, load flow and short circuit"
+        status={<Pill tone={status.tone}>{status.text}</Pill>}
+        actions={<>
           <label className="live-toggle" title="Include induction-motor fault contribution"><input id="sc-motors" type="checkbox" checked={motors} onChange={(ev) => setMotors(ev.target.checked)} /><span>Motor contribution</span></label>
           <ProjectMenu sys={sys} setSys={setSys} history={history} onLoaded={() => { setSelection(null); setFitSignal((x) => x + 1); }} />
           <ReportButton filename="system-calc" disabled={!analysis.ok} getReport={() => systemReport(sys, analysis, hostRef.current)} />
           <Btn onClick={sendToLoadFlow} disabled={!analysis.ok} title="Open the compiled bus model in the Load flow workspace">Open in Load flow</Btn>
           <Btn onClick={() => { setSys(clone(EXAMPLE_SYSTEM)); setSelection(null); setFitSignal((x) => x + 1); }}>Reset example</Btn>
-        </div>
-      </header>
+        </>}>
+        <input id="sys-name" className="num-input sys-name" value={sys.name} onChange={(ev) => setSys((s) => ({ ...s, name: ev.target.value }))} aria-label="Package name" />
+      </WsHeader>
       <nav className="tabs">
         {[["site", "Site view"], ["schedule", "Schedules & studies"], ["tcc", "Coordination"]].map(([k, l]) => <button key={k} className={cx("tab", view === k && "is-active")} onClick={() => setView(k)}>{l}</button>)}
         <div className="ml-auto flex items-center gap-3 pr-1 text-[12.5px]">
-          <Pill tone={status.tone}>{status.text}</Pill>
           {t && <span className="text-muted hidden md:inline">Demand <b className="text-fg font-mono">{fmt(t.load_kw, 0)}</b> kW · Losses <b className="text-fg font-mono">{fmt(t.loss_kw, 1)}</b> kW · Max I″k <b className="text-fg font-mono">{fmt(t.max_ik_ka, 1)}</b> kA</span>}
         </div>
       </nav>

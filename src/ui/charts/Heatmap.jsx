@@ -66,7 +66,7 @@ export function Heatmap({ nx, ny, values, color, legend, overlay, readout, ariaL
       <div className="ck-heat-plot" style={{ width: W, height: H }} onPointerMove={onMove} onPointerDown={onMove}
         onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)} role="img" aria-label={ariaLabel}>
         <canvas ref={canvasRef} className="ck-heat-canvas" style={{ width: W, height: H }} />
-        {overlay && <svg className="ck-heat-overlay" viewBox={overlay.viewBox} width={W} height={H} preserveAspectRatio="none" aria-hidden="true">{overlay.children}</svg>}
+        {overlay && <svg className="ck-heat-overlay" viewBox={overlay.viewBox} width={W} height={H} preserveAspectRatio="none" aria-hidden="true">{typeof overlay.children === "function" ? overlay.children(W / vb[2]) : overlay.children}</svg>}
         {hover && (<>
           <div className="ck-heat-cell" data-noexport="1" style={{ left: (hover.i * W) / nx, top: (hover.j * H) / ny, width: W / nx, height: H / ny }} />
           <div className="ck-tip ck-heat-tip" style={{ left: hover.px + 14 + 180 > W ? Math.max(4, hover.px - 194) : hover.px + 14, top: Math.max(4, Math.min(H - 48, hover.py - 20)) }} role="status">
@@ -86,25 +86,25 @@ export function ColorBar({ legend, width = 420 }) {
   if (legend.steps) {
     const n = legend.steps.length, gap = 2, sw = (width - gap * (n - 1)) / n;
     return (
-      <svg className="ck-colorbar" viewBox={`0 0 ${width} 34`} width={width} height={34} role="img" aria-label={`Colour scale${unit}`}>
+      <svg className="ck-colorbar" viewBox={`0 0 ${width} 42`} width={width} height={42} role="img" aria-label={`Colour scale${unit}`}>
         {legend.steps.map((s, k) => (
           <g key={k} transform={`translate(${k * (sw + gap)} 0)`}>
             <rect width={sw} height="8" rx={k === 0 || k === n - 1 ? 2 : 0} style={{ fill: s.color }} />
             <text x={sw / 2} y="22" textAnchor="middle">{s.label}</text>
           </g>
         ))}
-        {unit && <text x={width} y="33" textAnchor="end" className="ck-colorbar-u">{legend.unit}</text>}
+        {unit && <text x={0} y="38" className="ck-colorbar-u">colour scale, {legend.unit}</text>}
       </svg>
     );
   }
   const ticks = legend.ticks || legend.domain;
   const pos = (t) => normalize(t, legend.domain, legend.log) * width;
   return (
-    <svg className="ck-colorbar" viewBox={`0 0 ${width} 34`} width={width} height={34} role="img" aria-label={`Colour scale${unit}`}>
+    <svg className="ck-colorbar" viewBox={`0 0 ${width} 42`} width={width} height={42} role="img" aria-label={`Colour scale${unit}`}>
       <defs><linearGradient id={id}>{legend.stops.map(([t, c]) => <stop key={t} offset={t} stopColor={c} />)}</linearGradient></defs>
       <rect width={width} height="8" rx="2" fill={`url(#${id})`} />
       {ticks.map((t) => <text key={t} x={Math.max(10, Math.min(width - 10, pos(t)))} y="22" textAnchor="middle">{t}</text>)}
-      {unit && <text x={width} y="33" textAnchor="end" className="ck-colorbar-u">{legend.unit}</text>}
+      {unit && <text x={0} y="38" className="ck-colorbar-u">colour scale, {legend.unit}</text>}
     </svg>
   );
 }
