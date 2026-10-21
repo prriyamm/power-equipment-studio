@@ -19,6 +19,16 @@ export function libraryOptions() {
   return libraryEntries().map((e) => ({ id: e.cable_id, label: `${e.size_label} · ${e.manufacturer}` }));
 }
 
+/* Engine errors name a library cable by its id and the input field ("southwire_dlo_2000v:444.4 is rated 2000 V;
+   voltage_v 2400 ..."). The form shows the cable as the user picked it and the field by its label. */
+export function libraryErrorText(msg, f) {
+  if (f.cable_type !== "dlo_2000v" || !f.cable_id) return msg;
+  let spec;
+  try { spec = cableSpec(f.cable_id); } catch { return msg; }
+  return msg.split(spec.cable_id).join(`${spec.manufacturer} DLO ${spec.size_label}`)
+    .replace(/\bvoltage_v\b/g, "system voltage").replace(/\binsulation_temp_c\b/g, "insulation rating");
+}
+
 /* Form state after a cable type change. DLO forces copper, the 90 C rating and a non-calculated ampacity method
    (the engine refuses calculated ampacity for library cables). Leaving DLO clears the library id. */
 export function applyCableType(f, type) {

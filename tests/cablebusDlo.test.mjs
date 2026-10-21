@@ -6,8 +6,9 @@ import assert from "node:assert/strict";
 
 import * as cond from "../src/engine/pecalc/conductors.js";
 import { analyse, cableBusInput, cableSpec, libraryEntries, resolveCable, DLO_DIAMETER_RATIO } from "../src/engine/pecalc/cablebus.js";
-import { applyCableType, conductorLabel, conductorDiameterMm, libraryOptions, DLO_DEFAULT_ID, CABLE_TYPE_CHOICES }
-  from "../src/ui/cablebusUtil.js";
+import { applyCableType, conductorLabel, conductorDiameterMm, libraryOptions, DLO_DEFAULT_ID, CABLE_TYPE_CHOICES,
+  libraryErrorText } from "../src/ui/cablebusUtil.js";
+import { cablebusSvg } from "../src/engine/pecalc/drawing.js";
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ""} ${a} vs ${b}`);
 const dlo = (over) => cableBusInput({ voltage_v: 600, current_a: 1000, conductors_per_phase: 2, size: "444.4",
@@ -107,4 +108,22 @@ test("UI helpers: cable type change, library options, labels", () => {
   assert.equal(conductorLabel({ size: "444.4" }, cableSpec(DLO_DEFAULT_ID)), "444.4 kcmil");
   assert.equal(conductorLabel({ size: "750" }, null), "750 kcmil");
   near(conductorDiameterMm({ size: "444.4" }, cableSpec(DLO_DEFAULT_ID)), 19.86, 0.01, "diameter");
+});
+
+test("form error names the library cable and field the way the form shows them", () => {
+  const f = { cable_type: "dlo_2000v", cable_id: "southwire_dlo_2000v:444.4" };
+  let msg;
+  try { analyse(dlo({ voltage_v: 2400 })); } catch (e) { msg = e.message; }
+  const text = libraryErrorText(msg, f);
+  assert.ok(!text.includes("southwire_dlo_2000v"), text);
+  assert.ok(!text.includes("voltage_v"), text);
+  assert.match(text, /^Southwire DLO 444\.4 kcmil is rated 2000 V; system voltage 2400 is above the cable rating$/);
+  // building wire: engine text passes through unchanged
+  assert.equal(libraryErrorText("voltage_v must be > 0", { cable_type: "standard", cable_id: null }), "voltage_v must be > 0");
+});
+
+test("cross-section title labels a library size with its unit", () => {
+  const inp = dlo({ enclosure_width_mm: 400, enclosure_height_mm: 150 });
+  const svg = cablebusSvg(inp, analyse(inp));
+  assert.match(svg, />2 x 444\.4 kcmil Cu per phase, /);
 });
