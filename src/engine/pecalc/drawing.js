@@ -121,7 +121,9 @@ export function cablebusSvg(inp, result, opts = {}) {
     s.push(`<text x='${lx + 20}' y='${ly}'>${escapeHtml(text)}</text>`);
     lx += 30 + 7 * [...text].length;
   }
-  const title = `${inp.conductors_per_phase} x ${result.input.size} ${inp.material} per phase, ` +
+  // A library cable carries its own size label (e.g. "444.4 kcmil"); building-wire sizes keep the pecalc title.
+  const size = result.cable_data ? result.cable_data.size_label : result.input.size;
+  const title = `${inp.conductors_per_phase} x ${size} ${inp.material} per phase, ` +
     `${inp.tiers} tier(s), pattern ${result.pattern}, cable OD ${pyFixed(od, 1)} mm`;
   s.push(`<text x='${margin_l}' y='22' font-size='14' font-weight='bold'>${escapeHtml(title)}</text>`);
   s.push("<defs><marker id='a' viewBox='0 0 10 10' refX='5' refY='5' markerWidth='6' markerHeight='6' " +

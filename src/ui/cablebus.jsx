@@ -19,7 +19,7 @@ import { connectorTerminalC } from "../engine/system.js";
 import { SheathSection, sheathReport } from "./cablebusSheath.jsx";
 import { FieldMap } from "./cablebusField.jsx";
 import { tierCompat, fittingTiers, TIER_CHOICES, COUNT_CHOICES, CABLE_TYPE_CHOICES, conductorLabel, conductorDiameterMm,
-  libraryOptions, applyCableType } from "./cablebusUtil.js";
+  libraryOptions, applyCableType, libraryErrorText } from "./cablebusUtil.js";
 import { SimulateTab, SIM_STATE, simReport } from "./cablebusSim.jsx";
 
 const CSS = `
@@ -134,7 +134,7 @@ function solve(f) {
     const res = analyse(inp);
     return { inp, res };
   } catch (e) {
-    return { error: e.message };
+    return { error: libraryErrorText(e.message, f) };
   }
 }
 
@@ -434,6 +434,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
   );
   const mv = f.voltage_v > 2000;
   const calc = f.ampacity_method === "calculated";
+  const lib = f.cable_type === "dlo_2000v";
   const tierFit = tierCompat(f.conductors_per_phase, f.tiers);
   return (
     <div className="cb-grid">
@@ -484,17 +485,17 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
             {num("cable_od_mm", "Cable OD", "mm", { optional: true, ph: f.cable_type === "dlo_2000v" ? "from cable library" : "from construction" })}
           </div>
         </Section>
-        <Section title="Insulation, shield, jacket" aside={<span className="text-faint text-[12px]">{mv || calc ? "used" : "MV / calculated only"}</span>}>
+        <Section title="Insulation, shield, jacket" aside={<span className="text-faint text-[12px]">{lib ? "from the cable library" : mv || calc ? "used" : "MV / calculated only"}</span>}>
           <div className="cb-fields">
-            {pick("insulation", "Insulation", [["XLPE", "XLPE"], ["EPR", "EPR"], ["PVC", "PVC"], ["XHHW", "XHHW"], ["RW90", "RW90"]])}
-            {num("insulation_mm", "Insulation wall", "mm", { optional: true, ph: "typical", disabled: !(mv || calc) })}
-            {num("shield_mm", "Shield thickness", "mm", { disabled: !(mv || calc) })}
-            {num("jacket_mm", "Jacket thickness", "mm", { disabled: !(mv || calc) })}
+            {pick("insulation", "Insulation", [["XLPE", "XLPE"], ["EPR", "EPR"], ["PVC", "PVC"], ["XHHW", "XHHW"], ["RW90", "RW90"]], undefined, lib)}
+            {num("insulation_mm", "Insulation wall", "mm", { optional: true, ph: lib ? "library" : "typical", disabled: lib || !(mv || calc) })}
+            {num("shield_mm", "Shield thickness", "mm", { disabled: lib || !(mv || calc) })}
+            {num("jacket_mm", "Jacket thickness", "mm", { disabled: lib || !(mv || calc) })}
             <div className="cb-wide">
-              {pick("shield_bonding", "Shield bonding", [["none", "None stated"], ["single_point", "Single point"], ["both_ends", "Both ends (circulating current)"]])}
+              {pick("shield_bonding", "Shield bonding", [["none", "None stated"], ["single_point", "Single point"], ["both_ends", "Both ends (circulating current)"]], undefined, lib)}
             </div>
-            {num("shield_section_ft", "Bonded section", "ft", { optional: true, ph: "whole run", disabled: !mv || f.shield_bonding === "none", hint: "single-point: grounded at one end of each section" })}
-            {num("shield_voltage_limit_v", "Standing-voltage limit", "V", { optional: true, ph: "set owner limit", disabled: !mv || f.shield_bonding === "none", hint: "utility / owner value; no verified public limit" })}
+            {num("shield_section_ft", "Bonded section", "ft", { optional: true, ph: "whole run", disabled: lib || !mv || f.shield_bonding === "none", hint: "single-point: grounded at one end of each section" })}
+            {num("shield_voltage_limit_v", "Standing-voltage limit", "V", { optional: true, ph: "set owner limit", disabled: lib || !mv || f.shield_bonding === "none", hint: "utility / owner value; no verified public limit" })}
           </div>
         </Section>
         <Section title="Ampacity">

@@ -7,7 +7,9 @@ import { budgetFor, shapeWeight, utilColor, railBulge } from "../labAnim.js";
 import { fillSparks, smokePuffs } from "../labAnim.js";
 
 const PH_HEX = { A: 0xe05a4f, B: 0xe8c35a, C: 0x5aa0e0 };
-const GPO_HEX = 0xe9b9a1; // GPO-3 block fill, as the 2D cross-section drawing
+// GPO-3 block colour: the isometric cut-away's block top (BLOCK_T in cablebus.jsx). The 2D fill 0xe9b9a1 read as
+// white once lit and shaded under the cover.
+const GPO_HEX = 0xc98f74;
 const GPO = new THREE.Color(GPO_HEX);
 const COVER_OPACITY = 0.22;
 
@@ -305,12 +307,15 @@ export function buildLab(group, viewer, layout, run, opts = {}) {
       c.mat.color.copy(c.col).lerp(tmpC, Math.min(1, f * 1.4));
       c.mat.emissive.setRGB(0.9 * f, 0.25 * f, 0.03 * f);
     }
-    // blocks: GPO-3 colour, tinted by utilisation (colour and a faint emissive glow), the broken one hidden
+    // blocks: GPO-3 colour, tinted by utilisation (colour and a faint emissive glow), the broken one hidden.
+    // The tint grows with utilisation so a lightly loaded block still reads as laminate, not green.
     blocks.forEach((b, k) => {
       const u = st.blocks[k];
       const [r, g, bl] = utilColor(u.util);
-      b.mat.color.copy(GPO).lerp(new THREE.Color(r / 255, g / 255, bl / 255), 0.35);
-      b.mat.emissive.setRGB((r / 255) * 0.12, (g / 255) * 0.12, (bl / 255) * 0.12);
+      const t = 0.1 + 0.45 * Math.min(1, Math.max(0, u.util));
+      b.mat.color.copy(GPO).lerp(new THREE.Color(r / 255, g / 255, bl / 255), t);
+      const glow = 0.12 * (t / 0.55); // 0.12 at full utilisation, as before
+      b.mat.emissive.setRGB((r / 255) * glow, (g / 255) * glow, (bl / 255) * glow);
       for (const m of b.meshes) m.visible = !u.broken;
     });
     // side rails buckle outward around the failed station, then settle with a permanent set
