@@ -61,13 +61,13 @@ const EXAMPLE = {
   cable_type: "standard", cable_id: null,
   insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "both_ends",
   length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: null, ampacity_method: "auto",
-  cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15,
+  cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, fault_clearing_s: 0.5, x_over_r: 15,
   enclosure_on: true, enc_w: 800, enc_h: 150, covers_continuous: false, max_vd_pct: 3,
   shield_section_ft: undefined, shield_voltage_limit_v: undefined,
 };
 const DESIGN_EXAMPLE = {
   voltage_v: 15000, current_a: 2000, material: "Cu", length_ft: 200, ambient_c: 40, insulation: "EPR",
-  insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15, max_loading_pct: 95,
+  insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, fault_ka: 40, fault_clearing_s: 0.5, x_over_r: 15, max_loading_pct: 95,
   sizes: ["500", "750", "1000"], tiers: [1, 2, 3, 4], block_material: "GPO-3", ampacity_method: "auto",
 };
 const FT = 0.3048;
