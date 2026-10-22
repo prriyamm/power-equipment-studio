@@ -102,7 +102,7 @@ function feederReport(ui, host) {
         rows: [["Source", lugs.source], ["Load", lugs.load]].flatMap(([e, l]) => l.lines.map((x) => [e, x.quantity, x.conductor, x.style, x.lug_material, x.stud_in])) }] : []),
     ],
     figures: reportFigures(host),
-    notes: [...r.notes, ...(lugs ? lugs.source.notes : [])],
+    notes: [...r.notes, ...(b ? b.notes : []), ...(lugs ? lugs.source.notes : [])],
     dataStatus: [{ table: `${i.code} ${info.table_name} (${info.edition})`, status: info.status, source: info.source }],
   };
 }
@@ -313,6 +313,7 @@ function Results({ r, lugs, ui, amps, setUi }) {
       {b && (
         <Section title="Checks" aside={<Pill tone={failing.length ? "crit" : "ok"}>{failing.length ? `${failing.length} fail` : "All pass"}</Pill>}>
           <ChecksTable checks={b.checks} format={std} />
+          {b.notes.length > 0 && <ul className="fd-notes fd-opt-notes" aria-label="Notes on the recommended option">{b.notes.map((n, k) => <li key={k}>{n}</li>)}</ul>}
         </Section>
       )}
 
@@ -486,6 +487,7 @@ const CSS = `
   .fd-note { font-size: 11px; color: var(--faint); margin-top: 2px; }
   .fd-clause { color: var(--muted); font-size: 12px !important; }
   .fd-unit { font-style: normal; color: var(--faint); font-size: 11px; }
+  .fd-opt-notes { margin-top: 10px; }
   .fd-notes { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); list-style: disc; padding-left: 18px; }
   .fd-alt { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .fd-cand tr.fd-best td { background: color-mix(in srgb, var(--ok) 9%, transparent); }

@@ -39,3 +39,15 @@ test("O10: LV cable bus check uses the NEC 110.14(C) terminal rating, MV keeps t
   assert.equal(cableBusCheck({ ...c, terminal_c: 90 }, 1500, 0.48, 30, 10).input.terminal_temp_c, 90);
   assert.equal(cableBusCheck(c, 300, 4.16, 30, 10).input.terminal_temp_c, 90);
 });
+
+test("cable bus run: the System view skips the NOT CHECKED withstand check unless the run has a clearing time", () => {
+  const run = { id: "CB-X", size: "750", sets: 4, length_ft: 60 };
+  const none = cableBusCheck(run, 1500, 0.48, 30, 15);
+  assert.ok(!none.checks.some((k) => k.name.startsWith("Conductor short-circuit withstand")));
+  const timed = cableBusCheck({ ...run, fault_clearing_s: 0.5 }, 1500, 0.48, 30, 15);
+  const w = timed.checks.find((k) => k.name === "Conductor short-circuit withstand");
+  assert.ok(w && w.passed, "4 x 750 kcmil Cu carries 30 kA for 0.5 s");
+  const small = cableBusCheck({ id: "CB-Y", size: "4/0", sets: 1, length_ft: 60, fault_clearing_s: 1 }, 200, 0.48, 30, 15);
+  assert.equal(small.checks.find((k) => k.name === "Conductor short-circuit withstand").passed, false);
+  assert.equal(small.passed, false);
+});

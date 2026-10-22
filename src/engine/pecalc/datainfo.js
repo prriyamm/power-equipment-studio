@@ -41,3 +41,17 @@ export function dataTables() {
 export function engineStamp() {
   return { pecalc: PECALC_VERSION, data: PECALC_DATA_FINGERPRINT };
 }
+
+/**
+ * Empty when the file has no stamp, or was saved by this engine version and table data (Python
+ * Case.engine_mismatch()). A stamp that is not an object, or has a non-string entry, is treated as absent:
+ * old or hand-edited files are never rejected for it. `what` names the file kind in the message.
+ */
+export function engineMismatch(saved, what = "Project file") {
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return "";
+  const now = engineStamp();
+  const diff = ["pecalc", "data"]
+    .filter((k) => typeof saved[k] === "string" && saved[k] && saved[k] !== now[k])
+    .map((k) => `${k} ${saved[k]} (now ${now[k]})`);
+  return diff.length ? `${what} saved with ${diff.join(", ")}. Results can differ from the saved run.` : "";
+}

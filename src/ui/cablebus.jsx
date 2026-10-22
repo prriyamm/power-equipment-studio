@@ -60,14 +60,14 @@ const EXAMPLE = {
   voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 1,
   cable_type: "standard", cable_id: null,
   insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "both_ends",
-  length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: 90, ampacity_method: "auto",
+  length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: null, ampacity_method: "auto",
   cable_ampacity_a: undefined, cable_od_mm: undefined, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15,
   enclosure_on: true, enc_w: 800, enc_h: 150, covers_continuous: false, max_vd_pct: 3,
   shield_section_ft: undefined, shield_voltage_limit_v: undefined,
 };
 const DESIGN_EXAMPLE = {
   voltage_v: 15000, current_a: 2000, material: "Cu", length_ft: 200, ambient_c: 40, insulation: "EPR",
-  insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, fault_ka: 40, x_over_r: 15, max_loading_pct: 95,
+  insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, fault_ka: 40, fault_clearing_s: undefined, x_over_r: 15, max_loading_pct: 95,
   sizes: ["500", "750", "1000"], tiers: [1, 2, 3, 4], block_material: "GPO-3", ampacity_method: "auto",
 };
 const FT = 0.3048;
@@ -427,7 +427,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
   );
   const pick = (k, label, opts, conv, disabled = false) => (
     <Field label={label}>
-      <select id={`cb-${k}`} className="num-input" value={f[k]} disabled={disabled} onChange={(e) => setF((s) => ({ ...s, [k]: conv ? conv(e.target.value) : e.target.value }))}>
+      <select id={`cb-${k}`} className="num-input" value={f[k] ?? ""} disabled={disabled} onChange={(e) => setF((s) => ({ ...s, [k]: conv ? conv(e.target.value) : e.target.value }))}>
         {opts.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
       </select>
     </Field>
@@ -481,7 +481,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
               </div>
             )}
             {pick("insulation_temp_c", "Insulation rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number, f.cable_type === "dlo_2000v")}
-            {pick("terminal_temp_c", "Termination rating", [[60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], Number)}
+            {pick("terminal_temp_c", "Termination rating", [["", "Auto (75 °C to 2000 V, 90 °C above)"], [60, "60 °C"], [75, "75 °C"], [90, "90 °C"]], (v) => (v === "" ? null : Number(v)))}
             {num("cable_od_mm", "Cable OD", "mm", { optional: true, ph: f.cable_type === "dlo_2000v" ? "from cable library" : "from construction" })}
           </div>
         </Section>
@@ -537,7 +537,7 @@ function DesignerTab({ d, setD, onPick }) {
           voltage_v: dd.voltage_v, current_a: dd.current_a, material: dd.material, length_m: dd.length_ft * FT,
           ambient_c: dd.ambient_c, sizes: dd.sizes, tier_options: dd.tiers, ampacity_method: dd.ampacity_method,
           insulation: dd.insulation, insulation_mm: mv || dd.ampacity_method === "calculated" ? dd.insulation_mm : null,
-          shield_mm: dd.shield_mm, jacket_mm: dd.jacket_mm, fault_ka: dd.fault_ka || null, x_over_r: dd.x_over_r,
+          shield_mm: dd.shield_mm, jacket_mm: dd.jacket_mm, fault_ka: dd.fault_ka || null, fault_clearing_s: dd.fault_clearing_s || null, x_over_r: dd.x_over_r,
           max_loading_pct: dd.max_loading_pct, block_material: dd.block_material, top_n: 8,
         });
         setOut({ result: designOptions(req), req });
@@ -574,6 +574,7 @@ function DesignerTab({ d, setD, onPick }) {
               </select>
             </Field>
             {num("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" })}
+            {num("fault_clearing_s", "Fault clearing time", "s", { optional: true, ph: "none", hint: "enables conductor withstand check" })}
             {num("x_over_r", "Fault X/R", "")}
             {num("max_loading_pct", "Max loading", "%")}
             <Field label="Block material">
@@ -688,7 +689,7 @@ export function CableBusWorkspace({ goTo }) {
       conductors_per_phase: o.per_phase, tiers: o.tiers, enclosure_on: true, enc_w: o.inside_w_mm, enc_h: o.inside_h_mm,
       cable_od_mm: Math.round(ci.cable_od_mm * 100) / 100, insulation: req.insulation, insulation_mm: req.insulation_mm ?? s.insulation_mm,
       shield_mm: req.shield_mm, jacket_mm: req.jacket_mm, shield_bonding: ci.shield_bonding, ampacity_method: req.ampacity_method,
-      length_ft: req.length_m / FT, ambient_c: req.ambient_c, fault_ka: req.fault_ka ?? undefined, x_over_r: req.x_over_r,
+      length_ft: req.length_m / FT, ambient_c: req.ambient_c, fault_ka: req.fault_ka ?? undefined, fault_clearing_s: req.fault_clearing_s ?? undefined, x_over_r: req.x_over_r,
     }));
     setFromSystem(null);
     setTab("check");

@@ -4,6 +4,14 @@ const { useState, useEffect } = React;
 import { cx, Pill } from "./common.jsx";
 import { WORKSPACES } from "./workspaces.jsx";
 import { QualityMenu } from "./qualityMenu.jsx";
+import { PECALC_VERSION, PECALC_DATA_FINGERPRINT } from "../engine/pecalc/datainfo.js";
+
+// Which pecalc engine and table data this build carries (the same fingerprint reports and project files record).
+const BUILD = `pecalc ${PECALC_VERSION} · data ${PECALC_DATA_FINGERPRINT}`;
+const CSS = `
+.app-build { margin-top: 6px; padding: 0 2px; text-align: center; font-family: var(--font-data); font-size: 8.5px; line-height: 1.3; color: var(--faint); overflow-wrap: anywhere; user-select: all; }
+@media (max-width: 640px) { .app-build { display: none; } }
+`;
 
 export function App() {
   const [active, setActive] = useState(() => {
@@ -38,7 +46,8 @@ export function App() {
   return (
     <div className="shell">
       <nav className={cx("rail", menu && "is-open")} aria-label="Workspaces">
-        <div className="rail-brand" title="Power Equipment Studio">
+        <style>{CSS}</style>
+        <div className="rail-brand" title={`Power Equipment Studio · ${BUILD}`}>
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18M3 17h18M8 7v10M16 7v10" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" fill="none" /></svg>
         </div>
         <div className="rail-current" aria-hidden="true">{current?.title}</div>
@@ -56,6 +65,7 @@ export function App() {
           ))}
         </div>
         <QualityMenu />
+        <div className="app-build" title="pecalc engine version and fingerprint of its table data (recorded in reports and project files)">{BUILD}</div>
         {menu && <div className="rail-scrim" onClick={() => setMenu(false)} />}
       </nav>
       <div className="shell-main">

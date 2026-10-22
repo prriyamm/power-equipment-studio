@@ -2,7 +2,7 @@
 const { useState, useRef, useEffect, useCallback } = React;
 import { Btn, Icon, cx, clone } from "./common.jsx";
 import { LIBRARY } from "../engine/systemLibrary.js";
-import { serializeSystem, parseSystem } from "../engine/systemio.js";
+import { serializeSystem, parseSystemWithWarning } from "../engine/systemio.js";
 
 const MAX_HISTORY = 100;
 
@@ -47,6 +47,7 @@ export const emptyProject = () => ({
 
 const CSS = `
 .sp-wrap { position: relative; }
+.sp-toast-warn { border-color: var(--high); cursor: pointer; }
 .sp-menu { min-width: 190px; }
 .sp-menu .sp-sep { height: 1px; background: var(--line); margin: 4px 0; }
 .sp-menu button:disabled { color: var(--faint); cursor: default; background: none; }
@@ -75,7 +76,7 @@ export function ProjectMenu({ sys, setSys, history, onLoaded }) {
     try { window.claude?.use?.("downloads").then((d) => alive && setDownloads(d)).catch(() => {}); } catch (e) { /* not in a viewer */ }
     return () => { alive = false; };
   }, []);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2600); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), toast.ms ?? 2600); return () => clearTimeout(t); }, [toast]);
   useEffect(() => {
     if (!open) return;
     const away = (ev) => { if (!rootRef.current?.contains(ev.target)) setOpen(false); };
@@ -105,7 +106,14 @@ export function ProjectMenu({ sys, setSys, history, onLoaded }) {
     catch (e) { if (e?.code !== "declined") setToast({ tone: "crit", text: `Could not save: ${e?.message || e?.code || "unknown error"}` }); }
   };
   const load = (next, msg) => { setSys(clone(next)); onLoaded?.(); setDialog(null); setErr(null); setPaste(""); setToast({ text: msg }); };
-  const ingest = (text) => { try { const s = parseSystem(text); load(s, `Opened ${s.name}`); } catch (e) { setErr(e.message); } };
+  // A file saved by another pecalc version or table data still opens; the warning stays up longer than the usual toast.
+  const ingest = (text) => {
+    try {
+      const { system: s, warning } = parseSystemWithWarning(text);
+      load(s, `Opened ${s.name}`);
+      if (warning) setToast({ tone: "warn", ms: 12000, text: `Opened ${s.name}. ${warning}` });
+    } catch (e) { setErr(e.message); }
+  };
   const onFile = (f) => { if (!f) return; const r = new FileReader(); r.onload = () => ingest(String(r.result)); r.onerror = () => setErr("Could not read that file."); r.readAsText(f); };
   const item = (label, fn, disabled, hint) => <button disabled={disabled} onClick={() => { setOpen(false); fn(); }}>{label}{hint && <span className="text-faint" style={{ float: "right", marginLeft: 16 }}>{hint}</span>}</button>;
   const mac = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || "");
@@ -159,7 +167,7 @@ export function ProjectMenu({ sys, setSys, history, onLoaded }) {
           </div>
         </div>
       )}
-      {toast && <div className={cx("toast", toast.tone === "crit" && "toast-crit")} role="status">{toast.text}</div>}
+      {toast && <div className={cx("toast", toast.tone === "crit" && "toast-crit", toast.tone === "warn" && "sp-toast-warn")} role="status" onClick={() => setToast(null)}>{toast.text}</div>}
     </div>
   );
 }
