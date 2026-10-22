@@ -5,7 +5,15 @@
   "clause": "NEC 240.4(D) Small Conductors",
   "status": "UNVERIFIED",
   "units": "maximum overcurrent device rating, A",
-  "note": "Entered from memory against NEC 2023 and consistent with public secondary sources; not checked against the printed code. Check against your licensed NFPA 70 copy before setting VERIFIED. 'Al' covers aluminum and copper-clad aluminum. 18 and 16 AWG Cu are listed for completeness; the feeder sizing module starts at 14 AWG. There are no 14 AWG or 8 AWG aluminum rows. 240.4(D) exceptions (240.4(E)/(G) applications) are not modelled."
+  "note": "Entered from memory against NEC 2023 and consistent with public secondary sources; not checked against the printed code. Check against your licensed NFPA 70 copy before setting VERIFIED. 'Al' covers aluminum and copper-clad aluminum. 18 and 16 AWG Cu are listed for completeness; the feeder sizing module starts at 14 AWG. There are no 14 AWG or 8 AWG aluminum rows. 240.4(D) exceptions (240.4(E)/(G) applications) are not modelled.",
+  "pdf_check": {
+   "date": "2026-10-22",
+   "by": "Claude (AI assistant), from page images of an NFPA 70-2023 PDF. This is not an engineer verification; status stays UNVERIFIED until an engineer confirms (see calculations/VERIFICATION.md).",
+   "pages": {
+    "240.4(D)": "70-122 to 70-123"
+   },
+   "result": "Every value in this file matches 240.4(D)(1), (2), (4), (5), (6), (7) and (8). Not in this file: 240.4(D)(3), 14 AWG copper-clad aluminum, 10 A. The 18 and 16 AWG Cu values also have conditions (continuous load limits and listed devices) that this file does not model."
+  }
  },
  "Cu": {"18": 7, "16": 10, "14": 15, "12": 20, "10": 30},
  "Al": {"12": 15, "10": 25}

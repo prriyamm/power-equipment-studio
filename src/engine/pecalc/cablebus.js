@@ -17,7 +17,7 @@ import { faultForces } from "./forces.js";
 import { conductor, balancedThreePhase, group, solveSharing, sharePct, groupLossWPerM, openCircuitVoltages }
   from "./impedance.js";
 import { cableConstruction, freeAirAmpacity, ampacitySummary } from "./thermal.js";
-import { pyRound, pyFixed, pyRepr, lookup, cabs, cdiv, cpolar, csub, cscale } from "./util.js";
+import { pyRound, pyFixed, pyRepr, pyG, lookup, KeyError, cabs, cdiv, cpolar, csub, cscale } from "./util.js";
 import * as validate from "./validate.js";
 import NEC from "./data/ampacity_nec.json" with { type: "json" };
 import CEC from "./data/ampacity_cec.json" with { type: "json" };
@@ -40,20 +40,7 @@ export function pyFloat(x) {
   return String(x);
 }
 
-/** Python format(x, "g"): six significant digits, trailing zeros stripped. */
-export function pyG(x) {
-  if (x === 0) return "0";
-  if (!Number.isFinite(x)) return Number.isNaN(x) ? "nan" : x > 0 ? "inf" : "-inf";
-  const exp = Math.floor(Math.log10(Math.abs(Number(x.toPrecision(6)))));
-  if (exp < -4 || exp >= 6) {
-    const [m, e] = x.toExponential(5).split("e");
-    const sign = e[0] === "-" ? "-" : "+";
-    const digits = e.replace(/^[+-]/, "").padStart(2, "0");
-    return `${m.replace(/0+$/, "").replace(/\.$/, "")}e${sign}${digits}`;
-  }
-  const s = x.toPrecision(6);
-  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
-}
+export { pyG };
 
 const _DEFAULTS = {
   code: "NEC",
@@ -74,7 +61,9 @@ const _DEFAULTS = {
   tier_spacing_mm: null,      // centre-to-centre between tiers; default = spacing
   pattern: "auto",            // e.g. "ABCCBA" or "ABCCBA/CBAABC" for tiers, or "auto"
   insulation_temp_c: 90,
-  terminal_temp_c: 90,        // equipment termination rating (NEC 110.14(C) / CEC 4-006)
+  // Equipment termination rating (NEC 110.14(C) / CEC 4-006). null = derive from the voltage: 75 C up to
+  // 2000 V (NEC 110.14(C)(1)(b)), 90 C above 2000 V (NEC 110.40). An explicit value always wins.
+  terminal_temp_c: null,
   ambient_c: 40.0,
   ampacity_method: "auto",    // auto | table | datasheet | calculated
   cable_ampacity_a: null,     // datasheet free-air rating per cable
@@ -115,6 +104,69 @@ const _DEFAULTS = {
   field_distances_m: [0.3, 1.0],
   allow_placeholder_data: false,
 };
+
+/** Default equipment termination temperature and its basis (used when terminal_temp_c is null). Returns [temp, basis]. */
+export function defaultTerminalTempC(voltage_v) {
+  if (voltage_v <= 2000) {
+    return [75, "Termination temperature defaulted to 75 C: NEC 110.14(C)(1)(b) (circuits over 100 A or " +
+      "conductors larger than 1 AWG; cable bus conductors are 1/0 minimum per NEC 370.20(A)(2)) " +
+      "(NFPA 70-2023 pp. 70-65, 70-253). Set terminal_temp_c to 90 if the equipment is listed and " +
+      "identified for 90 C conductors (110.14(C)(1)(b)(2)), or to the listed rating of separately " +
+      "installed pressure connectors (110.14(C)(2))."];
+  }
+  return [90, "Termination temperature defaulted to 90 C above 2000 V: NEC 110.40, unless otherwise identified " +
+    "(NFPA 70-2023 p. 70-73)."];
+}
+
+/**
+ * Termination ampacity per conductor and the table used: [ampacity or null, table key, reason if null].
+ *
+ * NEC 110.14(C): the termination provisions are based on Table 310.16 (raceway) whatever the installation
+ * (same rule as sizing.py); CEC 4-006 keeps the installation's table [UNVERIFIED which CEC table applies].
+ * Only <= 2000 V tables are loaded.
+ */
+export function terminationAmpacity(inp, size, terminal_temp_c) {
+  const table = inp.code === "NEC" ? "raceway" : "free_air";
+  if (inp.voltage_v > 2000) {
+    return [null, table, "code ampacity tables are loaded for <= 2000 V only (above that, check the " +
+      "equipment termination rating, NEC 110.40)"];
+  }
+  let a;
+  try {
+    amp.checkStatus(inp.code, inp.allow_placeholder_data);
+    a = amp.tableAmpacity(inp.code, table, inp.material, size, terminal_temp_c);
+  } catch (e) {
+    if (e instanceof KeyError) throw e; // Python catches (ValueError, DataStatusError) only
+    return [null, table, e.message];
+  }
+  if (a === null) return [null, table, `no ${inp.code} ${table} table row for ${inp.material} ${size}`];
+  return [a, table, ""];
+}
+
+/** A site ambient at or above the conductor rating gives zero ampacity (and later a zero-division). */
+export function requireAmbientBelow(ambient_c, conductor_temp_c) {
+  if (ambient_c >= conductor_temp_c) {
+    throw new Error(`ambient_c (${pyG(ambient_c)} C) must be below the conductor temperature rating ` +
+      `(${pyG(conductor_temp_c)} C)`);
+  }
+}
+
+/** amp.ambientFactor for the cable bus paths: raises instead of returning 0. */
+export function ambientFactorChecked(ambient_c, conductor_temp_c, rated_ambient_c = 30.0) {
+  requireAmbientBelow(ambient_c, conductor_temp_c);
+  return amp.ambientFactor(ambient_c, conductor_temp_c, rated_ambient_c);
+}
+
+/** Range checks on the numeric inputs, with messages that name the input. */
+export function validateInput(inp) {
+  validate.voltage("voltage_v", inp.voltage_v);
+  validate.positive("current_a", inp.current_a, "A");
+  validate.positive("length_m", inp.length_m, "m");
+  validate.positive("frequency_hz", inp.frequency_hz, "Hz");
+  validate.countAtLeast("tiers", inp.tiers);
+  validate.countAtLeast("conductors_per_phase", inp.conductors_per_phase);
+  if (inp.fault_ka !== null && inp.fault_ka !== undefined) validate.nonNegative("fault_ka", inp.fault_ka, "kA");
+}
 
 /** CableBusInput dataclass: defaults plus overrides; unknown keys are rejected like Python's TypeError. */
 export function cableBusInput(overrides = {}) {
@@ -249,7 +301,7 @@ function _libraryAmpacity(inp, spec) {
   } else {
     base = spec.ampacity_free_air_a; ref = spec.ampacity_ref_ambient_c; src = `${spec.manufacturer} printed rating`;
   }
-  const f = amp.ambientFactor(inp.ambient_c, spec.temp_c, ref);
+  const f = ambientFactorChecked(inp.ambient_c, spec.temp_c, ref);
   return [base * f, `${src} ${pyFixed(base, 0)} A at ${pyFixed(ref, 0)} C (${spec.temp_c} C conductor, basis: ` +
     `${spec.ampacity_basis}) x ambient factor ${pyFixed(f, 3)} (${pyFixed(inp.ambient_c, 0)} C)`];
 }
@@ -450,7 +502,7 @@ export function perCableAmpacity(inp, spec = null) {
   if (resolveMethod(inp, spec) === "datasheet") {
     if (spec !== null) return _libraryAmpacity(inp, spec);
     if (!inp.cable_ampacity_a) throw new Error("ampacity_method 'datasheet' needs cable_ampacity_a");
-    const f = amp.ambientFactor(inp.ambient_c, inp.insulation_temp_c, inp.cable_ampacity_ambient_c);
+    const f = ambientFactorChecked(inp.ambient_c, inp.insulation_temp_c, inp.cable_ampacity_ambient_c);
     return [inp.cable_ampacity_a * f,
       `Supplied rating ${pyFixed(inp.cable_ampacity_a, 0)} A at ${pyFixed(inp.cable_ampacity_ambient_c, 0)} C ` +
       `x ambient factor ${pyFixed(f, 3)} (${pyFixed(inp.ambient_c, 0)} C)`];
@@ -464,7 +516,7 @@ export function perCableAmpacity(inp, spec = null) {
   if (base === null) throw new Error(`No free-air ampacity for ${inp.material} ${inp.size}`);
   const info = amp.tableInfo(inp.code, "free_air");
   const rated = _loadRatedAmbient(inp.code);
-  const f = amp.ambientFactor(inp.ambient_c, inp.insulation_temp_c, rated);
+  const f = ambientFactorChecked(inp.ambient_c, inp.insulation_temp_c, rated);
   return [base * f, `${inp.code} ${info.table_name} ${pyFixed(base, 0)} A (${inp.insulation_temp_c} C column, ` +
     `data ${info.status}) x ambient factor ${pyFixed(f, 3)} (${pyFixed(inp.ambient_c, 0)} C)`];
 }
@@ -710,7 +762,7 @@ function _div(a, b) {
  * the designer turns it off for speed.
  */
 export function analyse(inp, compareBonding = true) {
-  validate.voltage("voltage_v", inp.voltage_v);
+  validateInput(inp);
   const sec = inp.shield_section_length_m;
   if (sec !== null && sec !== undefined && !(0 < sec && sec <= inp.length_m)) {
     throw new Error("shield_section_length_m must be > 0 and no longer than length_m");
@@ -729,11 +781,29 @@ export function analyse(inp, compareBonding = true) {
     size = spec.size;
   }
   inp.size = size;
+  const notes = [];
+  if (inp.terminal_temp_c === null || inp.terminal_temp_c === undefined) {
+    let term_basis;
+    [inp.terminal_temp_c, term_basis] = defaultTerminalTempC(inp.voltage_v);
+    notes.push(term_basis);
+  }
   const cons = spec === null ? construction(inp) : null;
+  if (inp.cable_od_mm !== null && inp.cable_od_mm !== undefined) {
+    const bare = spec ? spec.diameter_mm : cond.diameterMm(size);
+    if (!(inp.cable_od_mm > bare)) {
+      throw new Error(`cable_od_mm (${pyG(inp.cable_od_mm)} mm) must be greater than the conductor bare ` +
+        `diameter (${pyFixed(bare, 2)} mm)`);
+    }
+  }
   const od = inp.cable_od_mm || (spec ? spec.od_mm : null) || (cons ? cons.de_mm : null) ||
     (inp.voltage_v <= 2000 ? cond.cableOdMm(size) : null);
   if (!od) {
     throw new Error("Above 2000 V give cable_od_mm or the cable construction (insulation_mm, shield_mm, jacket_mm)");
+  }
+  if (!inp.cable_od_mm && spec === null && cons === null && inp.voltage_v > 600) {
+    notes.push(`Cable OD ${pyFixed(od, 1)} mm is estimated from a 600 V insulation wall, but voltage_v is ` +
+      `${pyG(inp.voltage_v)} V: enter cable_od_mm for the real cable (the insulation wall, spacing and ` +
+      "enclosure depend on it).");
   }
   const with_shields = inp.shield_bonding === "both_ends";
   if (with_shields && cons && cons.shield_mm) {
@@ -741,7 +811,7 @@ export function analyse(inp, compareBonding = true) {
     inp.shield_area_mm2 = inp.shield_area_mm2 || Math.PI * cons.shield_mean_diameter_mm * cons.shield_mm;
   }
   const method = resolveMethod(inp, spec);
-  const notes = spec ? _libraryNotes(inp, spec, method) : [];
+  if (spec) notes.push(..._libraryNotes(inp, spec, method));
   const size_text = spec ? spec.size_label : cond.sizeLabel(size);
 
   const patterns = inp.pattern === "auto" ? candidatePatterns(inp.conductors_per_phase, inp.tiers)
@@ -774,10 +844,10 @@ export function analyse(inp, compareBonding = true) {
     return s !== undefined && core_loss ? pyRound(res.losses_w_per_m[s] / core_loss, 4) : 0.0;
   };
 
-  let a_term = null;
   let ampacityFor = null, a_cable = null, basis_fixed = null;
   if (method === "calculated") {
     if (cons === null) throw new Error("The calculated ampacity method needs the cable construction (insulation_mm etc.)");
+    requireAmbientBelow(inp.ambient_c, inp.insulation_temp_c);
     const installation = pitch - od >= 0.75 * od ? "isolated" : "flat_touching";
     const cache = new Map();
     ampacityFor = (i) => {
@@ -793,8 +863,10 @@ export function analyse(inp, compareBonding = true) {
       "IEC 60287. Each cable's own shield loss factor (lambda1) from the sharing solve is included.");
   } else {
     [a_cable, basis_fixed] = perCableAmpacity(inp, spec);
-    if (method === "table") a_term = amp.tableAmpacity(inp.code, "free_air", inp.material, size, inp.terminal_temp_c);
   }
+  // Termination limit, whatever the ampacity method (NEC 110.14(C), Table 310.16).
+  const [a_term, term_table, why] = terminationAmpacity(inp, size, inp.terminal_temp_c);
+  if (a_term === null) notes.push(`Termination temperature not checked: ${why}.`);
 
   const derate_ds = method === "datasheet" && with_shields;
   const ds_factors = [];
@@ -888,13 +960,21 @@ export function analyse(inp, compareBonding = true) {
   if (method === "table") {
     check("Spacing for free-air ampacity basis (>= 1 cable diameter clearance)",
       "NEC 370.80 / CEC 12-2252 [UNVERIFIED]", pitch - od, od, "mm", pitch - od >= od - 1e-6);
+    if (inp.tiers > 1) {
+      const tier_pitch = inp.tier_spacing_mm || pitch; // centre-to-centre, same convention as spacing_mm
+      check("Tier spacing for free-air ampacity basis (>= 1 cable diameter clearance between tiers)",
+        "NEC 370.80 / CEC 12-2252 [UNVERIFIED]", tier_pitch - od, od, "mm", tier_pitch - od >= od - 1e-6);
+    }
   }
   const w = worst[0];
   check("Most heavily loaded conductor within its ampacity", basis, w.current_a, w.ampacity_a, "A",
     w.current_a <= w.ampacity_a, `${w.phase} at x=${pyFloat(w.x_mm)} mm; current sharing solved for pattern ${pattern}`);
   if (a_term !== null) {
     check("Most heavily loaded conductor within termination rating", clauses.terminal, max_cur, a_term,
-      "A", max_cur <= a_term, `${inp.terminal_temp_c} C column, no ambient correction`);
+      "A", max_cur <= a_term,
+      `${inp.terminal_temp_c} C column of ${amp.tableInfo(inp.code, term_table).table_name}, ` +
+      "no ambient correction; 110.14(C)(2) permits separately installed pressure connectors at their " +
+      "listed rating: set terminal_temp_c to it if used");
   }
   check("Voltage drop (worst phase)", clauses.vd, vd_pct, inp.max_vd_pct, "%", vd_pct <= inp.max_vd_pct,
     `phase ${vd_phase}, each phase against its own sending-end voltage`);
@@ -924,6 +1004,10 @@ export function analyse(inp, compareBonding = true) {
         `${pyFloat(inp.fault_clearing_s)} s clearing, ${inp.insulation_temp_c}->${pyFloat(inp.insulation_sc_limit_c)} C, ` +
         "equal fault sharing among paralleled conductors assumed");
     } else {
+      check("Conductor short-circuit withstand (NOT CHECKED: fault_clearing_s missing)", "ICEA P-32-382",
+        0.0, inp.fault_ka, "kA", false,
+        "fault_ka is given but fault_clearing_s is not, so the conductor withstand cannot be checked; " +
+        "give fault_clearing_s");
       notes.push("Conductor short-circuit withstand not checked: give fault_clearing_s.");
     }
     notes.push("Not checked: shield short-circuit withstand; mutual heating between stacked tiers.");
@@ -981,6 +1065,10 @@ export function analyse(inp, compareBonding = true) {
   if (inp.shield_bonding === "single_point" || inp.shield_bonding === "both_ends") {
     const lam_max = Math.max(...rows.map((r) => shieldLambda1(r.index)));
     sheath = sheathStudy(inp, cons, cs, res, pattern, rows, shield_i, shield_loss, lam_max, compareBonding);
+    if (inp.shield_bonding === "single_point" && (vlim === null || vlim === undefined)) {
+      notes.push("Shield standing voltage was not checked against a limit: shield_voltage_limit_v is not " +
+        "set (single-point bonding), so there is no pass/fail on the open-end voltage.");
+    }
     if (inp.shield_bonding === "single_point" && vlim !== null && vlim !== undefined && sheath.standing_v !== null) {
       check("Shield standing voltage at open end (single-point bonding, normal load)",
         "Owner / utility limit (IEEE 575 practice) [user-set limit, UNVERIFIED]",

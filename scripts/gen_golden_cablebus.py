@@ -276,6 +276,45 @@ extras += [
          enclosure_width_mm=900.0, enclosure_height_mm=300.0, shield_voltage_limit_v=50.0),
     dict(DS, shield_bonding="single_point", fault_ka=40.0, shield_voltage_limit_v=25.0),
 ]
+# Cable bus review: termination on Table 310.16 for every method, default terminal temperature, tier spacing,
+# NOT CHECKED withstand, shield limit note, 600 V wall note, validation, ambient at the conductor rating.
+LV480 = dict(voltage_v=480.0, current_a=2000.0, conductors_per_phase=4, size="500", material="Cu")
+extras += [
+    dict(LV480), dict(LV480, terminal_temp_c=75), dict(LV480, terminal_temp_c=90), dict(LV480, terminal_temp_c=60),
+    dict(LV480, terminal_temp_c=75, ampacity_method="datasheet", cable_ampacity_a=700.0),
+    dict(LV480, ampacity_method="datasheet", cable_ampacity_a=700.0),
+    dict(LV480, ampacity_method="calculated", insulation_mm=2.03, insulation="XHHW"),
+    dict(LV480, code="CEC", allow_placeholder_data=True),
+    dict(LV480, code="CEC", allow_placeholder_data=True, terminal_temp_c=90),
+    dict(LV480, code="CEC"),                                                         # placeholder data, refused
+    dict(LV480, material="Al", conductors_per_phase=6),
+    dict(LV480, size="2000", conductors_per_phase=2, current_a=900.0),
+    dict(voltage_v=2000.0, current_a=1500.0, conductors_per_phase=3, size="750"),
+    dict(voltage_v=1000.0, current_a=1000.0, conductors_per_phase=2, size="750"),   # 600 V wall note
+    dict(voltage_v=1000.0, current_a=1000.0, conductors_per_phase=2, size="750", cable_od_mm=40.0),
+    dict(voltage_v=1000.0, current_a=1000.0, conductors_per_phase=2, size="750", cable_od_mm=10.0),   # error
+    dict(voltage_v=600.0, current_a=1000.0, conductors_per_phase=2, size="750"),
+    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0),
+    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0,
+              shield_voltage_limit_v=1000.0),
+    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0,
+              terminal_temp_c=75),
+    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0, ambient_c=90.0),
+    dict(voltage_v=600.0, current_a=500.0, conductors_per_phase=1, cable_type="dlo_2000v",
+         cable_id="southwire_dlo_2000v:444.4", insulation_temp_c=90),               # no Table 310.16 row
+    dict(voltage_v=600.0, current_a=2000.0, conductors_per_phase=6, tiers=2, size="500", tier_spacing_mm=40.0),
+    dict(voltage_v=600.0, current_a=2000.0, conductors_per_phase=6, tiers=2, size="500"),
+    dict(voltage_v=600.0, current_a=2000.0, conductors_per_phase=6, tiers=2, size="500", terminal_temp_c=90,
+         ampacity_method="datasheet", cable_ampacity_a=700.0, tier_spacing_mm=40.0),
+    dict(voltage_v=600.0, current_a=1000.0, conductors_per_phase=3, size="500"),
+    dict(voltage_v=600.0, current_a=1000.0, conductors_per_phase=3, size="500", fault_ka=50.0),
+    dict(voltage_v=600.0, current_a=1000.0, conductors_per_phase=3, size="500", fault_ka=10.0, fault_clearing_s=0.1),
+    dict(LV480, ambient_c=90.0), dict(LV480, ambient_c=90.0, ampacity_method="datasheet", cable_ampacity_a=600.0),
+    dict(LV480, ambient_c=100.0, ampacity_method="calculated", insulation_mm=2.03),
+    dict(LV480, current_a=0.0), dict(LV480, current_a=-100.0), dict(LV480, length_m=0.0),
+    dict(LV480, frequency_hz=-60.0), dict(LV480, tiers=0), dict(LV480, conductors_per_phase=0),
+    dict(LV480, conductors_per_phase=1.5), dict(LV480, fault_ka=-5.0), dict(LV480, voltage_v=0.0),
+]
 for e in extras:
     vectors.append(run_analyse(e))
 
@@ -380,6 +419,29 @@ REQUESTS = [
     dict(voltage_v=600.0, current_a=6000.0, top_n=12), dict(voltage_v=600.0, current_a=5000.0, tier_options=[4]),
     dict(voltage_v=600.0, current_a=3000.0, tier_options=[1, 2, 3]),
     dict(voltage_v=15000.0, current_a=3500.0, **MVD, fault_ka=40.0, tier_options=[2, 4]),
+    # Cable bus review: termination cap, clearing time, shield limit, ranking after the block check, validation.
+    dict(voltage_v=600.0, current_a=2000.0, sizes=["500"], top_n=20),
+    dict(voltage_v=600.0, current_a=2000.0, terminal_temp_c=90),
+    dict(voltage_v=600.0, current_a=2000.0, terminal_temp_c=60),
+    dict(voltage_v=600.0, current_a=1000.0, fault_ka=100.0, sizes=["500"], fault_clearing_s=0.05),
+    dict(voltage_v=600.0, current_a=1000.0, fault_ka=100.0, sizes=["500"], fault_clearing_s=5.0),
+    dict(voltage_v=600.0, current_a=1000.0, fault_ka=100.0, sizes=["500"]),
+    dict(voltage_v=480.0, current_a=2000.0, fault_ka=100.0, x_over_r=20.0, fault_clearing_s=0.5),
+    dict(voltage_v=480.0, current_a=2000.0, fault_ka=100.0, x_over_r=20.0, block_rated_load_n=500.0),
+    dict(voltage_v=480.0, current_a=2000.0, fault_ka=100.0, x_over_r=20.0, block_rated_load_n=500.0, top_n=2),
+    dict(voltage_v=15000.0, current_a=2000.0, **MVD, shield_voltage_limit_v=0.01),
+    dict(voltage_v=15000.0, current_a=2000.0, **MVD, shield_voltage_limit_v=1000.0),
+    dict(voltage_v=1000.0, current_a=1000.0, sizes=["750"]),
+    dict(voltage_v=1000.0, current_a=1000.0, sizes=["750"], insulation_mm=3.0),
+    dict(voltage_v=480.0, current_a=0.0), dict(voltage_v=480.0, current_a=2000.0, length_m=-1.0),
+    dict(voltage_v=480.0, current_a=2000.0, frequency_hz=0.0), dict(voltage_v=480.0, current_a=2000.0, tier_options=[0]),
+    dict(voltage_v=480.0, current_a=2000.0, tier_options=[]), dict(voltage_v=480.0, current_a=2000.0, fault_ka=-1.0),
+    dict(voltage_v=480.0, current_a=2000.0, max_per_phase=0),
+    dict(voltage_v=480.0, current_a=2000.0, fault_ka=10.0, fault_clearing_s=-1.0),
+    dict(voltage_v=15000.0, current_a=2000.0, **MVD, shield_voltage_limit_v=-5.0),
+    dict(voltage_v=480.0, current_a=2000.0, ambient_c=90.0),
+    dict(voltage_v=600.0, current_a=2000.0, ampacity_method="calculated", insulation_mm=2.03, insulation="XHHW",
+         ambient_c=95.0),
 ]
 designs = []
 for rq in REQUESTS:

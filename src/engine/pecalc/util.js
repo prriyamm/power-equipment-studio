@@ -34,6 +34,21 @@ export function pyFixed(x, n) {
   return pyRound(x, n).toFixed(n);
 }
 
+/** Python format(x, "g"): six significant digits, trailing zeros stripped. */
+export function pyG(x) {
+  if (x === 0) return "0";
+  if (!Number.isFinite(x)) return Number.isNaN(x) ? "nan" : x > 0 ? "inf" : "-inf";
+  const exp = Math.floor(Math.log10(Math.abs(Number(x.toPrecision(6)))));
+  if (exp < -4 || exp >= 6) {
+    const [m, e] = x.toExponential(5).split("e");
+    const sign = e[0] === "-" ? "-" : "+";
+    const digits = e.replace(/^[+-]/, "").padStart(2, "0");
+    return `${m.replace(/0+$/, "").replace(/\.$/, "")}e${sign}${digits}`;
+  }
+  const s = x.toPrecision(6);
+  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+}
+
 export const C = (re, im = 0) => ({ re, im });
 export const toC = (z) => (typeof z === "number" ? { re: z, im: 0 } : z);
 export const cabs = (z) => Math.hypot(z.re, z.im);

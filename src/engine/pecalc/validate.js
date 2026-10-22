@@ -7,7 +7,7 @@
 // Messages quote the value as Python's repr would for a float input (the type the
 // pecalc dataclass fields declare): 0 -> "0.0", 480 -> "480.0", Infinity -> "inf",
 // NaN -> "nan", a string -> 'quoted', null/undefined -> None.
-import { pyRepr } from "./util.js";
+import { pyRepr, pyG } from "./util.js";
 
 /** repr() of a value as Python would print it, assuming numbers are floats. */
 export function reprValue(value) {
@@ -76,7 +76,66 @@ export function xOverR(name, value) {
   return v;
 }
 
+/** repr() of a value for fields the Python declares as int: whole numbers print without ".0". */
+function reprInt(value) {
+  return typeof value === "number" && Number.isInteger(value) ? String(value) : reprValue(value);
+}
+
+/** Whole-number count (conductors per phase, tiers) that must be >= minimum. */
+export function countAtLeast(name, value, minimum = 1) {
+  const v = finite(name, value);
+  if (v !== Math.trunc(v) || v < minimum) {
+    throw new Error(`${name} must be a whole number of at least ${minimum}, got ${reprInt(value)}`);
+  }
+  return Math.trunc(v);
+}
+
+/** Value must be finite and >= 0. */
+export function nonNegative(name, value, unit = "") {
+  const v = finite(name, value);
+  if (v < 0) throw new Error(`${name} must be 0${unit ? " " + unit : ""} or greater, got ${reprValue(value)}`);
+  return v;
+}
+
+/** Value must be finite and > 0. */
+export function positive(name, value, unit = "") {
+  const v = finite(name, value);
+  if (v <= 0) throw new Error(`${name} must be greater than 0${unit ? " " + unit : ""}, got ${reprValue(value)}`);
+  return v;
+}
+
+/** Value must be finite and within [low, high]. */
+export function inRange(name, value, low, high, unit = "") {
+  const v = finite(name, value);
+  if (!(low <= v && v <= high)) {
+    throw new Error(`${name} must be in the range [${pyG(low)}, ${pyG(high)}]${unit ? " " + unit : ""}, got ${reprValue(value)}`);
+  }
+  return v;
+}
+
+/** Value must be an integer (not bool, not a fractional float) >= minimum. */
+export function integerAtLeast(name, value, minimum) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value !== Math.trunc(value)) {
+    throw new Error(`${name} must be a whole number, got ${reprInt(value)}`);
+  }
+  if (value < minimum) throw new Error(`${name} must be ${minimum} or greater, got ${reprInt(value)}`);
+  return value;
+}
+
+/** Value must be one of the allowed choices (repr of the choices as a Python tuple). */
+export function oneOf(name, value, allowed) {
+  if (typeof value === "boolean" || !allowed.includes(value)) {
+    throw new Error(`${name} must be one of (${allowed.map(reprInt).join(", ")}), got ${reprInt(value)}`);
+  }
+  return value;
+}
+
 // Python-style names alongside the camelCase ones.
 export const power_factor = powerFactor;
 export const clearing_time = clearingTime;
 export const x_over_r = xOverR;
+export const count_at_least = countAtLeast;
+export const non_negative = nonNegative;
+export const in_range = inRange;
+export const integer_at_least = integerAtLeast;
+export const one_of = oneOf;

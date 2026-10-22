@@ -1,0 +1,3542 @@
+{
+ "_meta": {
+  "source": "pecalc.datainfo (Python)",
+  "generator": "scripts/gen_golden_datainfo.py",
+  "not_copied": []
+ },
+ "pecalc_version": "0.1.0",
+ "data_fingerprint": "a9cbc961548d",
+ "tables": [
+  {
+   "file": "ampacity_cec.json",
+   "edition": "CSA C22.1 (edition to confirm)",
+   "status": "PLACEHOLDER"
+  },
+  {
+   "file": "ampacity_nec.json",
+   "edition": "NFPA 70-2023",
+   "status": "UNVERIFIED"
+  },
+  {
+   "file": "cablebus_sim.json",
+   "edition": "n/a",
+   "status": "UNVERIFIED"
+  },
+  {
+   "file": "dlo_cables.json",
+   "edition": "",
+   "status": "MANUFACTURER"
+  },
+  {
+   "file": "doe_10cfr431_efficiency.json",
+   "edition": "eCFR current to 2026-10-14; latest substantive amendment of 431.196 dated 2024-04-22 (final rule 89 FR 29834, FR Doc. 2024-07480, published 2024-04-22, effective 2024-07-08)",
+   "status": "VERIFIED"
+  },
+  {
+   "file": "lug_catalog.json",
+   "edition": "",
+   "status": "EMPTY"
+  },
+  {
+   "file": "nec_240_4d_small_conductors.json",
+   "edition": "NFPA 70-2023",
+   "status": "UNVERIFIED"
+  },
+  {
+   "file": "reactance_nec_table9.json",
+   "edition": "NFPA 70-2023",
+   "status": "UNVERIFIED"
+  }
+ ],
+ "data": {
+  "ampacity_cec.json": {
+   "_meta": {
+    "code": "CEC",
+    "edition": "CSA C22.1 (edition to confirm)",
+    "columns_c": [
+     60,
+     75,
+     90
+    ],
+    "rated_ambient_c": 30,
+    "status": "PLACEHOLDER",
+    "source": "PLACEHOLDER: these are the NEC values, NOT CSA C22.1 values. Replace with CEC Table 2 (Cu, raceway), Table 4 (Al, raceway), Table 1 (Cu, free air) and Table 3 (Al, free air) from your licensed CSA C22.1 copy, then set status to VERIFIED.",
+    "tables": {
+     "raceway": "Table 2 (Cu) / Table 4 (Al)",
+     "free_air": "Table 1 (Cu) / Table 3 (Al)"
+    }
+   },
+   "raceway": {
+    "Cu": {
+     "14": [
+      15,
+      20,
+      25
+     ],
+     "12": [
+      20,
+      25,
+      30
+     ],
+     "10": [
+      30,
+      35,
+      40
+     ],
+     "8": [
+      40,
+      50,
+      55
+     ],
+     "6": [
+      55,
+      65,
+      75
+     ],
+     "4": [
+      70,
+      85,
+      95
+     ],
+     "3": [
+      85,
+      100,
+      115
+     ],
+     "2": [
+      95,
+      115,
+      130
+     ],
+     "1": [
+      110,
+      130,
+      145
+     ],
+     "1/0": [
+      125,
+      150,
+      170
+     ],
+     "2/0": [
+      145,
+      175,
+      195
+     ],
+     "3/0": [
+      165,
+      200,
+      225
+     ],
+     "4/0": [
+      195,
+      230,
+      260
+     ],
+     "250": [
+      215,
+      255,
+      290
+     ],
+     "300": [
+      240,
+      285,
+      320
+     ],
+     "350": [
+      260,
+      310,
+      350
+     ],
+     "400": [
+      280,
+      335,
+      380
+     ],
+     "500": [
+      320,
+      380,
+      430
+     ],
+     "600": [
+      350,
+      420,
+      475
+     ],
+     "700": [
+      385,
+      460,
+      520
+     ],
+     "750": [
+      400,
+      475,
+      535
+     ],
+     "800": [
+      410,
+      490,
+      555
+     ],
+     "900": [
+      435,
+      520,
+      585
+     ],
+     "1000": [
+      455,
+      545,
+      615
+     ],
+     "1250": [
+      495,
+      590,
+      665
+     ],
+     "1500": [
+      525,
+      625,
+      705
+     ],
+     "1750": [
+      545,
+      650,
+      735
+     ],
+     "2000": [
+      555,
+      665,
+      750
+     ]
+    },
+    "Al": {
+     "12": [
+      15,
+      20,
+      25
+     ],
+     "10": [
+      25,
+      30,
+      35
+     ],
+     "8": [
+      35,
+      40,
+      45
+     ],
+     "6": [
+      40,
+      50,
+      55
+     ],
+     "4": [
+      55,
+      65,
+      75
+     ],
+     "3": [
+      65,
+      75,
+      85
+     ],
+     "2": [
+      75,
+      90,
+      100
+     ],
+     "1": [
+      85,
+      100,
+      115
+     ],
+     "1/0": [
+      100,
+      120,
+      135
+     ],
+     "2/0": [
+      115,
+      135,
+      150
+     ],
+     "3/0": [
+      130,
+      155,
+      175
+     ],
+     "4/0": [
+      150,
+      180,
+      205
+     ],
+     "250": [
+      170,
+      205,
+      230
+     ],
+     "300": [
+      195,
+      230,
+      260
+     ],
+     "350": [
+      210,
+      250,
+      280
+     ],
+     "400": [
+      225,
+      270,
+      305
+     ],
+     "500": [
+      260,
+      310,
+      350
+     ],
+     "600": [
+      285,
+      340,
+      385
+     ],
+     "700": [
+      315,
+      375,
+      425
+     ],
+     "750": [
+      320,
+      385,
+      435
+     ],
+     "800": [
+      330,
+      395,
+      445
+     ],
+     "900": [
+      355,
+      425,
+      480
+     ],
+     "1000": [
+      375,
+      445,
+      500
+     ],
+     "1250": [
+      405,
+      485,
+      545
+     ],
+     "1500": [
+      435,
+      520,
+      585
+     ],
+     "1750": [
+      455,
+      545,
+      615
+     ],
+     "2000": [
+      470,
+      560,
+      630
+     ]
+    }
+   },
+   "free_air": {
+    "Cu": {
+     "14": [
+      25,
+      30,
+      35
+     ],
+     "12": [
+      30,
+      35,
+      40
+     ],
+     "10": [
+      40,
+      50,
+      55
+     ],
+     "8": [
+      60,
+      70,
+      80
+     ],
+     "6": [
+      80,
+      95,
+      105
+     ],
+     "4": [
+      105,
+      125,
+      140
+     ],
+     "3": [
+      120,
+      145,
+      165
+     ],
+     "2": [
+      140,
+      170,
+      190
+     ],
+     "1": [
+      165,
+      195,
+      220
+     ],
+     "1/0": [
+      195,
+      230,
+      260
+     ],
+     "2/0": [
+      225,
+      265,
+      300
+     ],
+     "3/0": [
+      260,
+      310,
+      350
+     ],
+     "4/0": [
+      300,
+      360,
+      405
+     ],
+     "250": [
+      340,
+      405,
+      455
+     ],
+     "300": [
+      375,
+      445,
+      500
+     ],
+     "350": [
+      420,
+      505,
+      570
+     ],
+     "400": [
+      455,
+      545,
+      615
+     ],
+     "500": [
+      515,
+      620,
+      700
+     ],
+     "600": [
+      575,
+      690,
+      780
+     ],
+     "700": [
+      630,
+      755,
+      850
+     ],
+     "750": [
+      655,
+      785,
+      885
+     ],
+     "800": [
+      680,
+      815,
+      920
+     ],
+     "900": [
+      730,
+      870,
+      980
+     ],
+     "1000": [
+      780,
+      935,
+      1055
+     ],
+     "1250": [
+      890,
+      1065,
+      1200
+     ],
+     "1500": [
+      980,
+      1175,
+      1325
+     ],
+     "1750": [
+      1070,
+      1280,
+      1445
+     ],
+     "2000": [
+      1155,
+      1385,
+      1560
+     ]
+    },
+    "Al": {
+     "12": [
+      25,
+      30,
+      35
+     ],
+     "10": [
+      35,
+      40,
+      45
+     ],
+     "8": [
+      45,
+      55,
+      60
+     ],
+     "6": [
+      60,
+      75,
+      85
+     ],
+     "4": [
+      80,
+      100,
+      115
+     ],
+     "3": [
+      95,
+      115,
+      130
+     ],
+     "2": [
+      110,
+      135,
+      150
+     ],
+     "1": [
+      130,
+      155,
+      175
+     ],
+     "1/0": [
+      150,
+      180,
+      205
+     ],
+     "2/0": [
+      175,
+      210,
+      235
+     ],
+     "3/0": [
+      200,
+      240,
+      270
+     ],
+     "4/0": [
+      235,
+      280,
+      315
+     ],
+     "250": [
+      265,
+      315,
+      355
+     ],
+     "300": [
+      290,
+      350,
+      395
+     ],
+     "350": [
+      330,
+      395,
+      445
+     ],
+     "400": [
+      355,
+      425,
+      480
+     ],
+     "500": [
+      405,
+      485,
+      545
+     ],
+     "600": [
+      455,
+      545,
+      615
+     ],
+     "700": [
+      500,
+      595,
+      670
+     ],
+     "750": [
+      515,
+      620,
+      700
+     ],
+     "800": [
+      535,
+      645,
+      725
+     ],
+     "900": [
+      580,
+      700,
+      790
+     ],
+     "1000": [
+      625,
+      750,
+      845
+     ],
+     "1250": [
+      710,
+      855,
+      965
+     ],
+     "1500": [
+      795,
+      950,
+      1070
+     ],
+     "1750": [
+      875,
+      1050,
+      1185
+     ],
+     "2000": [
+      960,
+      1150,
+      1295
+     ]
+    }
+   }
+  },
+  "ampacity_nec.json": {
+   "_meta": {
+    "code": "NEC",
+    "edition": "NFPA 70-2023",
+    "columns_c": [
+     60,
+     75,
+     90
+    ],
+    "rated_ambient_c": 30,
+    "status": "UNVERIFIED",
+    "source": "Entered from memory of NEC Tables 310.16 (raceway/cable/earth, <=3 current-carrying conductors) and 310.17 (single conductors in free air). Check every row against your licensed NFPA 70 copy, then set status to VERIFIED and record who checked it and when.",
+    "note": "Table 310.16 8 AWG Al 60 C is 35 A in the printed NFPA 70-2023 (p. 70-187). An earlier change (2026-10) set it to 30 A from secondary sources, which follow older editions; that change is reverted. Still UNVERIFIED: see pdf_check.",
+    "pdf_check": {
+     "date": "2026-10-22",
+     "by": "Claude (AI assistant), from page images of an NFPA 70-2023 PDF. This is not an engineer verification; status stays UNVERIFIED until an engineer confirms (see calculations/VERIFICATION.md).",
+     "pages": {
+      "Table 310.16": "70-187",
+      "Table 310.17": "70-188"
+     },
+     "result": "Every value in this file (14 AWG to 2000 kcmil, Cu and Al, 60/75/90 C) matches the printed tables after the 8 AWG Al 60 C fix. Rows not in this file: 18 and 16 AWG Cu (90 C column only) in both tables."
+    },
+    "tables": {
+     "raceway": "Table 310.16",
+     "free_air": "Table 310.17"
+    }
+   },
+   "raceway": {
+    "Cu": {
+     "14": [
+      15,
+      20,
+      25
+     ],
+     "12": [
+      20,
+      25,
+      30
+     ],
+     "10": [
+      30,
+      35,
+      40
+     ],
+     "8": [
+      40,
+      50,
+      55
+     ],
+     "6": [
+      55,
+      65,
+      75
+     ],
+     "4": [
+      70,
+      85,
+      95
+     ],
+     "3": [
+      85,
+      100,
+      115
+     ],
+     "2": [
+      95,
+      115,
+      130
+     ],
+     "1": [
+      110,
+      130,
+      145
+     ],
+     "1/0": [
+      125,
+      150,
+      170
+     ],
+     "2/0": [
+      145,
+      175,
+      195
+     ],
+     "3/0": [
+      165,
+      200,
+      225
+     ],
+     "4/0": [
+      195,
+      230,
+      260
+     ],
+     "250": [
+      215,
+      255,
+      290
+     ],
+     "300": [
+      240,
+      285,
+      320
+     ],
+     "350": [
+      260,
+      310,
+      350
+     ],
+     "400": [
+      280,
+      335,
+      380
+     ],
+     "500": [
+      320,
+      380,
+      430
+     ],
+     "600": [
+      350,
+      420,
+      475
+     ],
+     "700": [
+      385,
+      460,
+      520
+     ],
+     "750": [
+      400,
+      475,
+      535
+     ],
+     "800": [
+      410,
+      490,
+      555
+     ],
+     "900": [
+      435,
+      520,
+      585
+     ],
+     "1000": [
+      455,
+      545,
+      615
+     ],
+     "1250": [
+      495,
+      590,
+      665
+     ],
+     "1500": [
+      525,
+      625,
+      705
+     ],
+     "1750": [
+      545,
+      650,
+      735
+     ],
+     "2000": [
+      555,
+      665,
+      750
+     ]
+    },
+    "Al": {
+     "12": [
+      15,
+      20,
+      25
+     ],
+     "10": [
+      25,
+      30,
+      35
+     ],
+     "8": [
+      35,
+      40,
+      45
+     ],
+     "6": [
+      40,
+      50,
+      55
+     ],
+     "4": [
+      55,
+      65,
+      75
+     ],
+     "3": [
+      65,
+      75,
+      85
+     ],
+     "2": [
+      75,
+      90,
+      100
+     ],
+     "1": [
+      85,
+      100,
+      115
+     ],
+     "1/0": [
+      100,
+      120,
+      135
+     ],
+     "2/0": [
+      115,
+      135,
+      150
+     ],
+     "3/0": [
+      130,
+      155,
+      175
+     ],
+     "4/0": [
+      150,
+      180,
+      205
+     ],
+     "250": [
+      170,
+      205,
+      230
+     ],
+     "300": [
+      195,
+      230,
+      260
+     ],
+     "350": [
+      210,
+      250,
+      280
+     ],
+     "400": [
+      225,
+      270,
+      305
+     ],
+     "500": [
+      260,
+      310,
+      350
+     ],
+     "600": [
+      285,
+      340,
+      385
+     ],
+     "700": [
+      315,
+      375,
+      425
+     ],
+     "750": [
+      320,
+      385,
+      435
+     ],
+     "800": [
+      330,
+      395,
+      445
+     ],
+     "900": [
+      355,
+      425,
+      480
+     ],
+     "1000": [
+      375,
+      445,
+      500
+     ],
+     "1250": [
+      405,
+      485,
+      545
+     ],
+     "1500": [
+      435,
+      520,
+      585
+     ],
+     "1750": [
+      455,
+      545,
+      615
+     ],
+     "2000": [
+      470,
+      560,
+      630
+     ]
+    }
+   },
+   "free_air": {
+    "Cu": {
+     "14": [
+      25,
+      30,
+      35
+     ],
+     "12": [
+      30,
+      35,
+      40
+     ],
+     "10": [
+      40,
+      50,
+      55
+     ],
+     "8": [
+      60,
+      70,
+      80
+     ],
+     "6": [
+      80,
+      95,
+      105
+     ],
+     "4": [
+      105,
+      125,
+      140
+     ],
+     "3": [
+      120,
+      145,
+      165
+     ],
+     "2": [
+      140,
+      170,
+      190
+     ],
+     "1": [
+      165,
+      195,
+      220
+     ],
+     "1/0": [
+      195,
+      230,
+      260
+     ],
+     "2/0": [
+      225,
+      265,
+      300
+     ],
+     "3/0": [
+      260,
+      310,
+      350
+     ],
+     "4/0": [
+      300,
+      360,
+      405
+     ],
+     "250": [
+      340,
+      405,
+      455
+     ],
+     "300": [
+      375,
+      445,
+      500
+     ],
+     "350": [
+      420,
+      505,
+      570
+     ],
+     "400": [
+      455,
+      545,
+      615
+     ],
+     "500": [
+      515,
+      620,
+      700
+     ],
+     "600": [
+      575,
+      690,
+      780
+     ],
+     "700": [
+      630,
+      755,
+      850
+     ],
+     "750": [
+      655,
+      785,
+      885
+     ],
+     "800": [
+      680,
+      815,
+      920
+     ],
+     "900": [
+      730,
+      870,
+      980
+     ],
+     "1000": [
+      780,
+      935,
+      1055
+     ],
+     "1250": [
+      890,
+      1065,
+      1200
+     ],
+     "1500": [
+      980,
+      1175,
+      1325
+     ],
+     "1750": [
+      1070,
+      1280,
+      1445
+     ],
+     "2000": [
+      1155,
+      1385,
+      1560
+     ]
+    },
+    "Al": {
+     "12": [
+      25,
+      30,
+      35
+     ],
+     "10": [
+      35,
+      40,
+      45
+     ],
+     "8": [
+      45,
+      55,
+      60
+     ],
+     "6": [
+      60,
+      75,
+      85
+     ],
+     "4": [
+      80,
+      100,
+      115
+     ],
+     "3": [
+      95,
+      115,
+      130
+     ],
+     "2": [
+      110,
+      135,
+      150
+     ],
+     "1": [
+      130,
+      155,
+      175
+     ],
+     "1/0": [
+      150,
+      180,
+      205
+     ],
+     "2/0": [
+      175,
+      210,
+      235
+     ],
+     "3/0": [
+      200,
+      240,
+      270
+     ],
+     "4/0": [
+      235,
+      280,
+      315
+     ],
+     "250": [
+      265,
+      315,
+      355
+     ],
+     "300": [
+      290,
+      350,
+      395
+     ],
+     "350": [
+      330,
+      395,
+      445
+     ],
+     "400": [
+      355,
+      425,
+      480
+     ],
+     "500": [
+      405,
+      485,
+      545
+     ],
+     "600": [
+      455,
+      545,
+      615
+     ],
+     "700": [
+      500,
+      595,
+      670
+     ],
+     "750": [
+      515,
+      620,
+      700
+     ],
+     "800": [
+      535,
+      645,
+      725
+     ],
+     "900": [
+      580,
+      700,
+      790
+     ],
+     "1000": [
+      625,
+      750,
+      845
+     ],
+     "1250": [
+      710,
+      855,
+      965
+     ],
+     "1500": [
+      795,
+      950,
+      1070
+     ],
+     "1750": [
+      875,
+      1050,
+      1185
+     ],
+     "2000": [
+      960,
+      1150,
+      1295
+     ]
+    }
+   }
+  },
+  "cablebus_sim.json": {
+   "_meta": {
+    "source": "Public physics and handbook constants for the cable bus short-circuit and temperature-rise simulation (cablebus_sim). No value is taken from IEEE C37.23 or CSA C22.2 No. 273, whose texts are licensed and were not read.",
+    "edition": "n/a",
+    "status": "UNVERIFIED",
+    "note": "Every entry carries its own status and citation. Test durations, rise limits and pass criteria of C37.23 / CSA 273 are NOT FOUND publicly, so they are user inputs taken from the product's test report and have no defaults here. The peak-factor entries are informational reference rows only; the simulation computes the peak from X/R in the time domain."
+   },
+   "peak_factors": {
+    "ansi_peak_over_rms_sym": {
+     "value": 2.7,
+     "unit": "peak kA / rms sym kA",
+     "status": "UNVERIFIED",
+     "citation": "ANSI convention quoted in a secondary source; check 170 kA / 63 kA = 2.70 in the bus duct example",
+     "url": "https://forums.mikeholt.com/threads/bus-duct-short-circuit-ratings.137341/latest",
+     "confidence": "LOW"
+    },
+    "iec_peak_over_rms_sym_60hz": {
+     "value": 2.6,
+     "unit": "peak kA / rms sym kA",
+     "status": "UNVERIFIED",
+     "citation": "IEC convention 2.5 at 50 Hz / 2.6 at 60 Hz quoted in a secondary source",
+     "url": "https://forums.mikeholt.com/goto/post?id=1929431",
+     "confidence": "LOW"
+    },
+    "asym_rms_over_rms_sym": {
+     "value": 1.6,
+     "unit": "asymmetric rms kA / rms sym kA",
+     "status": "UNVERIFIED",
+     "citation": "Switchgear (ANSI) context asymmetrical rms factor, Schneider Electric FAQ FA301513",
+     "url": "https://www.se.com/ca/en/faqs/FA301513",
+     "confidence": "MED, switchgear context only"
+    }
+   },
+   "volumetric_heat_capacity_j_per_m3_k": {
+    "_meta": {
+     "status": "UNVERIFIED",
+     "note": "Cu and Al: 3.45 and 2.5 MJ/(m3 K) as listed in a cable-engineering knowledge base (IEC 60364-5-54 k-factor inputs). XLPE, EPR, PE 2.4 and PVC 1.7 MJ/(m3 K) are the values commonly tabulated with IEC 60287-2-1 / IEC 60853 as remembered; no public page confirming them was found. Replace from the cable maker's data if available.",
+     "url": "https://mycableengineering.com/knowledge-base/calculation-of-k-factor"
+    },
+    "Cu": 3450000.0,
+    "Al": 2500000.0,
+    "XLPE": 2400000.0,
+    "EPR": 2400000.0,
+    "PE": 2400000.0,
+    "XHHW": 2400000.0,
+    "RW90": 2400000.0,
+    "PVC": 1700000.0
+   },
+   "enclosure_convection": {
+    "_meta": {
+     "status": "UNVERIFIED",
+     "note": "Simplified laminar free-convection equations for air at atmospheric pressure, h = C (dT / L)^0.25 in W/(m2 K), dT in K and L in m: vertical plate C = 1.42, horizontal plate facing up 1.32 (engineersedge.com summary of Holman, Heat Transfer), horizontal plate facing down 0.59 (Holman, not confirmed on the page). Radiation: grey surface to ambient, h_r = eps sigma (Ts^4 - Ta^4) / (Ts - Ta).",
+     "url": "https://engineersedge.com/heat_transfer/convection_heat_transfer_coefficients_13855.htm"
+    },
+    "c_vertical": 1.42,
+    "c_top": 1.32,
+    "c_bottom": 0.59,
+    "stefan_boltzmann": 5.670374419e-08,
+    "default_emissivity": 0.3,
+    "default_emissivity_note": "FLAGGED DEFAULT: weathered / oxidised aluminium is roughly 0.2 to 0.3, bright sheet about 0.1, painted or anodised 0.8 to 0.9 (Incropera, Fundamentals of Heat and Mass Transfer, emissivity table; not read). Set the actual enclosure finish."
+   }
+  },
+  "dlo_cables.json": {
+   "_meta": {
+    "status": "MANUFACTURER",
+    "fetched": "2026-10-16",
+    "note": "Cable library for the cable bus check (cablebus.py cable_type 'dlo_2000v'). Primary table = Southwire DLO specification sheet (17 sizes, 10 AWG to 777.7 kcmil). Values are the manufacturer's printed numbers, read from the sheet's text layer by column and re-checked against the row count. Gaps and conflicts are listed in 'gaps'. The printed table has no DC resistance, conductor diameter or jacket thickness per size, so the engine uses the flagged fallbacks in 'engine_fallbacks'.",
+    "sources": {
+     "southwire_spec": {
+      "manufacturer": "Southwire Company, LLC",
+      "title": "dlo-Diesel Locomotive Cable: 90 C 2000 Volt DLO, UL RHH/RHW 600 Volt, CSA R90 1000 Volt (specification sheet)",
+      "url": "https://houseofelectrical.com/media/catalog/document/98859/Southwire_56006301_Specification_Sheet.pdf",
+      "url_note": "PDF hosted on a third-party distributor site; the content is Southwire's sheet",
+      "date": "not printed on the sheet (revision unknown)",
+      "catalogue_ref": "sheet file 56006301 (number from the file name); sample jacket marking P-7K-123040 (MSHA), P-102 (777.7 kcmil)",
+      "status": "MANUFACTURER",
+      "ampacity_basis": {
+       "free_air": "footnote (2): single conductor in free air, NEC Table 310.17 basis, 90 C conductor, 30 C ambient",
+       "raceway": "footnote (1): NEC Table 310.16 basis, 90 C conductor, 30 C ambient, not more than 3 current-carrying conductors in raceway, cable or earth"
+      },
+      "listings_printed": [
+       "UL RHH or RHW 600 V (sheet wording; 535.3 and 646.4 kcmil printed RHH or RHW 2000 V; 777.7 kcmil RHW-2 2 kV)",
+       "CSA R90 1000 V",
+       "UL 44",
+       "UL 1685 (1/0 AWG and larger)",
+       "UL 2806 (HDFPC-DLO)",
+       "CSA C22.2 No. 38",
+       "CSA C22.2 No. 230 TC-ER (1/0 AWG and larger)",
+       "ICEA S-95-658 (NEMA WC70)",
+       "IEEE 1202 FT4 (upon request)",
+       "MSHA accepted"
+      ],
+      "conductor_printed": "10 AWG through 777.7 MCM stranded tinned annealed copper per AAR 589; 90 C EPR insulation; VIPER CPE jacket, black",
+      "temperature_printed": "90 C rated; sunlight resistant for CT use"
+     },
+     "southwire_product_444": {
+      "manufacturer": "Southwire Company, LLC",
+      "title": "444.4-1121 TINNED CU DLO ROYAL BLACK 2KV 2500 FT (product page)",
+      "url": "https://www.southwire.com/wire-cable/industrial-flexible/dlo-tcu-2000v-epdm-insulation-thermoset-cpe-jacket-rhh-rhw-2-rw90-msha-approved-/p/1670300908",
+      "date": "page footer copyright 2026; no revision date",
+      "catalogue_ref": "item 1670300908; SPEC 44020",
+      "status": "MANUFACTURER",
+      "values": {
+       "strands": 1121,
+       "class": "Class I (ASTM B33/B172)",
+       "conductor_diameter_in": 0.782,
+       "insulation": "EPDM 90 mil",
+       "jacket": "CPE 65 mil",
+       "nominal_od_in": 1.105,
+       "weight_lb_per_kft": 1654,
+       "ampacity": "not listed",
+       "listing": "NEC Type RHH/RHW-2; CE Code 2 kV Type RW90"
+      }
+     },
+     "awc_1111": {
+      "manufacturer": "Allied Wire & Cable (AWC)",
+      "title": "DLO-1111 (product page, 1111 MCM 2000 V DLO)",
+      "url": "https://awcwire.com/product/dlo-1111",
+      "date": "page footer copyright 2026; no revision date",
+      "catalogue_ref": "part DLO-1111",
+      "status": "MANUFACTURER",
+      "values": {
+       "area_kcmil": 1111,
+       "strands": 2750,
+       "strand_awg": 24,
+       "insulation_in": 0.125,
+       "jacket_in": 0.095,
+       "nominal_od_in": 1.791,
+       "weight_lb_per_kft": 4077,
+       "ampacity_30c_a": 1115,
+       "ampacity_basis": "NOT STATED on the page (listed as 'Ampacity (30C)')",
+       "printed_diameter_in": 1.37,
+       "printed_diameter_note": "label 'Diameter (in)' does not say conductor or overall; not used",
+       "dc_resistance": "not listed",
+       "voltage_v": 2000,
+       "max_temp_c": 90,
+       "min_temp_c": -40,
+       "listings": "CSA C22.2 No. 38, CSA C22.2 No. 230, UL 44, UL 1685, NEMA WC70, ICEA S-95-658, IEEE-1202, MSHA"
+      }
+     },
+     "awc_productspec": {
+      "url": "https://www.awcwire.com/productspec.aspx?id=dlo",
+      "use": "cross-check only: the 30 C ampacities printed for 10 AWG 55, 8 AWG 80, 6 AWG 105, 4 AWG 140, 2 AWG 190, 1 AWG 220 and 1/0 260 equal the Southwire free-air column",
+      "status": "MANUFACTURER"
+     }
+    },
+    "gaps": [
+     "DC resistance (ohm per 1000 ft): not printed by Southwire or AWC in the sources reviewed. NOT FOUND.",
+     "Conductor diameter per size: printed only on the Southwire 444.4 product page (0.782 in). NOT FOUND for the other sizes.",
+     "Jacket thickness per size: printed only on the Southwire 444.4 product page (65 mil). NOT FOUND for the other sizes.",
+     "Stranding class: Class I printed on the 444.4 product page only.",
+     "Southwire 777.7 kcmil raceway-column value 910 A is out of trend (646.4 kcmil = 493 A). Flagged, not used. The free-air column (904 A) is in trend and is used.",
+     "CONFLICT 444.4 kcmil: spec sheet gives 1110 strands, 0.095 in insulation, 1.23 in OD, 1820 lb/kft. Product page gives 1121 strands, 90 mil EPDM, 65 mil CPE, 1.105 in OD, 1654 lb/kft. The engine uses the spec sheet (one primary table per series) and the larger 1.23 in OD (conservative for clearance). Confirm with Southwire.",
+     "1111 kcmil: not on the Southwire sheet (its maximum is 777.7 kcmil). Single source AWC DLO-1111; ampacity basis NOT STATED.",
+     "Printed ampacities are footnoted values (30 C ambient, 90 C conductor), not cable-bus test ratings for the configuration."
+    ],
+    "engine_fallbacks": {
+     "dc_resistance": "No datasheet DC value: computed from annealed copper resistivity (pecalc conductors.MATERIALS Cu, 10.371 ohm-cmil/ft at 20 C) x stranding factor 1.02 (same factor as the standard path). The factor for fine Class I stranding is NOT verified, and tinned-copper resistivity is not applied. UNVERIFIED.",
+     "conductor_diameter": "No printed value: sqrt(area) x 1.173 (ratio 0.782 in / 0.667 in from the 444.4 product page). UNVERIFIED proxy, used only for GMR and skin/proximity effect.",
+     "jacket": "Not needed: the printed nominal OD sets the layout pitch and cable bus geometry."
+    },
+    "notes": [
+     "Ampacity basis (engine): standard NEC sizes 10 AWG to 4/0 that are listed RHH/RHW use the code free-air table (NEC 310.17, 90 C). The engine's free-air values for these sizes (55, 80, 105, 140, 190, 220, 260, 300, 350, 405 A) equal the Southwire free-air column. Non-standard DLO sizes use the printed free-air column with the ambient correction from 30 C.",
+     "The 310.16 and 310.17 values printed by Southwire were cross-checked against the engine's NEC table file (ampacity_nec.json, UNVERIFIED against the code book)."
+    ]
+   },
+   "series": {
+    "southwire_dlo_2000v": {
+     "manufacturer": "Southwire",
+     "series": "DLO 2000 V, tinned annealed copper, EPR insulation, CPE jacket",
+     "voltage_v": 2000,
+     "temp_c": 90,
+     "conductor": "tinned copper",
+     "source": "southwire_spec",
+     "rows": [
+      {
+       "id": "10",
+       "size": "10",
+       "area_cmil": 10380,
+       "area_kcmil": 10.4,
+       "strands": 27,
+       "strand_awg": 24,
+       "insulation_in": 0.045,
+       "insulation_mm": 1.14,
+       "jacket_in": null,
+       "nominal_od_in": 0.26,
+       "nominal_od_mm": 6.6,
+       "weight_lb_per_kft": 60,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 55,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 40,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "8",
+       "size": "8",
+       "area_cmil": 16510,
+       "area_kcmil": 16.5,
+       "strands": 37,
+       "strand_awg": 24,
+       "insulation_in": 0.06,
+       "insulation_mm": 1.52,
+       "jacket_in": null,
+       "nominal_od_in": 0.34,
+       "nominal_od_mm": 8.64,
+       "weight_lb_per_kft": 95,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 80,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 55,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "6",
+       "size": "6",
+       "area_cmil": 26240,
+       "area_kcmil": 26.2,
+       "strands": 61,
+       "strand_awg": 24,
+       "insulation_in": 0.06,
+       "insulation_mm": 1.52,
+       "jacket_in": null,
+       "nominal_od_in": 0.4,
+       "nominal_od_mm": 10.16,
+       "weight_lb_per_kft": 145,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 105,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 75,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "4",
+       "size": "4",
+       "area_cmil": 41740,
+       "area_kcmil": 41.7,
+       "strands": 105,
+       "strand_awg": 24,
+       "insulation_in": 0.06,
+       "insulation_mm": 1.52,
+       "jacket_in": null,
+       "nominal_od_in": 0.46,
+       "nominal_od_mm": 11.68,
+       "weight_lb_per_kft": 205,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 140,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 95,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "2",
+       "size": "2",
+       "area_cmil": 66360,
+       "area_kcmil": 66.4,
+       "strands": 154,
+       "strand_awg": 24,
+       "insulation_in": 0.06,
+       "insulation_mm": 1.52,
+       "jacket_in": null,
+       "nominal_od_in": 0.52,
+       "nominal_od_mm": 13.21,
+       "weight_lb_per_kft": 295,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 190,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 130,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "1",
+       "size": "1",
+       "area_cmil": 83690,
+       "area_kcmil": 83.7,
+       "strands": 224,
+       "strand_awg": 24,
+       "insulation_in": 0.08,
+       "insulation_mm": 2.03,
+       "jacket_in": null,
+       "nominal_od_in": 0.65,
+       "nominal_od_mm": 16.51,
+       "weight_lb_per_kft": 440,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 220,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 150,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "1/0",
+       "size": "1/0",
+       "area_cmil": 105600,
+       "area_kcmil": 105.6,
+       "strands": 280,
+       "strand_awg": 24,
+       "insulation_in": 0.08,
+       "insulation_mm": 2.03,
+       "jacket_in": null,
+       "nominal_od_in": 0.69,
+       "nominal_od_mm": 17.53,
+       "weight_lb_per_kft": 515,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 260,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 170,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "2/0",
+       "size": "2/0",
+       "area_cmil": 133100,
+       "area_kcmil": 133.1,
+       "strands": 329,
+       "strand_awg": 24,
+       "insulation_in": 0.08,
+       "insulation_mm": 2.03,
+       "jacket_in": null,
+       "nominal_od_in": 0.73,
+       "nominal_od_mm": 18.54,
+       "weight_lb_per_kft": 580,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 300,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 195,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "3/0",
+       "size": "3/0",
+       "area_cmil": 167800,
+       "area_kcmil": 167.8,
+       "strands": 456,
+       "strand_awg": 24,
+       "insulation_in": 0.08,
+       "insulation_mm": 2.03,
+       "jacket_in": null,
+       "nominal_od_in": 0.81,
+       "nominal_od_mm": 20.57,
+       "weight_lb_per_kft": 770,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 350,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 225,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "4/0",
+       "size": "4/0",
+       "area_cmil": 211600,
+       "area_kcmil": 211.6,
+       "strands": 551,
+       "strand_awg": 24,
+       "insulation_in": 0.08,
+       "insulation_mm": 2.03,
+       "jacket_in": null,
+       "nominal_od_in": 0.87,
+       "nominal_od_mm": 22.1,
+       "weight_lb_per_kft": 930,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 405,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 260,
+       "standard_nec_size": true,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "262.6",
+       "size": "262.6",
+       "area_cmil": 262600,
+       "area_kcmil": 262.6,
+       "strands": 646,
+       "strand_awg": 24,
+       "insulation_in": 0.095,
+       "insulation_mm": 2.41,
+       "jacket_in": null,
+       "nominal_od_in": 1.0,
+       "nominal_od_mm": 25.4,
+       "weight_lb_per_kft": 1130,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 467,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 296,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "313.3",
+       "size": "313.3",
+       "area_cmil": 313300,
+       "area_kcmil": 313.3,
+       "strands": 777,
+       "strand_awg": 24,
+       "insulation_in": 0.095,
+       "insulation_mm": 2.41,
+       "jacket_in": null,
+       "nominal_od_in": 1.06,
+       "nominal_od_mm": 26.92,
+       "weight_lb_per_kft": 1295,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 522,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 326,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "373.7",
+       "size": "373.7",
+       "area_cmil": 373700,
+       "area_kcmil": 373.7,
+       "strands": 925,
+       "strand_awg": 24,
+       "insulation_in": 0.095,
+       "insulation_mm": 2.41,
+       "jacket_in": null,
+       "nominal_od_in": 1.1,
+       "nominal_od_mm": 27.94,
+       "weight_lb_per_kft": 1545,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 591,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 362,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "444.4",
+       "size": "444.4",
+       "area_cmil": 444400,
+       "area_kcmil": 444.4,
+       "strands": 1110,
+       "strand_awg": 24,
+       "insulation_in": 0.095,
+       "insulation_mm": 2.41,
+       "jacket_in": null,
+       "nominal_od_in": 1.23,
+       "nominal_od_mm": 31.24,
+       "weight_lb_per_kft": 1820,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 652,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 400,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "535.3",
+       "size": "535.3",
+       "area_cmil": 535300,
+       "area_kcmil": 535.3,
+       "strands": 1332,
+       "strand_awg": 24,
+       "insulation_in": 0.12,
+       "insulation_mm": 3.05,
+       "jacket_in": null,
+       "nominal_od_in": 1.34,
+       "nominal_od_mm": 34.04,
+       "weight_lb_per_kft": 2195,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 728,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 445,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "646.4",
+       "size": "646.4",
+       "area_cmil": 646400,
+       "area_kcmil": 646.4,
+       "strands": 1600,
+       "strand_awg": 24,
+       "insulation_in": 0.12,
+       "insulation_mm": 3.05,
+       "jacket_in": null,
+       "nominal_od_in": 1.45,
+       "nominal_od_mm": 36.83,
+       "weight_lb_per_kft": 2560,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 815,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": 493,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      },
+      {
+       "id": "777.7",
+       "size": "777.7",
+       "area_cmil": 777700,
+       "area_kcmil": 777.7,
+       "strands": 1924,
+       "strand_awg": 24,
+       "insulation_in": 0.12,
+       "insulation_mm": 3.05,
+       "jacket_in": null,
+       "nominal_od_in": 1.5,
+       "nominal_od_mm": 38.1,
+       "weight_lb_per_kft": 3050,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 904,
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": null,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": true,
+       "flags": [
+        "RACEWAY_COLUMN_SUSPECT: printed 910 A is out of trend (646.4 = 493 A); not used"
+       ],
+       "status": "MANUFACTURER",
+       "source": "southwire_spec"
+      }
+     ]
+    },
+    "awc_dlo_2000v": {
+     "manufacturer": "Allied Wire & Cable (AWC)",
+     "series": "DLO 2000 V, tinned copper, EPR insulation, CPE jacket (1111 kcmil row only)",
+     "voltage_v": 2000,
+     "temp_c": 90,
+     "conductor": "tinned copper",
+     "source": "awc_1111",
+     "rows": [
+      {
+       "id": "1111",
+       "size": "1111",
+       "area_cmil": 1111000,
+       "area_kcmil": 1111.0,
+       "strands": 2750,
+       "strand_awg": 24,
+       "insulation_in": 0.125,
+       "insulation_mm": 3.175,
+       "jacket_in": 0.095,
+       "nominal_od_in": 1.791,
+       "nominal_od_mm": 45.49,
+       "weight_lb_per_kft": 4077,
+       "conductor_diameter_in": null,
+       "dc_resistance_ohm_per_kft": null,
+       "ampacity_free_air_90c_30c_a": 1115,
+       "ampacity_basis": "NOT STATED (printed 'Ampacity (30C)')",
+       "ampacity_ref_ambient_c": 30,
+       "ampacity_raceway_90c_30c_a": null,
+       "standard_nec_size": false,
+       "listing_rhh_rhw": null,
+       "flags": [
+        "AMPACITY_BASIS_NOT_STATED",
+        "AMBIENT_30C_ASSUMED_LIKE_SOUTHWIRE",
+        "PRINTED_DIAMETER_1.37_IN_AMBIGUOUS_NOT_USED"
+       ],
+       "status": "MANUFACTURER",
+       "source": "awc_1111"
+      }
+     ]
+    }
+   }
+  },
+  "doe_10cfr431_efficiency.json": {
+   "_meta": {
+    "source": "10 CFR Part 431 Subpart K: 431.192 (definitions), 431.196 (energy conservation standards), Appendix A (test method); eCFR versioner API",
+    "source_url": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196",
+    "definitions_url": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.192",
+    "appendix_a_url": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&subpart=K",
+    "ecfr_snapshot_date": "2026-10-14",
+    "retrieved": "2026-10-16",
+    "edition": "eCFR current to 2026-10-14; latest substantive amendment of 431.196 dated 2024-04-22 (final rule 89 FR 29834, FR Doc. 2024-07480, published 2024-04-22, effective 2024-07-08)",
+    "final_rule_url": "https://www.govinfo.gov/content/pkg/FR-2024-04-22/html/2024-07480.htm",
+    "status": "VERIFIED",
+    "units": "minimum efficiency, percent, at the per-unit test load; kVA = nameplate rating; BIL in kV",
+    "note": "All table values were parsed from the eCFR XML of 431.196 and checked against a text dump of the same XML. The 2029 tables (a)(3), (b)(3), (b)(4), (c)(3) were also compared with the regulatory text printed in the final rule (89 FR 29834) and match. Oddity recorded, not corrected: in Table 6 to paragraph (b)(3) (liquid-immersed, not submersible, on or after 2029-04-23) the three-phase 500 kVA minimum (99.38) is lower than 300 kVA (99.42), and 3750/5000 kVA (99.54/99.53) are lower than 2500 kVA (99.55). The final rule prints the same values; its preamble splits three-phase liquid-immersed units into equipment class 2A (15 to less than 500 kVA, about a 20 percent loss reduction) and 2B (500 kVA and above, about 5 percent), which explains the step. Linear interpolation between 300 and 500 kVA therefore gives values between 99.42 and 99.38, as the interpolation text of the rule requires. The eCFR captions the 2016 low-voltage dry-type table as Table 2 to Paragraph (a)(1) although it sits in paragraph (a)(2); it is recorded here as the (a)(2) table. Table 7 (submersible, 2029) has the same values as Table 5. Paragraph (d) (mining transformers) is reserved: no standard. Blank cells in the medium-voltage dry-type tables are null: the rule gives no minimum there. Pre-2016 tables carry no table number in the eCFR. A 2026 DOE review of the 2029 levels has been reported in secondary sources only; the eCFR snapshot above still shows the 2029 tables."
+   },
+   "scope": {
+    "citation": "10 CFR 431.192, definitions of distribution transformer, liquid-immersed, low-voltage dry-type and medium-voltage dry-type distribution transformer",
+    "status": "VERIFIED",
+    "max_input_v": 34500,
+    "max_output_v": 600,
+    "frequency_hz": 60,
+    "kva_range": {
+     "liquid": [
+      10,
+      5000
+     ],
+     "dry": [
+      15,
+      5000
+     ]
+    },
+    "lv_dry_max_input_v": 600,
+    "mv_dry_primary_v": [
+     601,
+     34500
+    ],
+    "exclusions_note": "431.192 excludes autotransformers, drive (isolation), grounding, machine-tool (control), nonventilated, rectifier, regulating, sealed, special-impedance, testing, UPS and welding transformers, and units with a tap range of 20 percent or more (paraphrased)."
+   },
+   "interpolation": {
+    "method": "linear",
+    "citation": "10 CFR 431.196 (a)(1)-(a)(3), (b)(1)-(b)(4), (c)(1)-(c)(3): each paragraph sets the minimum for a kVA rating not in the table by linear interpolation of the kVA and efficiency values immediately above and below that rating",
+    "status": "VERIFIED",
+    "outside_table": "The rule gives no extrapolation: a rating below the smallest or above the largest tabulated kVA (or next to a blank cell) has no minimum determinable from the table."
+   },
+   "test_procedure": {
+    "citation": "10 CFR 431 Subpart K, Appendix A: section 2.1 Table 2.1 (per-unit load), section 2.2 Table 2.2 (reference temperature), sections 5.1-5.3 (efficiency)",
+    "status": "VERIFIED",
+    "per_unit_load": {
+     "liquid": 0.5,
+     "mv_dry": 0.5,
+     "lv_dry": 0.35
+    },
+    "reference_temp_c": {
+     "liquid": {
+      "no_load": 20,
+      "load": 55
+     },
+     "mv_dry": {
+      "no_load": 20,
+      "load": 75
+     },
+     "lv_dry": {
+      "no_load": 20,
+      "load": 75
+     }
+    },
+    "efficiency_basis": "Appendix A 5.1-5.3: output Pos = nameplate apparent power x per-unit load; efficiency = Pos / (Pos + no-load loss + load loss adjusted to the per-unit load). The output is the kVA product itself, which is a unity power factor basis. The equation images (5-1 to 5-3) could not be read through the API (graphics redirect to an unblock page, not followed); the variable definitions were read.",
+    "efficiency_resolution_pct": 0.01
+   },
+   "categories": {
+    "lv_dry": {
+     "label": "Low-voltage dry-type",
+     "paragraph": "10 CFR 431.196(a)",
+     "test_load_pu": 0.35,
+     "windows": [
+      {
+       "id": "(a)(1)",
+       "paragraph": "10 CFR 431.196(a)(1)",
+       "table": "untitled table in paragraph (a)(1)",
+       "from": "2007-01-01",
+       "to": "2016-01-01",
+       "applies_to": "all",
+       "single_phase": [
+        [
+         15.0,
+         97.7
+        ],
+        [
+         25.0,
+         98.0
+        ],
+        [
+         37.5,
+         98.2
+        ],
+        [
+         50.0,
+         98.3
+        ],
+        [
+         75.0,
+         98.5
+        ],
+        [
+         100.0,
+         98.6
+        ],
+        [
+         167.0,
+         98.7
+        ],
+        [
+         250.0,
+         98.8
+        ],
+        [
+         333.0,
+         98.9
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         97.0
+        ],
+        [
+         30.0,
+         97.5
+        ],
+        [
+         45.0,
+         97.7
+        ],
+        [
+         75.0,
+         98.0
+        ],
+        [
+         112.5,
+         98.2
+        ],
+        [
+         150.0,
+         98.3
+        ],
+        [
+         225.0,
+         98.5
+        ],
+        [
+         300.0,
+         98.6
+        ],
+        [
+         500.0,
+         98.7
+        ],
+        [
+         750.0,
+         98.8
+        ],
+        [
+         1000.0,
+         98.9
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(a)(2)",
+       "paragraph": "10 CFR 431.196(a)(2)",
+       "table": "Table 2 (captioned in the eCFR as Table 2 to Paragraph (a)(1))",
+       "from": "2016-01-01",
+       "to": "2029-04-23",
+       "applies_to": "all",
+       "single_phase": [
+        [
+         15.0,
+         97.7
+        ],
+        [
+         25.0,
+         98.0
+        ],
+        [
+         37.5,
+         98.2
+        ],
+        [
+         50.0,
+         98.3
+        ],
+        [
+         75.0,
+         98.5
+        ],
+        [
+         100.0,
+         98.6
+        ],
+        [
+         167.0,
+         98.7
+        ],
+        [
+         250.0,
+         98.8
+        ],
+        [
+         333.0,
+         98.9
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         97.89
+        ],
+        [
+         30.0,
+         98.23
+        ],
+        [
+         45.0,
+         98.4
+        ],
+        [
+         75.0,
+         98.6
+        ],
+        [
+         112.5,
+         98.74
+        ],
+        [
+         150.0,
+         98.83
+        ],
+        [
+         225.0,
+         98.94
+        ],
+        [
+         300.0,
+         99.02
+        ],
+        [
+         500.0,
+         99.14
+        ],
+        [
+         750.0,
+         99.23
+        ],
+        [
+         1000.0,
+         99.28
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(a)(3)",
+       "paragraph": "10 CFR 431.196(a)(3)",
+       "table": "Table 3 to paragraph (a)(3)",
+       "from": "2029-04-23",
+       "to": null,
+       "applies_to": "all",
+       "single_phase": [
+        [
+         15.0,
+         98.39
+        ],
+        [
+         25.0,
+         98.6
+        ],
+        [
+         37.5,
+         98.74
+        ],
+        [
+         50.0,
+         98.81
+        ],
+        [
+         75.0,
+         98.95
+        ],
+        [
+         100.0,
+         99.02
+        ],
+        [
+         167.0,
+         99.09
+        ],
+        [
+         250.0,
+         99.16
+        ],
+        [
+         333.0,
+         99.23
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         98.31
+        ],
+        [
+         30.0,
+         98.58
+        ],
+        [
+         45.0,
+         98.72
+        ],
+        [
+         75.0,
+         98.88
+        ],
+        [
+         112.5,
+         98.99
+        ],
+        [
+         150.0,
+         99.06
+        ],
+        [
+         225.0,
+         99.15
+        ],
+        [
+         300.0,
+         99.22
+        ],
+        [
+         500.0,
+         99.31
+        ],
+        [
+         750.0,
+         99.38
+        ],
+        [
+         1000.0,
+         99.42
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      }
+     ]
+    },
+    "liquid": {
+     "label": "Liquid-immersed",
+     "paragraph": "10 CFR 431.196(b)",
+     "test_load_pu": 0.5,
+     "windows": [
+      {
+       "id": "(b)(1)",
+       "paragraph": "10 CFR 431.196(b)(1)",
+       "table": "untitled table in paragraph (b)(1)",
+       "from": "2010-01-01",
+       "to": "2016-01-01",
+       "applies_to": "all",
+       "single_phase": [
+        [
+         10.0,
+         98.62
+        ],
+        [
+         15.0,
+         98.76
+        ],
+        [
+         25.0,
+         98.91
+        ],
+        [
+         37.5,
+         99.01
+        ],
+        [
+         50.0,
+         99.08
+        ],
+        [
+         75.0,
+         99.17
+        ],
+        [
+         100.0,
+         99.23
+        ],
+        [
+         167.0,
+         99.25
+        ],
+        [
+         250.0,
+         99.32
+        ],
+        [
+         333.0,
+         99.36
+        ],
+        [
+         500.0,
+         99.42
+        ],
+        [
+         667.0,
+         99.46
+        ],
+        [
+         833.0,
+         99.49
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         98.36
+        ],
+        [
+         30.0,
+         98.62
+        ],
+        [
+         45.0,
+         98.76
+        ],
+        [
+         75.0,
+         98.91
+        ],
+        [
+         112.5,
+         99.01
+        ],
+        [
+         150.0,
+         99.08
+        ],
+        [
+         225.0,
+         99.17
+        ],
+        [
+         300.0,
+         99.23
+        ],
+        [
+         500.0,
+         99.25
+        ],
+        [
+         750.0,
+         99.32
+        ],
+        [
+         1000.0,
+         99.36
+        ],
+        [
+         1500.0,
+         99.42
+        ],
+        [
+         2000.0,
+         99.46
+        ],
+        [
+         2500.0,
+         99.49
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(b)(2)",
+       "paragraph": "10 CFR 431.196(b)(2)",
+       "table": "Table 5 to paragraph (b)(2)",
+       "from": "2016-01-01",
+       "to": "2029-04-23",
+       "applies_to": "all",
+       "single_phase": [
+        [
+         10.0,
+         98.7
+        ],
+        [
+         15.0,
+         98.82
+        ],
+        [
+         25.0,
+         98.95
+        ],
+        [
+         37.5,
+         99.05
+        ],
+        [
+         50.0,
+         99.11
+        ],
+        [
+         75.0,
+         99.19
+        ],
+        [
+         100.0,
+         99.25
+        ],
+        [
+         167.0,
+         99.33
+        ],
+        [
+         250.0,
+         99.39
+        ],
+        [
+         333.0,
+         99.43
+        ],
+        [
+         500.0,
+         99.49
+        ],
+        [
+         667.0,
+         99.52
+        ],
+        [
+         833.0,
+         99.55
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         98.65
+        ],
+        [
+         30.0,
+         98.83
+        ],
+        [
+         45.0,
+         98.92
+        ],
+        [
+         75.0,
+         99.03
+        ],
+        [
+         112.5,
+         99.11
+        ],
+        [
+         150.0,
+         99.16
+        ],
+        [
+         225.0,
+         99.23
+        ],
+        [
+         300.0,
+         99.27
+        ],
+        [
+         500.0,
+         99.35
+        ],
+        [
+         750.0,
+         99.4
+        ],
+        [
+         1000.0,
+         99.43
+        ],
+        [
+         1500.0,
+         99.48
+        ],
+        [
+         2000.0,
+         99.51
+        ],
+        [
+         2500.0,
+         99.53
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(b)(3)",
+       "paragraph": "10 CFR 431.196(b)(3)",
+       "table": "Table 6 to paragraph (b)(3)",
+       "from": "2029-04-23",
+       "to": null,
+       "applies_to": "non_submersible",
+       "single_phase": [
+        [
+         10.0,
+         98.77
+        ],
+        [
+         15.0,
+         98.88
+        ],
+        [
+         25.0,
+         99.0
+        ],
+        [
+         37.5,
+         99.1
+        ],
+        [
+         50.0,
+         99.15
+        ],
+        [
+         75.0,
+         99.23
+        ],
+        [
+         100.0,
+         99.29
+        ],
+        [
+         167.0,
+         99.46
+        ],
+        [
+         250.0,
+         99.51
+        ],
+        [
+         333.0,
+         99.54
+        ],
+        [
+         500.0,
+         99.59
+        ],
+        [
+         667.0,
+         99.62
+        ],
+        [
+         833.0,
+         99.64
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         98.92
+        ],
+        [
+         30.0,
+         99.06
+        ],
+        [
+         45.0,
+         99.14
+        ],
+        [
+         75.0,
+         99.22
+        ],
+        [
+         112.5,
+         99.29
+        ],
+        [
+         150.0,
+         99.33
+        ],
+        [
+         225.0,
+         99.38
+        ],
+        [
+         300.0,
+         99.42
+        ],
+        [
+         500.0,
+         99.38
+        ],
+        [
+         750.0,
+         99.43
+        ],
+        [
+         1000.0,
+         99.46
+        ],
+        [
+         1500.0,
+         99.51
+        ],
+        [
+         2000.0,
+         99.53
+        ],
+        [
+         2500.0,
+         99.55
+        ],
+        [
+         3750.0,
+         99.54
+        ],
+        [
+         5000.0,
+         99.53
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(b)(4)",
+       "paragraph": "10 CFR 431.196(b)(4)",
+       "table": "Table 7 to paragraph (b)(4)",
+       "from": "2029-04-23",
+       "to": null,
+       "applies_to": "submersible",
+       "single_phase": [
+        [
+         10.0,
+         98.7
+        ],
+        [
+         15.0,
+         98.82
+        ],
+        [
+         25.0,
+         98.95
+        ],
+        [
+         37.5,
+         99.05
+        ],
+        [
+         50.0,
+         99.11
+        ],
+        [
+         75.0,
+         99.19
+        ],
+        [
+         100.0,
+         99.25
+        ],
+        [
+         167.0,
+         99.33
+        ],
+        [
+         250.0,
+         99.39
+        ],
+        [
+         333.0,
+         99.43
+        ],
+        [
+         500.0,
+         99.49
+        ],
+        [
+         667.0,
+         99.52
+        ],
+        [
+         833.0,
+         99.55
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         98.65
+        ],
+        [
+         30.0,
+         98.83
+        ],
+        [
+         45.0,
+         98.92
+        ],
+        [
+         75.0,
+         99.03
+        ],
+        [
+         112.5,
+         99.11
+        ],
+        [
+         150.0,
+         99.16
+        ],
+        [
+         225.0,
+         99.23
+        ],
+        [
+         300.0,
+         99.27
+        ],
+        [
+         500.0,
+         99.35
+        ],
+        [
+         750.0,
+         99.4
+        ],
+        [
+         1000.0,
+         99.43
+        ],
+        [
+         1500.0,
+         99.48
+        ],
+        [
+         2000.0,
+         99.51
+        ],
+        [
+         2500.0,
+         99.53
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      }
+     ]
+    },
+    "mv_dry": {
+     "label": "Medium-voltage dry-type",
+     "paragraph": "10 CFR 431.196(c)",
+     "test_load_pu": 0.5,
+     "bil_bands_kv": [
+      {
+       "id": "20-45 kV",
+       "min": 20,
+       "max": 45
+      },
+      {
+       "id": "46-95 kV",
+       "min": 46,
+       "max": 95
+      },
+      {
+       "id": ">=96 kV",
+       "min": 96,
+       "max": null
+      }
+     ],
+     "windows": [
+      {
+       "id": "(c)(1)",
+       "paragraph": "10 CFR 431.196(c)(1)",
+       "table": "untitled table in paragraph (c)(1)",
+       "from": "2010-01-01",
+       "to": "2016-01-01",
+       "applies_to": "all",
+       "single_phase": [
+        [
+         15.0,
+         [
+          98.1,
+          97.86,
+          null
+         ]
+        ],
+        [
+         25.0,
+         [
+          98.33,
+          98.12,
+          null
+         ]
+        ],
+        [
+         37.5,
+         [
+          98.49,
+          98.3,
+          null
+         ]
+        ],
+        [
+         50.0,
+         [
+          98.6,
+          98.42,
+          null
+         ]
+        ],
+        [
+         75.0,
+         [
+          98.73,
+          98.57,
+          98.53
+         ]
+        ],
+        [
+         100.0,
+         [
+          98.82,
+          98.67,
+          98.63
+         ]
+        ],
+        [
+         167.0,
+         [
+          98.96,
+          98.83,
+          98.8
+         ]
+        ],
+        [
+         250.0,
+         [
+          99.07,
+          98.95,
+          98.91
+         ]
+        ],
+        [
+         333.0,
+         [
+          99.14,
+          99.03,
+          98.99
+         ]
+        ],
+        [
+         500.0,
+         [
+          99.22,
+          99.12,
+          99.09
+         ]
+        ],
+        [
+         667.0,
+         [
+          99.27,
+          99.18,
+          99.15
+         ]
+        ],
+        [
+         833.0,
+         [
+          99.31,
+          99.23,
+          99.2
+         ]
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         [
+          97.5,
+          97.18,
+          null
+         ]
+        ],
+        [
+         30.0,
+         [
+          97.9,
+          97.63,
+          null
+         ]
+        ],
+        [
+         45.0,
+         [
+          98.1,
+          97.86,
+          null
+         ]
+        ],
+        [
+         75.0,
+         [
+          98.33,
+          98.12,
+          null
+         ]
+        ],
+        [
+         112.5,
+         [
+          98.49,
+          98.3,
+          null
+         ]
+        ],
+        [
+         150.0,
+         [
+          98.6,
+          98.42,
+          null
+         ]
+        ],
+        [
+         225.0,
+         [
+          98.73,
+          98.57,
+          98.53
+         ]
+        ],
+        [
+         300.0,
+         [
+          98.82,
+          98.67,
+          98.63
+         ]
+        ],
+        [
+         500.0,
+         [
+          98.96,
+          98.83,
+          98.8
+         ]
+        ],
+        [
+         750.0,
+         [
+          99.07,
+          98.95,
+          98.91
+         ]
+        ],
+        [
+         1000.0,
+         [
+          99.14,
+          99.03,
+          98.99
+         ]
+        ],
+        [
+         1500.0,
+         [
+          99.22,
+          99.12,
+          99.09
+         ]
+        ],
+        [
+         2000.0,
+         [
+          99.27,
+          99.18,
+          99.15
+         ]
+        ],
+        [
+         2500.0,
+         [
+          99.31,
+          99.23,
+          99.2
+         ]
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(c)(2)",
+       "paragraph": "10 CFR 431.196(c)(2)",
+       "table": "Table 9 to paragraph (c)(2)",
+       "from": "2016-01-01",
+       "to": "2029-04-23",
+       "applies_to": "all",
+       "single_phase": [
+        [
+         15.0,
+         [
+          98.1,
+          97.86,
+          null
+         ]
+        ],
+        [
+         25.0,
+         [
+          98.33,
+          98.12,
+          null
+         ]
+        ],
+        [
+         37.5,
+         [
+          98.49,
+          98.3,
+          null
+         ]
+        ],
+        [
+         50.0,
+         [
+          98.6,
+          98.42,
+          null
+         ]
+        ],
+        [
+         75.0,
+         [
+          98.73,
+          98.57,
+          98.53
+         ]
+        ],
+        [
+         100.0,
+         [
+          98.82,
+          98.67,
+          98.63
+         ]
+        ],
+        [
+         167.0,
+         [
+          98.96,
+          98.83,
+          98.8
+         ]
+        ],
+        [
+         250.0,
+         [
+          99.07,
+          98.95,
+          98.91
+         ]
+        ],
+        [
+         333.0,
+         [
+          99.14,
+          99.03,
+          98.99
+         ]
+        ],
+        [
+         500.0,
+         [
+          99.22,
+          99.12,
+          99.09
+         ]
+        ],
+        [
+         667.0,
+         [
+          99.27,
+          99.18,
+          99.15
+         ]
+        ],
+        [
+         833.0,
+         [
+          99.31,
+          99.23,
+          99.2
+         ]
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         [
+          97.5,
+          97.18,
+          null
+         ]
+        ],
+        [
+         30.0,
+         [
+          97.9,
+          97.63,
+          null
+         ]
+        ],
+        [
+         45.0,
+         [
+          98.1,
+          97.86,
+          null
+         ]
+        ],
+        [
+         75.0,
+         [
+          98.33,
+          98.13,
+          null
+         ]
+        ],
+        [
+         112.5,
+         [
+          98.52,
+          98.36,
+          null
+         ]
+        ],
+        [
+         150.0,
+         [
+          98.65,
+          98.51,
+          null
+         ]
+        ],
+        [
+         225.0,
+         [
+          98.82,
+          98.69,
+          98.57
+         ]
+        ],
+        [
+         300.0,
+         [
+          98.93,
+          98.81,
+          98.69
+         ]
+        ],
+        [
+         500.0,
+         [
+          99.09,
+          98.99,
+          98.89
+         ]
+        ],
+        [
+         750.0,
+         [
+          99.21,
+          99.12,
+          99.02
+         ]
+        ],
+        [
+         1000.0,
+         [
+          99.28,
+          99.2,
+          99.11
+         ]
+        ],
+        [
+         1500.0,
+         [
+          99.37,
+          99.3,
+          99.21
+         ]
+        ],
+        [
+         2000.0,
+         [
+          99.43,
+          99.36,
+          99.28
+         ]
+        ],
+        [
+         2500.0,
+         [
+          99.47,
+          99.41,
+          99.33
+         ]
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      },
+      {
+       "id": "(c)(3)",
+       "paragraph": "10 CFR 431.196(c)(3)",
+       "table": "Table 10 to paragraph (c)(3)",
+       "from": "2029-04-23",
+       "to": null,
+       "applies_to": "all",
+       "single_phase": [
+        [
+         15.0,
+         [
+          98.29,
+          98.07,
+          null
+         ]
+        ],
+        [
+         25.0,
+         [
+          98.5,
+          98.31,
+          null
+         ]
+        ],
+        [
+         37.5,
+         [
+          98.64,
+          98.47,
+          null
+         ]
+        ],
+        [
+         50.0,
+         [
+          98.74,
+          98.58,
+          null
+         ]
+        ],
+        [
+         75.0,
+         [
+          98.86,
+          98.71,
+          98.68
+         ]
+        ],
+        [
+         100.0,
+         [
+          98.94,
+          98.8,
+          98.77
+         ]
+        ],
+        [
+         167.0,
+         [
+          99.06,
+          98.95,
+          98.92
+         ]
+        ],
+        [
+         250.0,
+         [
+          99.16,
+          99.06,
+          99.02
+         ]
+        ],
+        [
+         333.0,
+         [
+          99.23,
+          99.13,
+          99.09
+         ]
+        ],
+        [
+         500.0,
+         [
+          99.3,
+          99.21,
+          99.18
+         ]
+        ],
+        [
+         667.0,
+         [
+          99.34,
+          99.26,
+          99.24
+         ]
+        ],
+        [
+         833.0,
+         [
+          99.38,
+          99.31,
+          99.28
+         ]
+        ]
+       ],
+       "three_phase": [
+        [
+         15.0,
+         [
+          97.75,
+          97.46,
+          null
+         ]
+        ],
+        [
+         30.0,
+         [
+          98.11,
+          97.87,
+          null
+         ]
+        ],
+        [
+         45.0,
+         [
+          98.29,
+          98.07,
+          null
+         ]
+        ],
+        [
+         75.0,
+         [
+          98.5,
+          98.32,
+          null
+         ]
+        ],
+        [
+         112.5,
+         [
+          98.67,
+          98.52,
+          null
+         ]
+        ],
+        [
+         150.0,
+         [
+          98.79,
+          98.66,
+          null
+         ]
+        ],
+        [
+         225.0,
+         [
+          98.94,
+          98.82,
+          98.71
+         ]
+        ],
+        [
+         300.0,
+         [
+          99.04,
+          98.93,
+          98.82
+         ]
+        ],
+        [
+         500.0,
+         [
+          99.18,
+          99.09,
+          99.0
+         ]
+        ],
+        [
+         750.0,
+         [
+          99.29,
+          99.21,
+          99.12
+         ]
+        ],
+        [
+         1000.0,
+         [
+          99.35,
+          99.28,
+          99.2
+         ]
+        ],
+        [
+         1500.0,
+         [
+          99.43,
+          99.37,
+          99.29
+         ]
+        ],
+        [
+         2000.0,
+         [
+          99.49,
+          99.42,
+          99.35
+         ]
+        ],
+        [
+         2500.0,
+         [
+          99.52,
+          99.47,
+          99.4
+         ]
+        ],
+        [
+         3750.0,
+         [
+          99.5,
+          99.44,
+          99.4
+         ]
+        ],
+        [
+         5000.0,
+         [
+          99.48,
+          99.43,
+          99.39
+         ]
+        ]
+       ],
+       "status": "VERIFIED",
+       "source": "https://www.ecfr.gov/api/versioner/v1/full/2026-10-14/title-10.xml?part=431&section=431.196"
+      }
+     ]
+    }
+   }
+  },
+  "lug_catalog.json": {
+   "_meta": {
+    "status": "EMPTY",
+    "source": "Fill from the manufacturer's current catalogue and installation sheets (Burndy, Panduit, ILSCO, ABB/T&B, etc.). One row per part. Set status to VERIFIED with who/when once rows are entered.",
+    "fields": "conductor_material (Cu|Al), size (e.g. 500), stud_in (1/4|3/8|1/2|...), holes (1|2), part_no, die, torque (text with units)"
+   },
+   "lugs": []
+  },
+  "nec_240_4d_small_conductors.json": {
+   "_meta": {
+    "code": "NEC",
+    "edition": "NFPA 70-2023",
+    "clause": "NEC 240.4(D) Small Conductors",
+    "status": "UNVERIFIED",
+    "units": "maximum overcurrent device rating, A",
+    "note": "Entered from memory against NEC 2023 and consistent with public secondary sources; not checked against the printed code. Check against your licensed NFPA 70 copy before setting VERIFIED. 'Al' covers aluminum and copper-clad aluminum. 18 and 16 AWG Cu are listed for completeness; the feeder sizing module starts at 14 AWG. There are no 14 AWG or 8 AWG aluminum rows. 240.4(D) exceptions (240.4(E)/(G) applications) are not modelled.",
+    "pdf_check": {
+     "date": "2026-10-22",
+     "by": "Claude (AI assistant), from page images of an NFPA 70-2023 PDF. This is not an engineer verification; status stays UNVERIFIED until an engineer confirms (see calculations/VERIFICATION.md).",
+     "pages": {
+      "240.4(D)": "70-122 to 70-123"
+     },
+     "result": "Every value in this file matches 240.4(D)(1), (2), (4), (5), (6), (7) and (8). Not in this file: 240.4(D)(3), 14 AWG copper-clad aluminum, 10 A. The 18 and 16 AWG Cu values also have conditions (continuous load limits and listed devices) that this file does not model."
+    }
+   },
+   "Cu": {
+    "18": 7,
+    "16": 10,
+    "14": 15,
+    "12": 20,
+    "10": 30
+   },
+   "Al": {
+    "12": 15,
+    "10": 25
+   }
+  },
+  "reactance_nec_table9.json": {
+   "_meta": {
+    "source": "NEC Chapter 9 Table 9, XL for 600 V cables, 3 single conductors in conduit, ohm per 1000 ft at 60 Hz",
+    "status": "UNVERIFIED",
+    "note": "PVC and aluminum conduit share the same XL column.",
+    "edition": "NFPA 70-2023",
+    "pdf_check": {
+     "date": "2026-10-22",
+     "by": "Claude (AI assistant), from page images of an NFPA 70-2023 PDF. This is not an engineer verification; status stays UNVERIFIED until an engineer confirms (see calculations/VERIFICATION.md).",
+     "pages": {
+      "Chapter 9 Table 9": "70-726"
+     },
+     "result": "Every XL value in this file (PVC/aluminum and steel columns, 14 AWG to 1000 kcmil, ohm per 1000 ft) matches the printed table."
+    }
+   },
+   "pvc": {
+    "14": 0.058,
+    "12": 0.054,
+    "10": 0.05,
+    "8": 0.052,
+    "6": 0.051,
+    "4": 0.048,
+    "3": 0.047,
+    "2": 0.045,
+    "1": 0.046,
+    "1/0": 0.044,
+    "2/0": 0.043,
+    "3/0": 0.042,
+    "4/0": 0.041,
+    "250": 0.041,
+    "300": 0.041,
+    "350": 0.04,
+    "400": 0.04,
+    "500": 0.039,
+    "600": 0.039,
+    "750": 0.038,
+    "1000": 0.037
+   },
+   "aluminum": {
+    "14": 0.058,
+    "12": 0.054,
+    "10": 0.05,
+    "8": 0.052,
+    "6": 0.051,
+    "4": 0.048,
+    "3": 0.047,
+    "2": 0.045,
+    "1": 0.046,
+    "1/0": 0.044,
+    "2/0": 0.043,
+    "3/0": 0.042,
+    "4/0": 0.041,
+    "250": 0.041,
+    "300": 0.041,
+    "350": 0.04,
+    "400": 0.04,
+    "500": 0.039,
+    "600": 0.039,
+    "750": 0.038,
+    "1000": 0.037
+   },
+   "steel": {
+    "14": 0.073,
+    "12": 0.068,
+    "10": 0.063,
+    "8": 0.065,
+    "6": 0.064,
+    "4": 0.06,
+    "3": 0.059,
+    "2": 0.057,
+    "1": 0.057,
+    "1/0": 0.055,
+    "2/0": 0.054,
+    "3/0": 0.052,
+    "4/0": 0.051,
+    "250": 0.052,
+    "300": 0.051,
+    "350": 0.05,
+    "400": 0.049,
+    "500": 0.048,
+    "600": 0.048,
+    "750": 0.048,
+    "1000": 0.046
+   }
+  }
+ }
+}

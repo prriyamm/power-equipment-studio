@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { PECALC_VERSION, PECALC_DATA_FINGERPRINT } from "../src/engine/pecalc/datainfo.js";
 import { buildReport, sha256Hex, canonicalJson, inputHash, escapeHtml, kvRows, checkRows } from "../src/engine/report.js";
 
 const base = () => ({
@@ -47,6 +48,8 @@ test("structure: sections, hash, version, signature block, inline svg", () => {
   for (const s of ["<h2>Inputs</h2>", "<h2>Results</h2>", "<h2>Checks</h2>", "<h2>Notes</h2>", "<h2>Data status</h2>", "<h2>Sign-off</h2>"]) assert.ok(html.includes(s), s);
   assert.ok(html.includes(inputHash(base().inputs)));
   assert.ok(html.includes("9.9.9"));
+  // pecalc table-data fingerprint row, as in pecalc/report.py
+  assert.ok(html.includes(`<th>Table data</th><td class="hash">${PECALC_DATA_FINGERPRINT}</td><th>pecalc</th><td>${PECALC_VERSION}</td>`));
   assert.ok(html.includes("<svg id='fig1'><rect/></svg>"));
   assert.ok(html.includes("Prepared by") && html.includes("Checked by") && html.includes("Approved"));
   assert.ok(html.includes("A. Eng"));

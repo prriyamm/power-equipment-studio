@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { serializeSystem, parseSystem, toProject } from "../src/engine/systemio.js";
+import { serializeSystem, parseSystem, parseSystemWithWarning, toProject, VERSION } from "../src/engine/systemio.js";
+import { PECALC_VERSION, PECALC_DATA_FINGERPRINT } from "../src/engine/pecalc/datainfo.js";
 import { EXAMPLE_SYSTEM, EQUIPMENT, CONNECTORS, analyseSystem } from "../src/engine/system.js";
 
 const full = (s) => ({
@@ -67,4 +68,20 @@ test("terminal_c (NEC 110.14(C) terminal marking) round-trips and is omitted whe
   const back = parseSystem(serializeSystem(sys));
   assert.equal(back.connectors.find((c) => c.kind === "cable").terminal_c, 90);
   assert.ok(!serializeSystem(EXAMPLE_SYSTEM).includes("terminal_c"));
+});
+
+test("engine stamp: written on save, matching or missing stamp loads without a warning, a different one warns", () => {
+  const p = base();
+  assert.deepEqual(p.engine, { pecalc: PECALC_VERSION, data: PECALC_DATA_FINGERPRINT });
+  assert.equal(p.version, VERSION);          // the file format is unchanged: older builds ignore the extra key
+  assert.equal(parseSystemWithWarning(JSON.stringify(p)).warning, "");
+  const { engine, ...old } = p;               // a file saved before the stamp existed still opens
+  assert.equal(parseSystemWithWarning(JSON.stringify(old)).warning, "");
+  assert.deepEqual(parseSystemWithWarning(JSON.stringify(old)).system, parseSystem(JSON.stringify(p)));
+  const other = parseSystemWithWarning(JSON.stringify({ ...p, engine: { pecalc: "0.0.1", data: "deadbeef0000" } }));
+  assert.equal(other.warning, `Project file saved with pecalc 0.0.1 (now ${PECALC_VERSION}), data deadbeef0000 (now ${PECALC_DATA_FINGERPRINT}). Results can differ from the saved run.`);
+  assert.deepEqual(other.system, parseSystem(JSON.stringify(p)));   // the system itself loads unchanged
+  assert.match(parseSystemWithWarning(JSON.stringify({ ...p, engine: { pecalc: PECALC_VERSION, data: "deadbeef0000" } })).warning, /^Project file saved with data deadbeef0000/);
+  // A malformed stamp is ignored rather than rejected.
+  for (const bad of ["x", 5, [], { pecalc: 7 }, null]) assert.equal(parseSystemWithWarning(JSON.stringify({ ...p, engine: bad })).warning, "");
 });

@@ -150,7 +150,7 @@ extras = [
     {"noncontinuous_a": 30.0, "terminal_temp_c": 75},
     {"continuous_a": 24.0, "terminal_temp_c": 75, "hundred_percent_rated": True},
     {"noncontinuous_a": 20.0, "code": "CEC", "allow_placeholder_data": True},
-    # pecalc #10: 8 AWG Al 60 C = 30 A.
+    # pecalc #10: 8 AWG Al 60 C (30 A until the NFPA 70-2023 p. 70-187 check restored 35 A).
     {"noncontinuous_a": 33.0, "material": "Al", "terminal_temp_c": 60},
     {"noncontinuous_a": 30.0, "material": "Al", "terminal_temp_c": 60},
     # pecalc #10: NEC 110.14(C) terminal column from Table 310.16 in free air.
@@ -175,6 +175,53 @@ extras = [
     {"continuous_a": 100.0, "power_factor": 1.2},
     {"continuous_a": 100.0, "fault_ka": 10.0, "fault_clearing_s": -0.1},
     {"continuous_a": 100.0, "fault_ka": -10.0, "fault_clearing_s": 0.1},
+    # pecalc feeder review: terminal column is the lesser of the insulation and terminal columns.
+    {"continuous_a": 400.0, "insulation_temp_c": 75, "terminal_temp_c": 90, "sets": 3, "length_m": 5.0},
+    {"continuous_a": 200.0, "insulation_temp_c": 60, "terminal_temp_c": 75, "sets": 1, "length_m": 5.0},
+    {"continuous_a": 400.0, "insulation_temp_c": 75, "terminal_temp_c": 90, "length_m": 5.0},
+    {"code": "CEC", "continuous_a": 400.0, "allow_placeholder_data": True, "insulation_temp_c": 75,
+     "terminal_temp_c": 90},
+    # Default terminal temperature chosen per candidate size (60 C up to 1 AWG or 100 A, else 75 C).
+    {"noncontinuous_a": 105.0, "length_m": 1.0},
+    {"noncontinuous_a": 150.0, "length_m": 1.0},
+    {"noncontinuous_a": 150.0, "length_m": 1.0, "terminal_temp_c": 75},
+    {"noncontinuous_a": 60.0, "length_m": 1.0, "material": "Al"},
+    {"code": "CEC", "noncontinuous_a": 105.0, "allow_placeholder_data": True, "length_m": 1.0},
+    # Grouping assumption notes (sets x phases above current_carrying_per_raceway).
+    {"continuous_a": 400.0, "length_m": 5.0, "sets": 3},
+    {"continuous_a": 100.0, "length_m": 5.0, "sets": 1},
+    {"continuous_a": 1000.0, "length_m": 5.0, "sets": 4, "current_carrying_per_raceway": 12},
+    # Table 310.16 8 AWG Al 60 C = 35 A (NFPA 70-2023 p. 70-187).
+    {"noncontinuous_a": 35.0, "material": "Al", "terminal_temp_c": 60},
+    {"noncontinuous_a": 36.0, "material": "Al", "terminal_temp_c": 60, "length_m": 5.0},
+    {"noncontinuous_a": 33.0, "material": "Al", "terminal_temp_c": 60, "length_m": 5.0},
+    # Short-circuit inputs must come together; the note names the thermoset limit.
+    {"continuous_a": 100.0, "fault_ka": 20.0},
+    {"continuous_a": 100.0, "fault_clearing_s": 0.5},
+    {"continuous_a": 100.0, "fault_ka": 10.0, "fault_clearing_s": 0.5},
+    # Voltage scope: NEC Article 215 is 1000 V ac and below; CEC keeps 2000 V.
+    {"continuous_a": 100.0, "voltage_v": 1000.0},
+    {"continuous_a": 100.0, "voltage_v": 1500.0},
+    {"continuous_a": 100.0, "voltage_v": 1500.0, "code": "CEC", "allow_placeholder_data": True},
+    {"continuous_a": 100.0, "voltage_v": 2500.0, "code": "CEC", "allow_placeholder_data": True},
+    # Input validation messages.
+    {"continuous_a": -10.0, "noncontinuous_a": 50.0},
+    {"continuous_a": 100.0, "noncontinuous_a": -10.0},
+    {"continuous_a": 100.0, "length_m": 0.0},
+    {"continuous_a": 100.0, "length_m": -5.0},
+    {"continuous_a": 100.0, "sets": 0},
+    {"continuous_a": 100.0, "sets": -1},
+    {"continuous_a": 100.0, "sets": 1.5},
+    {"continuous_a": 100.0, "max_sets": 0},
+    {"continuous_a": 100.0, "phases": 2},
+    {"continuous_a": 100.0, "frequency_hz": 0.0},
+    {"continuous_a": 100.0, "max_vd_pct": 0.0},
+    {"continuous_a": 100.0, "current_carrying_per_raceway": 0},
+    {"continuous_a": 100.0, "ambient_c": 150.0},
+    {"continuous_a": 100.0, "ambient_c": -60.0},
+    {"continuous_a": 100.0, "conductor_temp_for_vd_c": 300.0},
+    {"continuous_a": 100.0, "insulation_sc_limit_c": 0.0},
+    {"continuous_a": 100.0, "fault_ka": 0.0, "fault_clearing_s": 0.5},
     # Errors.
     {"code": "IEC", "continuous_a": 100.0},
     {"material": "Fe", "continuous_a": 100.0},
@@ -221,6 +268,18 @@ lug_vectors += [run_lug(x) for x in [
     {"size": "9999", "circuit_current_a": 100},
     {"size": "500", "ground_size": "abc", "circuit_current_a": 100},
     {"size": "500", "neutral": True, "neutral_size": "zz", "circuit_current_a": 100},
+    # pecalc feeder review: lug input validation.
+    {"size": "500", "sets_per_phase": 0, "circuit_current_a": 400},
+    {"size": "500", "sets_per_phase": 1.5, "circuit_current_a": 400},
+    {"size": "500", "phases": 2, "circuit_current_a": 400},
+    {"size": "500", "circuit_current_a": 0},
+    {"size": "500", "circuit_current_a": -5},
+    {"size": "500", "equipment_terminal_temp_c": 0, "circuit_current_a": 400},
+    {"size": "500", "equipment_terminal_temp_c": 80, "circuit_current_a": 400},
+    {"size": "500", "code": "IEC", "circuit_current_a": 400},
+    {"size": "500", "material": "Fe", "circuit_current_a": 400},
+    {"size": "500", "equipment_terminal_temp_c": None, "circuit_current_a": 400},
+    {"size": "500", "equipment_terminal_temp_c": 90, "circuit_current_a": 400},
 ]]
 # The feeder example's lug case.
 lug_vectors.append(run_lug({"size": "900", "circuit_current_a": 400.0, "equipment_terminal_temp_c": 75}))

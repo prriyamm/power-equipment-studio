@@ -2,6 +2,7 @@
  * Equipment and connectors keep only fields that differ from the catalogue defaults;
  * parseSystem restores the defaults and validates strictly. Pure, no DOM. */
 import { EQUIPMENT, CONNECTORS, compileSystem } from "./system.js";
+import { engineStamp, engineMismatch } from "./pecalc/datainfo.js";
 
 export const FORMAT = "power-studio-system";
 export const VERSION = 1;
@@ -24,6 +25,9 @@ export function toProject(sys) {
   return {
     format: FORMAT, version: VERSION, name: sys.name ?? "Untitled package", base_mva: sys.base_mva ?? 10,
     ...(sys.code ? { code: sys.code } : {}),
+    // pecalc version and table-data fingerprint of the engine that saved the file; read back as a warning only.
+    // Files without it (older builds) still load, and older builds ignore it, so VERSION stays 1.
+    engine: engineStamp(),
     equipment: (sys.equipment || []).map((e) => strip(e, EQUIPMENT[e.type]?.defaults || {}, ["id", "type", "name", "gx", "gy"])),
     connectors: (sys.connectors || []).map((c) => strip(c, CONNECTORS[c.kind]?.defaults || {}, ["id", "kind", "from", "to"])),
   };
@@ -36,7 +40,11 @@ const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 const STRUCTURAL = /Unknown equipment type|Duplicate equipment id|does not exist|has no terminal|connects a terminal to itself/;
 
 /* Returns a system with defaults restored. Throws Error with a readable message on any problem. */
-export function parseSystem(text) {
+export function parseSystem(text) { return parseSystemWithWarning(text).system; }
+
+/* Same, as { system, warning }. warning is "" unless the file's engine stamp (pecalc version, table-data
+ * fingerprint) differs from this build's: the file still loads, but its results can differ from the saved run. */
+export function parseSystemWithWarning(text) {
   let d;
   try { d = typeof text === "string" ? JSON.parse(text) : text; } catch (e) { throw new Error(`Not valid JSON: ${e.message}`); }
   if (!isObj(d)) throw new Error("A system file must be a JSON object.");
@@ -78,5 +86,5 @@ export function parseSystem(text) {
   const sys = { name: d.name ?? "Untitled package", base_mva, ...(d.code ? { code: d.code } : {}), equipment, connectors };
   const bad = compileSystem(sys).issues.find((x) => x.level === "error" && STRUCTURAL.test(x.msg));
   if (bad) throw new Error(bad.msg);
-  return sys;
+  return { system: sys, warning: engineMismatch(d.engine, "Project file") };
 }

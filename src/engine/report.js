@@ -2,6 +2,9 @@
 // Pure: no DOM, no crypto.subtle (SHA-256 is implemented below so it runs in node and in the browser alike).
 // Mirrors the structure of pecalc/report.py: header block with engine version and input hash, result banner,
 // data-status warnings, inputs, results, checks with clauses, notes and a Prepared / Checked / Approved block.
+// The header also carries the pecalc table-data fingerprint (pecalc/datainfo.py data_fingerprint), so a report shows
+// which table data produced it.
+import { PECALC_VERSION, PECALC_DATA_FINGERPRINT } from "./pecalc/datainfo.js";
 
 /* ------------------------------------------------------------------ text helpers */
 export function escapeHtml(v) {
@@ -195,7 +198,7 @@ function checksTable(checks) {
 
 /**
  * Build the calculation package.
- * @param {object} o {title, module, subtitle, inputs, results, checks, tables, figures, notes, dataStatus, meta, engineVersion}
+ * @param {object} o {title, module, subtitle, inputs, results, checks, tables, figures, notes, dataStatus, meta, engineVersion, dataFingerprint, pecalcVersion}
  * @returns {string} complete HTML document
  */
 export function buildReport(o = {}) {
@@ -237,7 +240,8 @@ export function buildReport(o = {}) {
     tw(`<table class="meta"><tbody>` +
       `<tr><th>Project</th><td>${E(meta.project || "-")}</td><th>Date</th><td>${E(date)}</td></tr>` +
       `<tr><th>Module</th><td>${E(o.module || "-")}</td><th>Engine version</th><td>Power Equipment Studio ${E(version)}</td></tr>` +
-      `<tr><th>Input hash</th><td colspan="3" class="hash">SHA-256 ${E(hash)}</td></tr></tbody></table>`),
+      `<tr><th>Input hash</th><td colspan="3" class="hash">SHA-256 ${E(hash)}</td></tr>` +
+      `<tr><th>Table data</th><td class="hash">${E(o.dataFingerprint ?? PECALC_DATA_FINGERPRINT)}</td><th>pecalc</th><td>${E(o.pecalcVersion ?? PECALC_VERSION)}</td></tr></tbody></table>`),
     `<div class="banner ${banner[0]}">${E(banner[1])}</div>`,
     warn,
   ];

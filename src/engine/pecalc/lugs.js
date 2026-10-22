@@ -6,7 +6,9 @@
 // only from a catalogue file (data/lug_catalog.json) the user fills from the
 // manufacturer's current catalogue and installation sheets; without it the
 // result says "use the manufacturer's value" rather than inventing one.
+import * as amp from "./ampacity.js";
 import * as cond from "./conductors.js";
+import * as validate from "./validate.js";
 import CATALOG from "./data/lug_catalog.json" with { type: "json" };
 
 // Typical stud size and 2-hole spacing by conductor size for NEMA-pattern
@@ -89,8 +91,15 @@ function _line(terminal, size, material, qty, termination) {
 
 export function selectLugs(inp) {
   const size = cond.normalizeSize(inp.size);
+  validate.oneOf("code", inp.code, amp.CODES);
+  validate.oneOf("material", inp.material, Object.keys(cond.MATERIALS));
+  validate.integerAtLeast("sets_per_phase", inp.sets_per_phase, 1);
+  validate.oneOf("phases", inp.phases, [1, 3]);
+  validate.positive("circuit_current_a", inp.circuit_current_a, "A");
+  const marked = inp.equipment_terminal_temp_c !== null && inp.equipment_terminal_temp_c !== undefined;
+  if (marked) validate.oneOf("equipment_terminal_temp_c", inp.equipment_terminal_temp_c, amp.COLUMNS);
   let t_term, basis;
-  if (inp.equipment_terminal_temp_c) { t_term = inp.equipment_terminal_temp_c; basis = "equipment marking"; }
+  if (marked) { t_term = inp.equipment_terminal_temp_c; basis = "equipment marking"; }
   else [t_term, basis] = defaultTerminalTemp(inp.code, inp.circuit_current_a, size);
 
   const lines = [_line(`Phase (${inp.phases} x ${inp.sets_per_phase} per phase)`, size, inp.material,

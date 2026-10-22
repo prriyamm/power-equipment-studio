@@ -144,6 +144,9 @@ test("sizeFeeder does not mutate its input and reports considered options", () =
   const inp = S.feederInput({ continuous_a: 400, length_m: 30.48 });
   const r = S.sizeFeeder(inp);
   assert.equal(inp.terminal_temp_c, null);
-  assert.equal(r.input.terminal_temp_c, 75);
+  // The terminal default is now chosen per candidate size and reported in each option's notes; it is no
+  // longer written back to the input (pecalc feeder review).
+  assert.equal(r.input.terminal_temp_c, null);
+  assert.ok(r.recommended.notes.some((n) => n.startsWith("Terminal temperature 75 C by default")));
   assert.ok(r.considered.length >= r.alternatives.length + 1);
 });
