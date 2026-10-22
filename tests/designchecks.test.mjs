@@ -44,6 +44,7 @@ test("cable bus run: the System view skips the NOT CHECKED withstand check unles
   const run = { id: "CB-X", size: "750", sets: 4, length_ft: 60 };
   const none = cableBusCheck(run, 1500, 0.48, 30, 15);
   assert.ok(!none.checks.some((k) => k.name.startsWith("Conductor short-circuit withstand")));
+  assert.ok(none.notes.some((n) => n.startsWith("Conductor short-circuit withstand NOT CHECKED")), "the skip is visible");
   const timed = cableBusCheck({ ...run, fault_clearing_s: 0.5 }, 1500, 0.48, 30, 15);
   const w = timed.checks.find((k) => k.name === "Conductor short-circuit withstand");
   assert.ok(w && w.passed, "4 x 750 kcmil Cu carries 30 kA for 0.5 s");
