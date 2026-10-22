@@ -2,7 +2,16 @@
  "_meta": {
   "source": "NEC Chapter 9 Table 9, XL for 600 V cables, 3 single conductors in conduit, ohm per 1000 ft at 60 Hz",
   "status": "UNVERIFIED",
-  "note": "PVC and aluminum conduit share the same XL column."
+  "note": "PVC and aluminum conduit share the same XL column.",
+  "edition": "NFPA 70-2023",
+  "pdf_check": {
+   "date": "2026-10-22",
+   "by": "Claude (AI assistant), from page images of an NFPA 70-2023 PDF. This is not an engineer verification; status stays UNVERIFIED until an engineer confirms (see calculations/VERIFICATION.md).",
+   "pages": {
+    "Chapter 9 Table 9": "70-726"
+   },
+   "result": "Every XL value in this file (PVC/aluminum and steel columns, 14 AWG to 1000 kcmil, ohm per 1000 ft) matches the printed table."
+  }
  },
  "pvc": {
   "14": 0.058,

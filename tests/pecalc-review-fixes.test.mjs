@@ -169,10 +169,14 @@ test("validation: messages quote the value as Python repr of a float", () => {
 });
 
 // ------------------------------------------------------------------ Fix 7: 8 AWG Al 60 C
-test("Table 310.16: 8 AWG Al row 30 / 40 / 45 A; 33 A Al at 60 C needs 6 AWG", () => {
-  assert.deepEqual([60, 75, 90].map((t) => amp.tableAmpacity("NEC", "raceway", "Al", "8", t)), [30.0, 40.0, 45.0]);
+// Changed with the pecalc data check: the printed NFPA 70-2023 Table 310.16 (p. 70-187) gives 8 AWG Al
+// 60 / 75 / 90 C = 35 / 40 / 45 A. The earlier 30 A came from secondary sources that follow older editions.
+// Status stays UNVERIFIED (the check is not an engineer verification).
+test("Table 310.16: 8 AWG Al row 35 / 40 / 45 A (printed NFPA 70-2023 p. 70-187); 33 A Al at 60 C keeps 8 AWG, 36 A needs 6 AWG", () => {
+  assert.deepEqual([60, 75, 90].map((t) => amp.tableAmpacity("NEC", "raceway", "Al", "8", t)), [35.0, 40.0, 45.0]);
   assert.equal(amp.tableInfo("NEC", "raceway").status, "UNVERIFIED");
-  assert.equal(feeder({ noncontinuous_a: 33, material: "Al", terminal_temp_c: 60, length_m: 5 }).recommended.size, "6");
+  assert.equal(feeder({ noncontinuous_a: 33, material: "Al", terminal_temp_c: 60, length_m: 5 }).recommended.size, "8");
+  assert.equal(feeder({ noncontinuous_a: 36, material: "Al", terminal_temp_c: 60, length_m: 5 }).recommended.size, "6");
 });
 
 // ------------------------------------------------------------------ Fix 8: EPR resistivity by rated voltage

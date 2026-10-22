@@ -10,7 +10,16 @@
   "rated_ambient_c": 30,
   "status": "UNVERIFIED",
   "source": "Entered from memory of NEC Tables 310.16 (raceway/cable/earth, <=3 current-carrying conductors) and 310.17 (single conductors in free air). Check every row against your licensed NFPA 70 copy, then set status to VERIFIED and record who checked it and when.",
-  "note": "Correction 2026-10: Table 310.16 8 AWG Al 60 C corrected 35 A -> 30 A (75 C 40 A and 90 C 45 A unchanged) to match multiple public reprints of NEC Table 310.16 (secondary sources). Still UNVERIFIED against the printed code.",
+  "note": "Table 310.16 8 AWG Al 60 C is 35 A in the printed NFPA 70-2023 (p. 70-187). An earlier change (2026-10) set it to 30 A from secondary sources, which follow older editions; that change is reverted. Still UNVERIFIED: see pdf_check.",
+  "pdf_check": {
+   "date": "2026-10-22",
+   "by": "Claude (AI assistant), from page images of an NFPA 70-2023 PDF. This is not an engineer verification; status stays UNVERIFIED until an engineer confirms (see calculations/VERIFICATION.md).",
+   "pages": {
+    "Table 310.16": "70-187",
+    "Table 310.17": "70-188"
+   },
+   "result": "Every value in this file (14 AWG to 2000 kcmil, Cu and Al, 60/75/90 C) matches the printed tables after the 8 AWG Al 60 C fix. Rows not in this file: 18 and 16 AWG Cu (90 C column only) in both tables."
+  },
   "tables": {
    "raceway": "Table 310.16",
    "free_air": "Table 310.17"
@@ -171,7 +180,7 @@
     35
    ],
    "8": [
-    30,
+    35,
     40,
     45
    ],

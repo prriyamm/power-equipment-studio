@@ -33,8 +33,17 @@ export function cableBusCheck(c, current_a, kv, fault_ka, xr) {
     terminal_temp_c: kv > 2 ? Math.min(c.insulation_c ?? 90, 90) : connectorTerminalC({ kind: "cablebus", ...c, sets })[0],
     fault_ka: fault_ka ?? null, x_over_r: Math.min(Math.max(xr ?? 15, 2), 60),
   };
+  // A run can carry its own clearing time; the System view has no protection data to take one from.
+  if (c.fault_clearing_s > 0) inp.fault_clearing_s = c.fault_clearing_s;
   if (kv > 2) Object.assign(inp, { insulation: "EPR", insulation_mm: mvInsulation(kv), shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "single_point" });
-  return analyseCableBus(cableBusInput(inp));
+  const res = analyseCableBus(cableBusInput(inp));
+  // Without a clearing time the engine reports the conductor withstand as a failed "NOT CHECKED" check. The System
+  // view cannot supply one, so that check is left out here (as before the pecalc review) and the run notes it.
+  if (fault_ka && !(c.fault_clearing_s > 0)) {
+    res.checks = res.checks.filter((k) => !k.name.startsWith("Conductor short-circuit withstand (NOT CHECKED"));
+    res.passed = res.checks.every((k) => k.passed);
+  }
+  return res;
 }
 
 export function gearBusCheck(e, fault_ka, xr) {

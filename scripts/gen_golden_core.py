@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = os.environ.get("PECALC_PATH") or str(HERE.parent.parent / "power-equipment-engineering" / "calculations")
+ROOT = os.environ.get("PECALC_ROOT") or os.environ.get("PECALC_PATH") or str(HERE.parent.parent / "power-equipment-engineering" / "calculations")
 sys.path.insert(0, ROOT)
 
 from pecalc import ampacity as amp  # noqa: E402

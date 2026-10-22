@@ -23,7 +23,7 @@ export const CLAUSES = {
     parallel: "NEC 310.10(G)",
     terminal: "NEC 110.14(C)",
     continuous: "NEC 215.2(A)(1)",
-    vd: "NEC 215.2(A)(2) Informational Note (3 % feeder / 5 % total)",
+    vd: "NEC 215.2(A)(2) Informational Note No. 2 (3 % feeder / 5 % total)",
   },
   CEC: {
     ambient: "CEC Table 5A (equation basis)",

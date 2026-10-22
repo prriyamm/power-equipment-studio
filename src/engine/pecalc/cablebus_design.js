@@ -9,7 +9,9 @@
 
    Enclosure sizes and clearances are catalogue/design inputs, not code values. */
 import * as cond from "./conductors.js";
-import { cableBusInput, analyse, construction, perCableAmpacity, resolveMethod, pyG } from "./cablebus.js";
+import { cableBusInput, analyse, construction, perCableAmpacity, resolveMethod, pyG, defaultTerminalTempC,
+  requireAmbientBelow, terminationAmpacity } from "./cablebus.js";
+import * as validate from "./validate.js";
 import { freeAirAmpacity } from "./thermal.js";
 import { pyRound, pyFixed } from "./util.js";
 
@@ -29,14 +31,18 @@ const _REQ_DEFAULTS = {
   max_per_phase: 12,
   extra_per_phase: 2,             // also try this many more than the minimum
   tier_options: [1, 2, 3, 4],
-  ampacity_method: "auto", insulation_temp_c: 90, terminal_temp_c: 90,
+  ampacity_method: "auto", insulation_temp_c: 90,
+  terminal_temp_c: null,          // null: 75 C up to 2000 V, 90 C above (see CableBusInput)
   insulation: "XLPE", insulation_mm: null, shield_mm: 0.0, jacket_mm: 0.0, jacket: "PVC",
   shield_bonding: null,           // default: single_point above 2000 V, none below
   enclosure_widths_in: [12, 18, 24, 30, 36, 42, 48],
   enclosure_heights_in: [6, 8, 10, 12, 14, 16],
   edge_clearance_mm: 25.0, vertical_clearance_mm: 25.0, block_lip_mm: 10.0,
   enclosure_alloy: "6063-T6", side_thickness_mm: 6.35, covers_continuous: false,
-  fault_ka: null, x_over_r: 15.0, support_span_m: 0.9144,
+  fault_ka: null,
+  fault_clearing_s: null,         // enables the conductor short-circuit withstand check
+  shield_voltage_limit_v: null,   // owner / utility limit on the single-point standing voltage
+  x_over_r: 15.0, support_span_m: 0.9144,
   block_material: "GPO-3", block_thickness_mm: 25.4, block_safety_factor: 2.0, block_rated_load_n: null,
   max_loading_pct: 95.0, max_vd_pct: 3.0, top_n: 8, allow_placeholder_data: false,
 };
@@ -63,7 +69,8 @@ function _baseInput(req, size) {
     insulation_temp_c: req.insulation_temp_c, terminal_temp_c: req.terminal_temp_c, ambient_c: req.ambient_c,
     ampacity_method: req.ampacity_method, insulation: req.insulation, insulation_mm: req.insulation_mm,
     shield_mm: req.shield_mm, jacket_mm: req.jacket_mm, jacket: req.jacket, shield_bonding: bonding,
-    max_vd_pct: req.max_vd_pct, enclosure_alloy: req.enclosure_alloy, side_thickness_mm: req.side_thickness_mm,
+    max_vd_pct: req.max_vd_pct, fault_clearing_s: req.fault_clearing_s,
+    shield_voltage_limit_v: req.shield_voltage_limit_v, enclosure_alloy: req.enclosure_alloy, side_thickness_mm: req.side_thickness_mm,
     covers_continuous: req.covers_continuous, x_over_r: req.x_over_r, support_span_m: req.support_span_m,
     allow_placeholder_data: req.allow_placeholder_data, field_distances_m: [1.0],
   });
@@ -83,6 +90,7 @@ function _estimateAmpacity(base, od) {
   if (resolveMethod(base) === "calculated") {
     const cons = construction(base);
     if (cons === null) throw new Error("Calculated ampacity needs the cable construction");
+    requireAmbientBelow(base.ambient_c, base.insulation_temp_c);
     return freeAirAmpacity(cons, base.ambient_c,
       { installation: "isolated", lambda1: 0.0, freq: base.frequency_hz, spacing_mm: 2 * od }).ampacity_a;
   }
@@ -115,16 +123,38 @@ function _minBy(list, key) {
   return best;
 }
 
+function _validateRequest(req) {
+  validate.voltage("voltage_v", req.voltage_v);
+  validate.positive("current_a", req.current_a, "A");
+  validate.positive("length_m", req.length_m, "m");
+  validate.positive("frequency_hz", req.frequency_hz, "Hz");
+  validate.countAtLeast("max_per_phase", req.max_per_phase);
+  if (!req.tier_options || !req.tier_options.length) throw new Error("tier_options must list at least one tier count");
+  for (const t of req.tier_options) validate.countAtLeast("tiers (tier_options)", t);
+  const given = (x) => x !== null && x !== undefined;
+  if (given(req.fault_ka)) validate.nonNegative("fault_ka", req.fault_ka, "kA");
+  if (given(req.fault_clearing_s)) validate.clearingTime("fault_clearing_s", req.fault_clearing_s);
+  if (given(req.shield_voltage_limit_v)) validate.positive("shield_voltage_limit_v", req.shield_voltage_limit_v, "V");
+}
+
 /** Returns {request, options, considered, notes}; each option has the DesignOption fields. */
 export function designOptions(req) {
+  _validateRequest(req);
   const sizes = (req.sizes && req.sizes.length ? req.sizes : ["500", "600", "750", "1000"]).map(cond.normalizeSize);
   const notes = [];
+  if (req.voltage_v > 600 && req.voltage_v <= 2000 && !req.insulation_mm) {
+    notes.push("Cable OD is estimated from a 600 V insulation wall, but voltage_v is " +
+      `${pyG(req.voltage_v)} V: give insulation_mm (cable construction) for the real cable.`);
+  }
   const candidates = [];
   let considered = 0;
   for (const size of sizes) {
     const base = _baseInput(req, size);
     const od = _cableOd(req, base);
-    const a_est = _estimateAmpacity(base, od);
+    let a_est = _estimateAmpacity(base, od);
+    // Termination limit (NEC 110.14(C), Table 310.16) also caps the load per conductor.
+    const a_term = terminationAmpacity(base, size, base.terminal_temp_c || defaultTerminalTempC(base.voltage_v)[0])[0];
+    if (a_term !== null) a_est = Math.min(a_est, a_term);
     if (a_est === 0) throw new Error("division by zero");
     const n_min = Math.max(1, Math.ceil(req.current_a / a_est));
     if (n_min > req.max_per_phase) {
@@ -158,51 +188,79 @@ export function designOptions(req) {
     }
   }
 
-  const passing = candidates.filter((c) => c.passed);
-  const failing = candidates.filter((c) => !c.passed);
-  passing.sort(_cmpKey((c) => [c.copper_mm2_per_phase, c.inside_w_mm * c.inside_h_mm, c.max_loading_pct]));
-  failing.sort(_cmpKey((c) => [c.max_loading_pct]));
-  const ranked = passing.slice(0, req.top_n).concat(
-    passing.length < 3 ? failing.slice(0, Math.max(0, req.top_n - passing.length)) : []);
-  ranked.forEach((c, i) => { c.rank = i + 1; });
+  const block_mat = Object.prototype.hasOwnProperty.call(BLOCK_MATERIALS, req.block_material)
+    ? BLOCK_MATERIALS[req.block_material] : null;
+  const block_allow = block_mat ? block_mat.tensile / req.block_safety_factor : null;
+  const block_done = new Set();
 
-  if (passing.length) {
-    const least_cu = _minBy(passing, (c) => [c.copper_mm2_per_phase, c.inside_w_mm * c.inside_h_mm]);
-    const smallest = _minBy(passing, (c) => [c.inside_w_mm * c.inside_h_mm, c.copper_mm2_per_phase]);
-    const margin = _minBy(passing, (c) => [c.max_loading_pct, c.copper_mm2_per_phase]);
-    for (const [c, tag] of [[least_cu, "least copper"], [smallest, "smallest enclosure"], [margin, "most margin"]]) {
-      c.tags.push(tag);
-      if (!ranked.includes(c)) ranked.push(c);
-    }
-    ranked.forEach((c, i) => { c.rank = i + 1; });
-  }
-
-  if (req.fault_ka) {
-    const mat = Object.prototype.hasOwnProperty.call(BLOCK_MATERIALS, req.block_material)
-      ? BLOCK_MATERIALS[req.block_material] : null;
-    const allow = mat ? mat.tensile / req.block_safety_factor : null;
-    for (const c of ranked) {
+  // Support-block check at fault_ka (once per option); updates c.passed / c.failed_checks.
+  const block_ok = (c) => {
+    if (!req.fault_ka) return c.passed;
+    if (!block_done.has(c)) {
+      block_done.add(c);
       const r = analyse(cableBusInput({ ...c.case_inputs, fault_ka: req.fault_ka }), false);
       const load = r.fault_force_n_per_m * req.support_span_m; // N on one block at the worst cable
       const ligament = Math.min(r.pitch_mm - r.cable_od_mm, r.cable_od_mm);
       const stress = load / (req.block_thickness_mm * ligament); // N/mm2 = MPa
       c.block_load_n = pyRound(load, 0);
       c.block_stress_mpa = pyRound(stress, 1);
-      c.block_allowable_mpa = allow === null ? null : pyRound(allow, 1);
-      if (allow !== null && stress > allow) {
+      c.block_allowable_mpa = block_allow === null ? null : pyRound(block_allow, 1);
+      if (block_allow !== null && stress > block_allow) {
         c.passed = false;
-        c.failed_checks.push(`${req.block_material} block web stress ${pyFixed(stress, 1)} > ${pyFixed(allow, 1)} MPa`);
+        c.failed_checks.push(`${req.block_material} block web stress ${pyFixed(stress, 1)} > ${pyFixed(block_allow, 1)} MPa`);
       }
       if (req.block_rated_load_n && load > req.block_rated_load_n) {
         c.passed = false;
         c.failed_checks.push(`Block load ${pyFixed(load, 0)} N > rated ${pyFixed(req.block_rated_load_n, 0)} N`);
       }
+      if (req.fault_clearing_s) {
+        // Conductor withstand at this fault level (the first analysis ran without fault_ka).
+        for (const chk of r.checks) {
+          if (!chk.passed && !c.failed_checks.includes(chk.name)) {
+            c.passed = false;
+            c.failed_checks.push(chk.name);
+          }
+        }
+      }
     }
+    return c.passed;
+  };
+
+  // Rank and tag only options that pass every check including the support blocks; the block check runs
+  // lazily in rank order, so only as many options as are needed are analysed a second time.
+  const best = (options, key) => [...options].sort(_cmpKey(key)).find((c) => block_ok(c)) ?? null;
+
+  const prelim = candidates.filter((c) => c.passed);
+  const cost_key = (c) => [c.copper_mm2_per_phase, c.inside_w_mm * c.inside_h_mm, c.max_loading_pct];
+  const passing = [];
+  for (const c of [...prelim].sort(_cmpKey(cost_key))) {
+    if (passing.length >= req.top_n) break;
+    if (block_ok(c)) passing.push(c);
+  }
+  if (prelim.length) {
+    const least_cu = best(prelim, (c) => [c.copper_mm2_per_phase, c.inside_w_mm * c.inside_h_mm]);
+    const smallest = best(prelim, (c) => [c.inside_w_mm * c.inside_h_mm, c.copper_mm2_per_phase]);
+    const margin = best(prelim, (c) => [c.max_loading_pct, c.copper_mm2_per_phase]);
+    for (const [c, tag] of [[least_cu, "least copper"], [smallest, "smallest enclosure"], [margin, "most margin"]]) {
+      if (c === null) continue;
+      c.tags.push(tag);
+      if (!passing.includes(c)) passing.push(c);
+    }
+  }
+  const failing = candidates.filter((c) => !c.passed).sort(_cmpKey((c) => [c.max_loading_pct]));
+  const ranked = passing.concat(failing.slice(0, passing.length < 3 ? Math.max(0, req.top_n - passing.length) : 0));
+  ranked.forEach((c, i) => { c.rank = i + 1; });
+
+  if (req.fault_ka) {
     notes.push(`Support blocks: ${req.block_material}, ${pyG(req.block_thickness_mm)} mm thick along the run, ` +
       `supports every ${pyG(req.support_span_m)} m. Web stress = peak cable force x span / ` +
       "(block thickness x ligament between cables), allowable = tensile strength / " +
       `${pyG(req.block_safety_factor)} [screening; material values UNVERIFIED]. A tested block ` +
       "rating (CSA C22.2 No. 273 / IEEE C37.23 short-circuit test) governs.");
+    if (!req.fault_clearing_s) {
+      notes.push("Conductor short-circuit withstand not applied to the options: give fault_clearing_s " +
+        "(cable bus analysis reports it as a failed check until then).");
+    }
   }
   notes.push("Enclosure sizes are a configurable catalogue (inside width x height, inches); clearances " +
     `${pyG(req.edge_clearance_mm)} mm to the side rails and ${pyG(req.vertical_clearance_mm)} mm to the covers ` +

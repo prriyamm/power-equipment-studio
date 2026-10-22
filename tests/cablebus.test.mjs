@@ -144,7 +144,11 @@ test("CableBus: patterns generated", () => {
 
 test("CableBus: reference concept 4000 A, 600 V, 6 x 750 kcmil Cu per phase", () => {
   const r = cb.analyse(LVBUS({ voltage_v: 600, current_a: 4000, conductors_per_phase: 6, tiers: 2, size: "750" }));
-  assert.equal(r.passed, true);
+  // Changed by the pecalc cable bus review: the termination check now uses NEC Table 310.16 (raceway) at the
+  // derived 75 C rating (475 A for 750 kcmil Cu), not the free-air table, so the 724 A worst conductor fails it.
+  // Every other check (free-air ampacity, spacing, voltage drop) still passes.
+  assert.deepEqual(r.checks.filter((c) => !c.passed).map((c) => c.name),
+    ["Most heavily loaded conductor within termination rating"]);
   // Unequal sharing makes the worst conductor carry more than the 666.7 A equal share.
   assert.ok(Math.max(...r.conductors.map((c) => c.current_a)) > 4000 / 6);
 });
@@ -227,7 +231,9 @@ test("CableBusDesigner: LV options pass and fit enclosures", () => {
 });
 
 test("CableBusDesigner: more tiers gives a narrower enclosure", () => {
-  const r = ds.designOptions(ds.designRequest({ voltage_v: 600, current_a: 4000, sizes: ["500"], top_n: 20 }));
+  // 2000 A (was 4000 A): with the termination limit now taken from Table 310.16 (380 A per 500 kcmil conductor
+  // at 75 C), 4000 A needs 11+ per phase and no 1-tier layout fits the enclosure catalogue.
+  const r = ds.designOptions(ds.designRequest({ voltage_v: 600, current_a: 2000, sizes: ["500"], top_n: 20 }));
   const widths = {};
   for (const o of r.options) (widths[o.per_phase] ??= {})[o.tiers] = o.inside_w_mm;
   const pairs = [];
