@@ -178,6 +178,8 @@ extras = [
     dict(LV, max_vd_pct=0.1), dict(LV, max_vd_pct=1.0, length_m=300.0),
     dict(LV, cable_od_mm=40.0, cable_ampacity_a=650.0),
     dict(LV, fault_ka=65.0), dict(LV, fault_ka=100.0, x_over_r=30.0, support_span_m=0.6),
+    dict(LV, fault_ka=65.0, support_condition="continuous"), dict(LV, fault_ka=65.0, support_condition="pinned"),
+    dict(LV, fault_ka=65.0, support_condition="fixed", support_span_m=0.6),
     dict(LV, fault_ka=10.0, x_over_r=3.0, frequency_hz=50.0),
     dict(LV, field_distances_m=[0.5, 2.0, 3.0]), dict(LV, field_distances_m=[]),
     dict(LV, current_a=4000.0, conductors_per_phase=6, tiers=3, enclosure_width_mm=560.0, enclosure_height_mm=400.0,
