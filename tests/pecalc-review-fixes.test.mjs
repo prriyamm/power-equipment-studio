@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 
 import * as amp from "../src/engine/pecalc/ampacity.js";
 import * as cb from "../src/engine/pecalc/cablebus.js";
+import * as cond from "../src/engine/pecalc/conductors.js";
 import * as frc from "../src/engine/pecalc/forces.js";
 import * as imp from "../src/engine/pecalc/impedance.js";
 import * as sw from "../src/engine/pecalc/switchgear.js";
@@ -271,4 +272,20 @@ test("cable bus: analyse rejects voltage <= 0 or non-finite (validate.voltage)",
   }
   assert.throws(() => cb.analyse(cb.cableBusInput({ voltage_v: 0 })), { message: "voltage_v must be greater than 0 V, got 0.0" });
   assert.throws(() => cb.analyse(cb.cableBusInput({ voltage_v: NaN })), { message: "voltage_v must be finite, got nan" });
+});
+
+test("cable bus shield short-circuit withstand (P17)", () => {
+  const base = { voltage_v: 15000, current_a: 2000, conductors_per_phase: 3, size: "750", material: "Cu",
+    insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "single_point",
+    length_m: 100, fault_ka: 40, fault_clearing_s: 0.5, shield_area_mm2: 35 };
+  const run = (o) => cb.analyse(cb.cableBusInput({ ...base, ...o }));
+  const find = (r) => r.checks.find((c) => c.name === "Shield short-circuit withstand");
+  assert.equal(find(run({})), undefined);
+  const c = find(run({ ground_fault_ka: 9 }));
+  const expect = cond.adiabaticWithstandA("Cu", 35 * 1973.525, 80, 250, 0.5) / 1000;
+  assert.ok(Math.abs(c.value - expect) < 0.01);
+  assert.equal(c.limit, 3);
+  assert.equal(c.passed, true);
+  assert.equal(find(run({ shield_area_mm2: 5, ground_fault_ka: 30 })).passed, false);
+  assert.throws(() => run({ ground_fault_ka: 9, shield_sc_limit_c: 70 }), /shield_sc_limit_c/);
 });

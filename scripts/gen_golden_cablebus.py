@@ -197,6 +197,11 @@ extras += [
     mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=60.0),
     mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="both_ends", length_m=60.0),
     dict(mvb, shield_bonding="both_ends", shield_area_mm2=20.0, shield_mean_diameter_mm=35.0),
+    dict(mvb, shield_area_mm2=35.0, fault_ka=40.0, fault_clearing_s=0.5, ground_fault_ka=9.0),
+    dict(mvb, shield_area_mm2=5.0, fault_ka=40.0, fault_clearing_s=0.5, ground_fault_ka=30.0),
+    dict(mvb, fault_ka=40.0, fault_clearing_s=0.5, ground_fault_ka=9.0, shield_bonding="both_ends"),
+    dict(mvb, shield_area_mm2=35.0, fault_ka=40.0, ground_fault_ka=9.0),
+    dict(mvb, shield_area_mm2=35.0, fault_ka=40.0, fault_clearing_s=0.5, ground_fault_ka=9.0, shield_sc_limit_c=70.0),
     dict(mvb, shield_bonding="both_ends", shield_temp_c=100.0),
     dict(mvb, shield_bonding="both_ends", shield_mm=0.0),                      # missing shield data
     dict(mvb, shield_bonding="both_ends", conductors_per_phase=6, tiers=2, current_a=4000.0,
