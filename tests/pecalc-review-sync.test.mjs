@@ -193,7 +193,8 @@ test("tier spacing check applies to the table method with more than one tier", (
   assert.equal(cbCheck(r, "Tier spacing").passed, false);
   assert.equal(r.passed, false);
   assert.equal(cbCheck(run(base), "Tier spacing").passed, true);
-  assert.equal(cbCheck(run({ voltage_v: 600, current_a: 1000, conductors_per_phase: 3, size: "500" }), "Tier spacing"), null);
+  // One per phase is the only Figure 3 case with a single-tier arrangement (ABC).
+  assert.equal(cbCheck(run({ voltage_v: 600, current_a: 300, conductors_per_phase: 1, size: "500", tiers: 1 }), "Tier spacing"), null);
 });
 
 test("fault_ka without fault_clearing_s is a visible failed check", () => {
@@ -214,7 +215,11 @@ test("designer applies the withstand check and passes the shield limit through",
   const long = ds.designOptions(ds.designRequest({ ...base, fault_clearing_s: 5.0 }));
   assert.ok(short.options.some((o) => o.passed));
   assert.ok(!long.options.some((o) => o.passed));
-  assert.ok(long.options.every((o) => o.failed_checks.some((f) => f.includes(WITHSTAND))));
+  // The fault checks run on the options that pass the other checks; an option that already failed one (here the
+  // termination rating) is listed without them.
+  const prelim = long.options.filter((o) => !o.failed_checks.some((f) => f.includes("termination")));
+  assert.ok(prelim.length);
+  assert.ok(prelim.every((o) => o.failed_checks.some((f) => f.includes(WITHSTAND))));
   assert.equal(short.options[0].case_inputs.fault_clearing_s, 0.05);
   const mv = ds.designOptions(ds.designRequest({ voltage_v: 15000, current_a: 2000, insulation: "EPR",
     insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_voltage_limit_v: 0.01 }));

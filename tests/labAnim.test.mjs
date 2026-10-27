@@ -6,7 +6,7 @@ import { labLayout, labState, fragmentCells, fragmentPose, fillSparks, smokePuff
   playEnd, stillTime, budgetFor, TIER_BUDGET, railBulge, coverPanelPose, coverPanelIndex, POP_DELAY, COVER_MODES } from "../src/ui/labAnim.js";
 
 const BUS = {
-  voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 1,
+  voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 2,
   insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2, shield_bonding: "both_ends", length_m: 60,
   fault_ka: 40, x_over_r: 15, enclosure_width_mm: 800, enclosure_height_mm: 150,
 };
@@ -21,7 +21,7 @@ test("layout: 9 cables, 4 blocks at the span, plates per tier", () => {
   assert.equal(layout.cables.length, 9);
   assert.equal(layout.zs.length, 4);
   assert.ok(Math.abs(layout.zs[3] - 3 * ctx.inp.support_span_m) < 1e-12);
-  assert.equal(layout.plates.length, 1);
+  assert.equal(layout.plates.length, 2);   // 3 per phase: a 2-tier CSA 273 Figure 3 arrangement
 });
 
 test("labState: no fragments, flash or particles before the failure instant", () => {
@@ -122,7 +122,7 @@ test("colour scale, playback window and still image time", () => {
 });
 
 test("4-tier specimen builds a layout with 4 plates", () => {
-  const bus = { ...BUS, conductors_per_phase: 4, tiers: 4, enclosure_width_mm: null, enclosure_height_mm: null };
+  const bus = { ...BUS, conductors_per_phase: 4, tiers: 4, pattern: "ABC/CAB/BCA/ABC", enclosure_width_mm: null, enclosure_height_mm: null };
   const L = labInput({ bus, test_ka: 40, duration_s: 0.05 });
   const c = buildContext(L.bus);
   const ly = labLayout(c, 2);

@@ -1,119 +1,120 @@
-// Cable bus workspace: 4-tier layouts (validation, patterns, analysis) and the two Simulate-tab fixes.
-// Pure modules only (src/ui/cablebusUtil.js, engine); the React parts are covered by the Playwright visual pass.
+// Cable bus workspace: CSA 273 Figure 3 tier and arrangement choices, multi-tier and staggered layouts, and the two
+// Simulate-tab fixes. Pure modules only (src/ui/cablebusUtil.js, engine); the React parts are covered by the
+// Playwright visual pass.
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { tierCompat, fittingTiers, MAX_TIERS, TIER_CHOICES, COUNT_CHOICES, peakSummary, i2tInfo } from "../src/ui/cablebusUtil.js";
+import { tierCompat, fittingTiers, figure3Tiers, arrangementChoices, layoutEnvelope, MAX_TIERS, TIER_CHOICES,
+  COUNT_CHOICES, peakSummary, i2tInfo } from "../src/ui/cablebusUtil.js";
 import { candidatePatterns, analyse, cableBusInput, buildLayout } from "../src/engine/pecalc/cablebus.js";
 import { designOptions, designRequest } from "../src/engine/pecalc/cablebus_design.js";
 import { cablebusSvg } from "../src/engine/pecalc/drawing.js";
 import * as sim from "../src/engine/pecalc/cablebusSim.js";
 
-/* ------------------------------------------------------------------ 4 tiers */
+/* ------------------------------------------------------------------ Figure 3 tiers */
 
-test("tier choices go to 4 and stop there", () => {
-  assert.deepEqual(TIER_CHOICES, [1, 2, 3, 4]);
-  assert.equal(MAX_TIERS, 4);
+test("tier and count choices follow Figure 3: 1 to 10 per phase, at most 3 tiers", () => {
+  assert.deepEqual(TIER_CHOICES, [1, 2, 3]);
+  assert.equal(MAX_TIERS, 3);
+  assert.deepEqual(COUNT_CHOICES, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(figure3Tiers(1), [1, 2]);
+  assert.deepEqual(figure3Tiers(2), [2]);
+  assert.deepEqual(figure3Tiers(3), [2, 3]);
+  assert.deepEqual(figure3Tiers(11), []);
 });
 
-test("tierCompat: n must be a multiple of tiers (complete A-B-C sets in every tier)", () => {
-  // 4 tiers: 3n conductors / 4 must be a whole multiple of 3 -> n = 4, 8, 12
-  for (const n of [4, 8, 12]) {
-    const r = tierCompat(n, 4);
-    assert.ok(r.ok, `n=${n}`);
-    assert.equal(r.per_tier, (3 * n) / 4);
-    assert.equal(r.message, null);
-  }
-  for (const n of [1, 2, 3, 5, 6, 9, 10]) assert.equal(tierCompat(n, 4).ok, false, `n=${n}`);
-  // the cases that worked before still do: 9 x 3 tiers (the reported screenshot), 6 x 2 tiers
+test("tierCompat: Figure 3 must have the tier count for n per phase", () => {
+  assert.ok(tierCompat(3, null).ok);                 // any tier count
   assert.ok(tierCompat(9, 3).ok);
   assert.ok(tierCompat(6, 2).ok);
-  assert.ok(tierCompat(5, 1).ok);
+  assert.ok(tierCompat(1, 1).ok);
+  assert.equal(tierCompat(3, 1).ok, false);
+  assert.match(tierCompat(3, 1).message, /no 1-tier arrangement for 3 per phase \(it has 2 or 3 tiers\)/);
+  assert.deepEqual(tierCompat(3, 1).valid, [1]);
+  assert.deepEqual(tierCompat(5, 3).valid, [1, 3, 4, 5, 6, 7, 8, 9, 10].filter((n) => figure3Tiers(n).includes(3)));
   assert.equal(tierCompat(2, 3).ok, false);
-});
-
-test("tierCompat message names the valid conductor counts", () => {
-  const r = tierCompat(6, 4);
-  assert.deepEqual(r.valid, [4, 8, 12]);
-  assert.match(r.message, /4 tiers need conductors per phase divisible by 4/);
-  assert.match(r.message, /4, 8, 12/);
-  assert.match(r.message, /18 conductors \(3 phases x 6\) cannot be split evenly into 4 tiers/);
-  assert.deepEqual(tierCompat(5, 3).valid, [3, 6, 9, 12]);
   assert.equal(tierCompat(0, 2).ok, false);
+  assert.equal(tierCompat(12, null).ok, false);
 });
 
-test("fittingTiers picks the largest tier count that fits", () => {
-  assert.equal(fittingTiers(6, 4), 3);
-  assert.equal(fittingTiers(8, 4), 4);
-  assert.equal(fittingTiers(5, 4), 1);
-  assert.equal(fittingTiers(12, 3), 3);
-  assert.equal(fittingTiers(7, 2), 1);
+test("fittingTiers picks the largest Figure 3 tier count that fits, else any", () => {
+  assert.equal(fittingTiers(6, 3), 3);
+  assert.equal(fittingTiers(6, 2), 2);
+  assert.equal(fittingTiers(3, 1), null);
+  assert.equal(fittingTiers(1, 3), 2);
+  assert.equal(fittingTiers(2, null), 2);
 });
 
 test("every tierCompat verdict agrees with the engine (candidate_patterns)", () => {
-  for (const tiers of TIER_CHOICES) for (const n of COUNT_CHOICES) {
+  for (const tiers of [null, ...TIER_CHOICES, 4]) for (const n of [...COUNT_CHOICES, 11]) {
     let ok = true;
     try { candidatePatterns(n, tiers); } catch { ok = false; }
     assert.equal(tierCompat(n, tiers).ok, ok, `n=${n} tiers=${tiers}`);
   }
 });
 
-test("candidate patterns for 4 tiers", () => {
-  // 4 per phase: 12 conductors, 3 per tier (k = 1)
-  assert.deepEqual(candidatePatterns(4, 4), ["ABC/ABC/ABC/ABC", "ABC/CBA/ABC/CBA", "ABC/CAB/ABC/CAB"]);
-  // 8 per phase: 24 conductors, 6 per tier (k = 2): mirrored ABCCBA in every tier
-  const p8 = candidatePatterns(8, 4);
-  assert.ok(p8.includes("ABCCBA/ABCCBA/ABCCBA/ABCCBA"));
-  for (const p of p8) {
-    const rows = p.split("/");
-    assert.equal(rows.length, 4);
-    for (const ph of "ABC") assert.equal([...rows.join("")].filter((c) => c === ph).length, 8);
-    for (const r of rows) assert.equal(r.length, 6);
-  }
-  assert.throws(() => candidatePatterns(6, 4), /18 conductors cannot be split evenly into 4 tiers/);
-  assert.throws(() => candidatePatterns(3, 4), /12|9 conductors cannot be split evenly into 4 tiers/);
+test("arrangement choices: best first, then the Figure 3 arrangements in figure order", () => {
+  const all = arrangementChoices(3, null);
+  assert.deepEqual(all[0], ["auto", "Best (Figure 3)"]);
+  assert.deepEqual(all.slice(1).map(([p]) => p), candidatePatterns(3));
+  assert.equal(all[2][1], "3-2 · +ABCA/BCABC");
+  assert.deepEqual(arrangementChoices(3, 3).slice(1).map(([p]) => p), ["ACA/BBB/CAC", "+ABC/BCA./+ABC"]);
 });
 
-test("layout of 4 tiers: tier rows at multiples of the tier pitch, 8 per phase = 24 conductors", () => {
-  const inp = cableBusInput({ voltage_v: 600, current_a: 5000, conductors_per_phase: 8, tiers: 4, size: "750" });
+test("layout envelope for the enclosure auto-size", () => {
+  assert.deepEqual(layoutEnvelope(3, 3), { span: 2.5, tiers: 3 });       // ACA/BBB/CAC and +ABC/BCA./+ABC
+  assert.deepEqual(layoutEnvelope(3, null, "ABCAB/CABC."), { span: 4, tiers: 2 });
+  assert.deepEqual(layoutEnvelope(1, null), { span: 2, tiers: 2 });
+});
+
+/* ------------------------------------------------------------------ multi-tier layouts */
+
+test("3-tier layout: tier rows at multiples of the tier pitch, staggered tiers half a pitch over", () => {
+  const inp = cableBusInput({ voltage_v: 600, current_a: 4000, conductors_per_phase: 8, size: "750",
+    pattern: "+.BCABCABC/.CABCABCA/+ABCABCAB." });
   const res = analyse(inp);
   const cs = buildLayout(inp, res.pattern, res.cable_od_mm);
   assert.equal(cs.length, 24);
   const ys = [...new Set(cs.map((c) => c.y_mm))].sort((a, b) => a - b);
-  assert.equal(ys.length, 4);
+  assert.equal(ys.length, 3);
   ys.forEach((y, t) => assert.ok(Math.abs(y - t * res.tier_pitch_mm) < 0.01 * (t + 1), `tier ${t}: ${y}`));
   assert.equal(res.tier_pitch_mm, res.pitch_mm);                 // default: tier pitch = cable pitch
-  assert.deepEqual([...new Set(res.conductors.map((c) => c.tier))].sort(), [0, 1, 2, 3]);
+  const minX = (t) => Math.min(...res.conductors.filter((c) => c.tier === t).map((c) => c.x_mm));
+  // x starts at the bottom tier's A ('+', 0.5 pitch); the upper tiers each begin with an unused position.
+  assert.ok(Math.abs(minX(0) - res.pitch_mm) < 0.1);             // '+' and '.': 1.5 - 0.5
+  assert.ok(Math.abs(minX(1) - 0.5 * res.pitch_mm) < 0.1);       // '.': 1 - 0.5
+  assert.ok(Math.abs(minX(2)) < 0.1);
+  assert.ok(res.checks.find((c) => c.name.startsWith("Phase arrangement")).passed);
   for (const ph of "ABC") {
     const sum = res.conductors.filter((c) => c.phase === ph).reduce((a, c) => a + c.current_a, 0);
-    assert.ok(Math.abs(sum - 5000) < 150, `${ph}: ${sum}`);   // magnitudes of unequal-angle shares: within 3 % of the total
+    assert.ok(Math.abs(sum - 4000) < 150, `${ph}: ${sum}`);   // magnitudes of unequal-angle shares: within 3 % of the total
   }
-  assert.throws(() => analyse(cableBusInput({ voltage_v: 600, conductors_per_phase: 6, tiers: 4 })), /cannot be split evenly into 4 tiers/);
+  assert.throws(() => analyse(cableBusInput({ voltage_v: 600, conductors_per_phase: 6, tiers: 4 })),
+    /no arrangement of 6 conductors per phase in 4 tier/);
 });
 
-test("4-tier cross-section drawing: one support block per tier and the tier-pitch dimension", () => {
-  const inp = cableBusInput({ voltage_v: 600, current_a: 5000, conductors_per_phase: 8, tiers: 4, size: "750",
-    enclosure_width_mm: 500, enclosure_height_mm: 400 });
+test("3-tier cross-section drawing: one support block per tier and the tier-pitch dimension", () => {
+  const inp = cableBusInput({ voltage_v: 600, current_a: 4000, conductors_per_phase: 8, tiers: 3, size: "750",
+    enclosure_width_mm: 700, enclosure_height_mm: 400 });
   const res = analyse(inp);
   const svg = cablebusSvg(inp, res, { tier_dims: true });
-  assert.match(svg, /4 tier\(s\)/);
-  assert.equal((svg.match(/tier pitch/g) || []).length, 3);        // between 4 tiers: 3 dimensions
+  assert.match(svg, /3 tier\(s\)/);
+  assert.equal((svg.match(/tier pitch/g) || []).length, 2);        // between 3 tiers: 2 dimensions
   assert.ok(svg.length > 1000);
 });
 
-test("designer enumerates 4 tiers by default and only multiples of 4 conductors per phase", () => {
-  assert.deepEqual(designRequest({ voltage_v: 600, current_a: 6000 }).tier_options, [1, 2, 3, 4]);
-  const r = designOptions(designRequest({ voltage_v: 600, current_a: 6000, top_n: 30 }));
-  const four = r.options.filter((o) => o.tiers === 4);
-  assert.ok(four.length > 0);
-  for (const o of four) assert.equal(o.per_phase % 4, 0);
-  const r3 = designOptions(designRequest({ voltage_v: 600, current_a: 6000, tier_options: [1, 2, 3] }));
-  assert.ok(r3.options.every((o) => o.tiers <= 3));
+test("designer offers only Figure 3 tier counts", () => {
+  assert.deepEqual(designRequest({ voltage_v: 600, current_a: 4000 }).tier_options, [1, 2, 3, 4]);
+  const r = designOptions(designRequest({ voltage_v: 600, current_a: 4000, top_n: 30 }));
+  assert.ok(r.options.length > 0);
+  assert.ok(r.options.every((o) => o.tiers === 2 || o.tiers === 3));
+  const r4 = designOptions(designRequest({ voltage_v: 600, current_a: 4000, tier_options: [4] }));
+  assert.equal(r4.options.length, 0);
 });
 
-test("4-tier short-circuit and temperature simulation run", () => {
-  const bus = { voltage_v: 600, current_a: 5000, conductors_per_phase: 8, tiers: 4, size: "750", fault_ka: 50, fault_clearing_s: 0.5,
-    x_over_r: 15, enclosure_width_mm: 500, enclosure_height_mm: 400 };
+test("4-tier user pattern (outside Figure 3): short-circuit and temperature simulation still run", () => {
+  const bus = { voltage_v: 600, current_a: 5000, conductors_per_phase: 8, size: "750", fault_ka: 50, fault_clearing_s: 0.5,
+    x_over_r: 15, enclosure_width_mm: 500, enclosure_height_mm: 400, pattern: "ABCCBA/ABCCBA/ABCCBA/ABCCBA" };
   const s = sim.simInput({ bus, cycles: 2 });
   const sc = sim.simulateShortCircuit(s);
   assert.ok(sc.peak_current_ka > 50 * Math.SQRT2 && sc.worst_force_n_per_m > 0);
@@ -121,11 +122,11 @@ test("4-tier short-circuit and temperature simulation run", () => {
   assert.equal(tr.cables ? tr.cables.length : 24, 24);
   assert.ok(tr.hottest.theta_c > 40);
 });
-
 /* ------------------------------------------------------------------ Simulate fixes */
 
 const BUS = { voltage_v: 600.0, current_a: 3000.0, conductors_per_phase: 4, size: "750", fault_ka: 50.0,
-  fault_clearing_s: 0.5, x_over_r: 15.0, enclosure_width_mm: 800.0, enclosure_height_mm: 120.0 };
+  fault_clearing_s: 0.5, x_over_r: 15.0, enclosure_width_mm: 800.0, enclosure_height_mm: 120.0,
+  pattern: "ABCABC/CABCAB" }; // CSA 273 Figure 3 arrangement 4-1 (asymmetric: one worst cable)
 const mk = (extra = {}, bus = {}) => sim.simInput({ bus: { ...BUS, ...bus }, ...extra });
 
 test("peak current: KPI is the worst case over all angles, chart peak is the selected angle, both labelled", () => {

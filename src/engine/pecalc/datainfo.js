@@ -8,6 +8,7 @@
 import AMPACITY_CEC from "./data/ampacity_cec.json" with { type: "json" };
 import AMPACITY_NEC from "./data/ampacity_nec.json" with { type: "json" };
 import CABLEBUS_SIM from "./data/cablebus_sim.json" with { type: "json" };
+import CSA273_FIGURE3 from "./data/csa273_figure3.json" with { type: "json" };
 import DLO_CABLES from "./data/dlo_cables.json" with { type: "json" };
 import DOE_EFFICIENCY from "./data/doe_10cfr431_efficiency.json" with { type: "json" };
 import LUG_CATALOG from "./data/lug_catalog.json" with { type: "json" };
@@ -15,13 +16,14 @@ import NEC_240_4D from "./data/nec_240_4d_small_conductors.json" with { type: "j
 import REACTANCE_TABLE9 from "./data/reactance_nec_table9.json" with { type: "json" };
 
 export const PECALC_VERSION = "0.1.0";
-export const PECALC_DATA_FINGERPRINT = "a9cbc961548d";
+export const PECALC_DATA_FINGERPRINT = "24609e9d9810";
 
 /** Every copied data file by name, parsed. Sorted by name, like Python's sorted(DATA_DIR.glob("*.json")). */
 export const DATA_FILES = Object.freeze({
   "ampacity_cec.json": AMPACITY_CEC,
   "ampacity_nec.json": AMPACITY_NEC,
   "cablebus_sim.json": CABLEBUS_SIM,
+  "csa273_figure3.json": CSA273_FIGURE3,
   "dlo_cables.json": DLO_CABLES,
   "doe_10cfr431_efficiency.json": DOE_EFFICIENCY,
   "lug_catalog.json": LUG_CATALOG,

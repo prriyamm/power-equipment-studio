@@ -34,9 +34,12 @@ def clean(x):
     return x
 
 
+# Base buses pinned to asymmetric CSA 273 Figure 3 arrangements (4-1, 3-1): a mirror-symmetric layout has tied
+# worst cables, which floating-point noise can order differently in the two ports.
 LV = dict(voltage_v=600.0, current_a=3000.0, conductors_per_phase=4, size="750", fault_ka=50.0,
-          fault_clearing_s=0.5, x_over_r=15.0, enclosure_width_mm=800.0, enclosure_height_mm=120.0)
-MV = dict(voltage_v=15000.0, current_a=1500.0, conductors_per_phase=3, size="750", insulation="EPR",
+          fault_clearing_s=0.5, x_over_r=15.0, enclosure_width_mm=800.0, enclosure_height_mm=120.0,
+          pattern="ABCABC/CABCAB")
+MV = dict(voltage_v=15000.0, current_a=1500.0, conductors_per_phase=3, size="750", pattern="ABCAB/CABC.", insulation="EPR",
           insulation_mm=7.2, shield_mm=0.13, jacket_mm=2.0, fault_ka=31.5, fault_clearing_s=0.25, x_over_r=20.0,
           spacing_mm=100.0)
 RATED = dict(tested_momentary_peak_ka=140.0, tested_short_time_ka=63.0, tested_short_time_s=2.0,
@@ -55,7 +58,7 @@ CASES = [
     dict(bus=dict(LV, conductors_per_phase=1, current_a=700.0, x_over_r=0.05, pattern="ABC"), cycles=2,
          closing_angle_deg=0.0),
     dict(bus=dict(LV, conductors_per_phase=4, tiers=2, enclosure_height_mm=200.0, x_over_r=25.0), cycles=2, **RATED),
-    dict(bus=dict(LV, material="Al", size="500", conductors_per_phase=6, tiers=2, enclosure_height_mm=200.0,
+    dict(bus=dict(LV, material="Al", size="500", conductors_per_phase=6, tiers=2, pattern="auto", enclosure_height_mm=200.0,
                   insulation_temp_c=75, terminal_temp_c=75, insulation_sc_limit_c=150.0, fault_ka=65.0,
                   fault_clearing_s=0.25), cycles=2, **RATED),
     dict(bus=dict(LV, frequency_hz=50.0, fault_ka=42.0, x_over_r=10.0, ambient_c=30.0), cycles=2),
@@ -70,9 +73,12 @@ CASES = [
          cycles=2),
     dict(bus=dict(MV, cable_ampacity_a=900.0, ampacity_method="datasheet", shield_bonding="both_ends"), cycles=2),
     dict(bus=dict(LV, spacing_mm=60.0), cycles=2),
-    # 4 tiers
-    dict(bus=dict(LV, conductors_per_phase=8, tiers=4, enclosure_height_mm=400.0, x_over_r=25.0), cycles=2, **RATED),
-    dict(bus=dict(LV, conductors_per_phase=4, tiers=4, enclosure_height_mm=300.0, fault_clearing_s=None), cycles=2),
+    # 3 tiers (Figure 3) and 4 tiers (user pattern, outside Figure 3)
+    dict(bus=dict(LV, pattern="ACAC/BBBB/CACA", enclosure_height_mm=300.0), cycles=2, **RATED),
+    dict(bus=dict(LV, pattern="+ABCA/BCABC/+ABC.", enclosure_height_mm=300.0, x_over_r=25.0), cycles=2),
+    dict(bus=dict(LV, conductors_per_phase=8, pattern="ABCCBA/ABCCBA/ABCCBA/ABCCBA", enclosure_height_mm=400.0,
+                  x_over_r=25.0), cycles=2, **RATED),
+    dict(bus=dict(LV, pattern="ABC/CAB/BCA/ABC", enclosure_height_mm=300.0, fault_clearing_s=None), cycles=2),
     # errors
     dict(bus=LV, cycles=0.0),
     dict(bus=LV, load_scale=0.0),
