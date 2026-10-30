@@ -9,6 +9,37 @@ import { kvRows, checkRows } from "../engine/report.js";
 import { ReportButton, reportFigures } from "./reportButton.jsx";
 import { DoePanel, DOE_WINDOWS, doeReportParts } from "./transformerDoe.jsx";
 
+const CSS = `
+  .xf-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; align-items: start; }
+  .xf-results .tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .xf-form, .xf-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .xf-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+  .xf-kv-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .xf-wrap { white-space: normal !important; min-width: 150px; font-family: var(--font-ui) !important; }
+  .xf-note { font-size: 11px; color: var(--faint); margin-top: 2px; }
+  .xf-clause { color: var(--muted); font-size: 12px !important; }
+  .xf-unit { font-style: normal; color: var(--faint); font-size: 11px; }
+  .xf-notes { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); list-style: disc; padding-left: 18px; }
+  .xf-draw { display: flex; flex-direction: column; gap: 8px; }
+  .xf-svg { width: 100%; height: auto; max-height: 640px; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+  .xf-svg text { font-family: var(--font-data); fill: var(--fg); }
+  @media (max-width: 640px) { .xf-draw .chart-scroll > .xf-svg { max-height: none; } }
+  .xf-core { fill: color-mix(in srgb, var(--wire) 24%, var(--bg)); stroke: var(--wire); stroke-linejoin: round; }
+  .xf-axis { stroke: var(--faint); stroke-dasharray: 6 5; fill: none; }
+  .xf-lv { fill: color-mix(in srgb, var(--info) 55%, var(--bg)); stroke: var(--info); }
+  .xf-hv { fill: color-mix(in srgb, var(--accent) 55%, var(--bg)); stroke: var(--accent); }
+  .xf-dim path, .xf-lead path { stroke: var(--muted); fill: none; }
+  .xf-dim text { fill: var(--muted); }
+  .xf-lead circle { fill: var(--fg); }
+  .xf-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-data); font-size: 11.5px; color: var(--muted); }
+  .xf-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -2px; border: 1px solid; }
+  .xf-sw-core { background: color-mix(in srgb, var(--wire) 24%, var(--bg)); border-color: var(--wire) !important; }
+  .xf-sw-lv { background: color-mix(in srgb, var(--info) 55%, var(--bg)); border-color: var(--info) !important; }
+  .xf-sw-hv { background: color-mix(in srgb, var(--accent) 55%, var(--bg)); border-color: var(--accent) !important; }
+  @media (max-width: 899px) { .xf-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 420px) { .xf-fields { grid-template-columns: minmax(0, 1fr); } .xf-grid { padding: 10px 16px; } }
+`;
+
 /* Starting state: the 1500 kVA, 13.8 kV delta / 480Y V liquid-filled example, 5.75 % Z. */
 const EXAMPLE = { kva: 1500, hv_v: 13800, lv_v: 480, target_z_pct: 5.75, source_mva: 500, j_lv_a_mm2: 2.6, j_hv_a_mm2: 2.6 };
 
@@ -70,6 +101,7 @@ export function TransformerWorkspace({ goTo }) {
   const tuned = tune && !!inp.target_z_pct;
   return (
     <div className="ws" ref={hostRef}>
+      <style>{CSS}</style>
       <WsHeader title="Transformer" context="Preliminary core-type design · 3-phase"
         status={<>
           {r && <Pill tone={r.passed ? "ok" : "crit"}>{r.passed ? "All checks pass" : `${r.checks.filter((c) => !c.passed).length} check(s) fail`}</Pill>}
