@@ -100,3 +100,17 @@ test("regression: a feeder to a transformer primary is sized from the transforme
   assert.equal(c.trip, nextStandard(1.25 * fla));            // 130.7 A -> 150 A (was 80 A from the load current)
   assert.ok(c.trip >= 1.25 * fla);
 });
+
+test("regression: a circuit above the largest 240.6(A) rating fails clearly instead of a null trip on a 1200 A frame", () => {
+  const sys = { name: "20 kV", base_mva: 100, equipment: [
+      { id: "U", type: "utility", kv: 345, mva_sc: 30000, xr: 35, gx: 0, gy: 0 },
+      { id: "T", type: "transformer", kva: 250000, hv_kv: 345, lv_kv: 20, z_pct: 13, xr: 60, gx: 6, gy: 0 },
+      { id: "B", type: "switchgear", kv: 20, bus_a: 12000, sc_ka: 160, gx: 12, gy: 0 },
+      { id: "L", type: "load", kw: 170000, pf: 0.9, gx: 18, gy: 0 }],
+    connectors: [{ id: "a", kind: "direct", from: "U.out", to: "T.hv" }, { id: "b", kind: "direct", from: "T.lv", to: "B.bus" }, { id: "c", kind: "direct", from: "B.bus", to: "L.in" }] };
+  const c = buildLineup(sys, analyseSystem(sys), "B").circuits.find((x) => x.tag === "c");
+  assert.equal(c.trip, null);
+  assert.equal(c.frame, null);
+  assert.equal(c.ok, false);
+  assert.ok(c.checks.some((k) => /Standard rating available/.test(k.name) && !k.ok && k.value > 6000));
+});
