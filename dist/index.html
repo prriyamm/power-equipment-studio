@@ -4334,7 +4334,7 @@
         continue;
       }
       const zpu = e.z_pct / 100 * (base_mva / (e.kva / 1e3)), r = zpu / Math.sqrt(1 + e.xr * e.xr);
-      const br = { from: f2, to: t, r, x: r * e.xr };
+      const br = { from: f2, to: t, r, x: r * e.xr, rate_a: e.kva / 1e3 };
       if (e.tap_pct) br.tap = 1 + e.tap_pct / 100;
       branches.push(br);
       branchMeta.push({ kind: "transformer", id: e.id, rating_kva: e.kva });
@@ -4358,8 +4358,10 @@
       }
       if (!kv) continue;
       const zb = kv * kv / base_mva;
-      branches.push({ from: f2, to: t, r: rOhm / zb, x: xOhm / zb });
       const amp = connectorAmpacity(c, kv), perSet = amp.per_set_a;
+      const br = { from: f2, to: t, r: rOhm / zb, x: xOhm / zb };
+      if (perSet != null) br.rate_a = SQRT32 * kv * perSet * c.sets / 1e3;
+      branches.push(br);
       branchMeta.push({ kind: c.kind, id: c.id, ampacity_a: perSet != null ? perSet * c.sets : null, terminal_c: c.ampacity_a != null ? null : amp.terminal_c, ohms: { r: rOhm, x: xOhm }, kv });
     }
     const slackBus = buses.find((b) => b.type === "slack");
@@ -4439,6 +4441,7 @@
           const pIn = b.to === bid ? -b.p_to_mw : -b.p_from_mw;
           if (pIn > 0) sIn += b.to === bid ? b.s_to_mva : b.s_from_mva;
         }
+        if ((r.p_gen_mw ?? 0) > 0) sIn += Math.hypot(r.p_gen_mw, r.q_gen_mvar ?? 0);
         const ia = sIn * 1e3 / (SQRT32 * kv * r.v);
         info.bus_i_a = ia;
         info.loading_pct = 100 * ia / e.bus_a;
@@ -10072,7 +10075,7 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
   var SMALL_CONDUCTOR_MAX_OCPD = { Cu: nec_240_4d_small_conductors_default.Cu, Al: nec_240_4d_small_conductors_default.Al };
   var SMALL_CONDUCTOR_STATUS = nec_240_4d_small_conductors_default._meta.status;
   var nextStandard = (a) => NEC_240_6.find((r) => r >= a - 1e-9) ?? null;
-  var frameFor = (trip, mv) => (mv ? MV_FRAMES : LV_FRAMES).find((f2) => f2 >= trip) ?? null;
+  var frameFor = (trip, mv) => trip == null ? null : (mv ? MV_FRAMES : LV_FRAMES).find((f2) => f2 >= trip) ?? null;
   function buildLineup(sys, analysis, gearId, opts = {}) {
     const raw = sys.equipment.find((e) => e.id === gearId);
     if (!raw) throw new Error(`No equipment "${gearId}"`);
@@ -10107,15 +10110,16 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
         trip = nextStandard(Math.min(Math.max(fla, load_a), g.bus_a)) ?? g.bus_a;
       }
       const checks = [];
-      if (amp != null && !incoming) {
+      if (trip == null) checks.push({ name: "Standard rating available (240.6(A))", ok: false, value: Math.max(incoming ? load_a : minTrip, 15), limit: NEC_240_6.at(-1) });
+      if (amp != null && !incoming && trip != null) {
         const ok = trip <= 800 ? trip <= nextStandard(amp) : amp >= trip;
         checks.push({ name: trip <= 800 ? "Conductor protected (240.4(B) next size up)" : "Conductor ampacity \u2265 trip (240.4(C))", ok, value: amp, limit: trip });
       }
       const small = c.kind !== "direct" ? SMALL_CONDUCTOR_MAX_OCPD[c.material]?.[String(c.size)] : void 0;
-      if (small != null && !incoming) checks.push({ name: "Small conductor OCPD limit (240.4(D))", ok: trip <= small, value: trip, limit: small });
-      if (!incoming) checks.push({ name: `Trip \u2265 ${opts.rated100 ? "100" : "125"} % of continuous + 100 % of non-continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
+      if (small != null && !incoming && trip != null) checks.push({ name: "Small conductor OCPD limit (240.4(D))", ok: trip <= small, value: trip, limit: small });
+      if (!incoming && trip != null) checks.push({ name: `Trip \u2265 ${opts.rated100 ? "100" : "125"} % of continuous + 100 % of non-continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
       const frame = frameFor(trip, mv);
-      if (frame == null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
+      if (frame == null && trip != null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
       circuits.push({
         tag: c.id,
         kind: incoming ? "main" : "feeder",
@@ -14580,6 +14584,7 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
         allow_placeholder_data: !!opts.allow_placeholder_data
       };
       try {
+        if (kv > 15) throw new Error(`${kv} kV is above the IEEE 1584-2018 range (208 V to 15 kV); use a method that covers this voltage.`);
         const res = arcFlash(inp);
         rows.push({
           id: raw.id,
