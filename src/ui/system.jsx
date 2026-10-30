@@ -21,6 +21,9 @@ import { MotorStartSection, ProfileSection } from "./systemStudies.jsx";
 import { TransformerLoadingSection, withTransformerLoading } from "./transformerLoading.jsx";
 import { ReportButton, svgToString } from "./reportButton.jsx";
 import { planPush, applyPush, PUSH_MODULES, STUDY_LABELS } from "../engine/designPush.js";
+import { DERIVED_META, DERIVED_SIZES } from "../engine/reactanceDerived.js";
+import AMPACITY_NEC from "../engine/pecalc/data/ampacity_nec.json";
+import TABLE9 from "../engine/pecalc/data/reactance_nec_table9.json";
 
 /* System-side styles for design pushes coming back from the module workspaces. */
 const CSS = `
@@ -586,11 +589,12 @@ function EqInspector({ e, r, update, remove, rename, scShown, openLineup, dc, dc
 function ConInspector({ c, r, update, remove, kvAt, goCableBus, goFeeder, dc, dcStale }) {
   const full = { ...CONNECTORS[c.kind].defaults, ...c };
   // NEC 110.14(C): the allowable ampacity is the lesser of the insulation and terminal columns (LV only).
-  // The solved run knows its own bus kV; before a solve the from-end kV stands in.
+  // The terminal column is Table 310.16 for cable bus too, as connectorAmpacity in the engine.
+  // kvAt is the solved run's own bus kV (null before a solve).
   const ca = c.kind === "direct" ? null : connectorAmpacity({ ...full, ampacity_a: undefined }, kvAt);
   const termC = r && !r.open && c.ampacity_a == null ? r.terminal_c : ca?.terminal_c;
   const table = ca == null || ca.insulation_a == null ? null
-    : termC != null ? Math.min(ca.insulation_a, tableAmpacity(c.kind, full.size, full.material, termC) ?? Infinity) : ca.insulation_a;
+    : termC != null ? Math.min(ca.insulation_a, tableAmpacity("cable", full.size, full.material, termC) ?? Infinity) : ca.insulation_a;
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-2">
@@ -606,9 +610,9 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus, goFeeder, dc, dc
           <Field label="Sets per phase"><NumField id="con-sets" value={c.sets} placeholder={String(full.sets)} onCommit={(v) => update(c.id, { sets: v })} /></Field>
           <Field label="Length" unit="ft"><NumField id="con-len" value={c.length_ft} placeholder={String(full.length_ft)} onCommit={(v) => update(c.id, { length_ft: v })} /></Field>
           <Field label="Conductor temp" unit="°C"><select id="con-temp" className="num-input" value={full.insulation_c} onChange={(ev) => update(c.id, { insulation_c: Number(ev.target.value) })}>{[60, 75, 90].map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
-          <Field label="Terminal rating" unit="°C" hint="NEC 110.14(C): equipment marking; default 60 °C ≤ 100 A or 14–1 AWG, else 75 °C. Not applied above 2 kV."><select id="con-term" className="num-input" value={full.terminal_c ?? ""} onChange={(ev) => update(c.id, { terminal_c: ev.target.value === "" ? undefined : Number(ev.target.value) })}><option value="">Code default</option>{[60, 75, 90].map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
+          <Field label="Terminal rating" unit="°C" hint="NEC 110.14(C): equipment marking; default 60 °C ≤ 100 A or 14–1 AWG, else 75 °C; Table 310.16 column, cable bus too. Not applied above 2 kV."><select id="con-term" className="num-input" value={full.terminal_c ?? ""} onChange={(ev) => update(c.id, { terminal_c: ev.target.value === "" ? undefined : Number(ev.target.value) })}><option value="">Code default</option>{[60, 75, 90].map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
           {c.kind === "cable" && <Field label="Raceway"><select id="con-race" className="num-input" value={full.raceway} onChange={(ev) => update(c.id, { raceway: ev.target.value })}><option value="steel">Steel conduit</option><option value="aluminum">Aluminum conduit</option><option value="pvc">PVC conduit</option></select></Field>}
-          <Field label="Ampacity / set" unit="A" hint={`Table ${c.kind === "cablebus" ? "310.17" : "310.16"}: ${table ?? "—"} A${termC != null ? ` (${full.insulation_c} °C insulation, ${termC} °C terminals)` : ""} (${AMPACITY_STATUS})`}><NumField id="con-amp" value={c.ampacity_a} placeholder={table != null ? String(table) : "—"} onCommit={(v) => update(c.id, { ampacity_a: v })} /></Field>
+          <Field label="Ampacity / set" unit="A" hint={`Table ${c.kind === "cablebus" ? "310.17" : "310.16"} at ${full.insulation_c} °C${termC != null ? `, 310.16 at ${termC} °C terminals` : ""}: ${table ?? "—"} A (${AMPACITY_STATUS})`}><NumField id="con-amp" value={c.ampacity_a} placeholder={table != null ? String(table) : "—"} onCommit={(v) => update(c.id, { ampacity_a: v })} /></Field>
         </>}
       </div>
       {r && !r.open && (
@@ -634,7 +638,7 @@ function ConInspector({ c, r, update, remove, kvAt, goCableBus, goFeeder, dc, dc
   );
 }
 
-function SystemSummary({ sys, analysis, checks = {} }) {
+function SystemSummary({ sys, analysis, checks = {}, motors = true }) {
   const t = analysis?.totals;
   const errs = analysis?.issues?.filter((x) => x.level === "error") || [];
   const flagged = analysis?.ok ? Object.entries(analysis.equipment).filter(([id, r]) => !["ok", "off"].includes(statusOf(sys.equipment.find((e) => e.id === id), r))) : [];
@@ -668,13 +672,13 @@ function SystemSummary({ sys, analysis, checks = {} }) {
             : <ul className="flex flex-col gap-1 text-[13px]">{bad.map(([id, d]) => <li key={id}><b className="font-mono text-crit">{id}</b> <span className="text-muted">{d.error || d.checks.filter((k) => !k.passed).map((k) => k.name).join("; ")}</span></li>)}</ul>}
         </div>); })()}
       {off.length > 0 && <div className="notice notice-info"><b>De-energized:</b> {off.join(", ")}</div>}
-      <p className="text-faint text-[12px] leading-relaxed">Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with c<sub>max</sub>, motors included. Ampacity from NEC tables ({AMPACITY_STATUS}). Cable R uses DC resistance at conductor temperature; reactance from NEC Chapter 9 Table 9.</p>
+      <p className="text-faint text-[12px] leading-relaxed">Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with c<sub>max</sub>, motors {motors ? "included" : "excluded"}. Ampacity from NEC tables ({AMPACITY_STATUS}). Cable R uses AC resistance (skin and proximity effect) at the conductor temperature rating; reactance from NEC Chapter 9 Table 9 ({TABLE9._meta.status}).</p>
     </div>
   );
 }
 
 /* ============================================================== SCHEDULE */
-function Schedule({ sys, analysis, select, updateEq, updateCon, setCode, checks = {} }) {
+function Schedule({ sys, analysis, select, updateEq, updateCon, setCode, checks = {}, projectN }) {
   const res = analysis?.equipment || {}, cres = analysis?.connectors || {};
   return (
     <div className="flex flex-col gap-4 p-4 overflow-auto">
@@ -733,12 +737,13 @@ function Schedule({ sys, analysis, select, updateEq, updateCon, setCode, checks 
       <ArcFlashSection sys={sys} analysis={analysis} updateEq={updateEq} />
       <MotorStartSection sys={sys} />
       <ProfileSection sys={sys} />
-      <TransformerLoadingSection sys={sys} />
+      <TransformerLoadingSection key={projectN} sys={sys} />{/* keyed: thermal inputs and limits belong to one project */}
     </div>
   );
 }
 
 /* Calculation package for the whole system (see engine/report.js). The one-line SVG is included only when that view is mounted. */
+const dataSource = (m) => `${m.source.replace(/\.?$/, ".")}${m.pdf_check ? ` PDF check ${m.pdf_check.date}: ${m.pdf_check.result}` : ""}`;
 function systemReport(sys, analysis, host) {
   if (!analysis?.ok) throw new Error(analysis?.message || "The system is not solved.");
   const res = analysis.equipment, cres = analysis.connectors, t = analysis.totals;
@@ -780,10 +785,13 @@ function systemReport(sys, analysis, host) {
       { title: "Attention list", columns: ["Item"], rows: attention.length ? attention.map((a) => [a]) : [["No overloads, voltage or short-circuit duty issues."]] },
     ],
     figures: svg ? [{ title: "One-line diagram", svg, dark: true }] : [],
-    notes: ["Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with cmax.", "Cable R uses DC resistance at conductor temperature; reactance from NEC Chapter 9 Table 9 (UNVERIFIED).",
+    notes: ["Load flow: Newton-Raphson on the compiled network. Short circuit: IEC 60909 equivalent source with cmax.", `Cable R uses AC resistance (skin and proximity effect) at the conductor temperature rating; reactance from NEC Chapter 9 Table 9 (${TABLE9._meta.status}).`,
       `Protection code checks under ${prot.code}: transformer overcurrent limits (NEC 450.3 / CEC 26-250, 26-254), NEC 240.87 arc energy reduction and NEC 110.16(B) service label. REVIEW rows need an input or data the model does not have; they are not counted as pass or fail.`, ...prot.notes,
       ...(svg ? [] : ["The one-line diagram is omitted: open the One-line view in the System workspace before exporting to include it."])],
-    dataStatus: [{ table: "NEC Table 310.16 ampacity", status: AMPACITY_STATUS, source: "Check against a licensed NFPA 70 copy." }, { table: "NEC Chapter 9 Table 9 reactance", status: "UNVERIFIED", source: "Entered from memory." },
+    dataStatus: [{ table: `NEC ${AMPACITY_NEC._meta.tables.raceway} ampacity (cable; terminal column for all runs)`, status: AMPACITY_NEC._meta.status, source: dataSource(AMPACITY_NEC._meta) },
+      { table: `NEC ${AMPACITY_NEC._meta.tables.free_air} ampacity (cable bus insulation column)`, status: AMPACITY_NEC._meta.status, source: dataSource(AMPACITY_NEC._meta) },
+      { table: "NEC Chapter 9 Table 9 reactance", status: TABLE9._meta.status, source: dataSource(TABLE9._meta) },
+      { table: `Cable reactance, ${DERIVED_SIZES.join(", ")} kcmil (not in Table 9)`, status: DERIVED_META.status, source: DERIVED_META.method },
       { table: "Protection code limits (NEC 450.3, 240.87, 110.16(B); CEC 26-250, 26-254)", status: PROT_DATA_STATUS, source: "Public secondary sources and recall; not read in the code text (engine/data/protection_code_checks.json)." }],
   });
 }
@@ -807,11 +815,14 @@ export function SystemWorkspace({ goTo }) {
   // Equipment design checks (pecalc cable bus / bus / transformer) are heavier: run them after the frame.
   const [checks, setChecks] = useState({});
   // Design pushes from the module workspaces mark the studies stale; each clears when it has re-run on the new model.
-  const [pushed, setPushed] = useState(null);         // { module, target, changed, studies: [...] }
+  const [pushed, setPushed] = useState(null);         // { module, target, changed, studies: [...], sys: the post-push model }
   const unstale = (done) => setPushed((p) => (p && p.studies.some((x) => done.includes(x)) ? { ...p, studies: p.studies.filter((x) => !done.includes(x)) } : p));
   useEffect(() => { unstale(["loadflow", "shortcircuit"]); }, [analysis]);
   useEffect(() => { const t = setTimeout(() => { try { setChecks(designChecks(sys, analysis)); } catch (err) { setChecks({}); } unstale(["designchecks"]); }, 220); return () => clearTimeout(t); }, [analysis]); // eslint-disable-line
   const checksStale = !!pushed?.studies.includes("designchecks");
+  // A different project (opened, new, library or reset): drop the push banner and per-project study inputs.
+  const [projectN, setProjectN] = useState(0);
+  const newProject = () => { setSelection(null); setPushed(null); setProjectN((n) => n + 1); setFitSignal((x) => x + 1); };
 
   // Publish the model for the module workspaces (target pickers, diff previews) and take their design pushes.
   const sysRef = useRef(sys); sysRef.current = sys;
@@ -822,7 +833,7 @@ export function SystemWorkspace({ goTo }) {
     let next;
     try { next = applyPush(sysRef.current, plan); } catch (err) { reply?.({ ok: false, errors: [err.message], plan }); return; }
     setSys(next);                                       // one history entry: a single undo restores the element
-    setPushed({ module, target: plan.target, changed: plan.changed, studies: plan.stale });
+    setPushed({ module, target: plan.target, changed: plan.changed, studies: plan.stale, sys: next });
     setSelection({ kind: plan.target.kind, id: plan.target.id });
     bus.emit("system:stale", { studies: plan.stale, reason: `${PUSH_MODULES[module].label} design applied to ${plan.target.id}` });
     reply?.({ ok: true, plan });
@@ -871,10 +882,16 @@ export function SystemWorkspace({ goTo }) {
     setSys((s) => ({ ...s, connectors: [...s.connectors, { id, kind, from: `${aId}.${ta}`, to: `${bId}.${tb}` }] }));
     setSelection({ kind: "con", id }); setTool("select");
   };
+  // kV and I″k of the run's own bus, as designchecks.js does (equipment[id].kv is the equipment's first
+  // terminal, which for a transformer is the HV side, so a run from T.lv opened at the primary values).
+  const runBus = (c) => {
+    if (!analysis.ok) return null;
+    const cc = analysis.compiled, b = analysis.connectors[c.id]?.from_bus ?? cc.busOf(c.from) ?? cc.busOf(c.to);
+    return b == null ? null : { kv: cc.busMeta[b - 1]?.kv, ik_ka: analysis.sc?.buses[b - 1]?.ik_ka };
+  };
   const goFeeder = (c) => {
-    const full = { ...CONNECTORS[c.kind].defaults, ...c }, end = (k) => c[k].split(".")[0];
-    const at = analysis.ok ? analysis.equipment[end("from")] : null;
-    bus.emit("feeder:open", { connector: full, current_a: analysis.connectors[c.id]?.i_a, kv: at?.kv ?? analysis.equipment[end("to")]?.kv, fault_ka: at?.ik_ka });
+    const full = { ...CONNECTORS[c.kind].defaults, ...c }, at = runBus(c);
+    bus.emit("feeder:open", { connector: full, current_a: analysis.connectors[c.id]?.i_a, kv: at?.kv, fault_ka: at?.ik_ka });
     goTo("feeder");
   };
   const goModule = (module, e) => {
@@ -896,7 +913,7 @@ export function SystemWorkspace({ goTo }) {
       if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
       if (!wsVisible()) return;
       if (ev.key === "Escape") { setTool("select"); setSelection(null); setAddOpen(false); }
-      if ((ev.key === "Delete" || ev.key === "Backspace") && selection) { ev.preventDefault(); selection.kind === "eq" ? removeEq(selection.id) : removeCon(selection.id); }
+      if ((ev.key === "Delete" || ev.key === "Backspace") && selection && view === "site") { ev.preventDefault(); selection.kind === "eq" ? removeEq(selection.id) : removeCon(selection.id); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   });
@@ -915,10 +932,10 @@ export function SystemWorkspace({ goTo }) {
         status={<Pill tone={status.tone}>{status.text}</Pill>}
         actions={<>
           <label className="live-toggle" title="Include induction-motor fault contribution"><input id="sc-motors" type="checkbox" checked={motors} onChange={(ev) => setMotors(ev.target.checked)} /><span>Motor contribution</span></label>
-          <ProjectMenu sys={sys} setSys={setSys} history={history} onLoaded={() => { setSelection(null); setFitSignal((x) => x + 1); }} />
+          <ProjectMenu sys={sys} setSys={setSys} history={history} onLoaded={newProject} />
           <ReportButton filename="system-calc" disabled={!analysis.ok} getReport={() => systemReport(sys, analysis, hostRef.current)} />
           <Btn onClick={sendToLoadFlow} disabled={!analysis.ok} title="Open the compiled bus model in the Load flow workspace">Open in Load flow</Btn>
-          <Btn onClick={() => { setSys(clone(EXAMPLE_SYSTEM)); setSelection(null); setFitSignal((x) => x + 1); }}>Reset example</Btn>
+          <Btn onClick={() => { setSys(clone(EXAMPLE_SYSTEM)); newProject(); }}>Reset example</Btn>
         </>}>
         <input id="sys-name" className="num-input sys-name" value={sys.name} onChange={(ev) => setSys((s) => ({ ...s, name: ev.target.value }))} aria-label="Package name" />
       </WsHeader>
@@ -928,7 +945,8 @@ export function SystemWorkspace({ goTo }) {
           {t && <span className="text-muted hidden md:inline">Demand <b className="text-fg font-mono">{fmt(t.load_kw, 0)}</b> kW · Losses <b className="text-fg font-mono">{fmt(t.loss_kw, 1)}</b> kW · Max I″k <b className="text-fg font-mono">{fmt(t.max_ik_ka, 1)}</b> kA</span>}
         </div>
       </nav>
-      {pushed && (
+      {/* Shown only while the model is still the pushed one: after any other edit, Undo push would undo that edit. */}
+      {pushed && pushed.sys === sys && (
         <div className={cx("notice sys-push", pushed.studies.length ? "notice-warn" : "notice-info")} role="status">
           <span><b>{PUSH_MODULES[pushed.module].label} design applied to {pushed.target.id}</b> · {pushed.changed} field{pushed.changed === 1 ? "" : "s"} changed.</span>
           <span className="sys-push-studies">{Object.entries(STUDY_LABELS).map(([k, l]) => <Pill key={k} tone={pushed.studies.includes(k) ? "warn" : "ok"}>{l}: {pushed.studies.includes(k) ? "stale, re-running" : "re-run"}</Pill>)}</span>
@@ -968,11 +986,11 @@ export function SystemWorkspace({ goTo }) {
             <aside className="panel inspector">
               {selEq ? <EqInspector e={selEq} r={analysis.ok ? analysis.equipment[selEq.id] : null} update={updateEq} remove={removeEq} rename={renameEq} scShown={!!analysis.sc} openLineup={setLineupFor} dc={checks[selEq.id]} dcStale={checksStale} goModule={goModule} />
                 : selCon ? <ConInspector c={selCon} r={analysis.ok ? analysis.connectors[selCon.id] : null} update={updateCon} remove={removeCon} dc={checks[selCon.id]} dcStale={checksStale} goFeeder={goFeeder}
-                    kvAt={analysis.ok ? analysis.equipment[selCon.from.split(".")[0]]?.kv : null} goCableBus={(c) => { bus.emit("cablebus:open", { connector: { ...CONNECTORS[c.kind].defaults, ...c }, current_a: analysis.connectors[c.id]?.i_a, kv: analysis.equipment[c.to.split(".")[0]]?.kv }); goTo("cablebus"); }} />
-                : <SystemSummary sys={sys} analysis={analysis} checks={checks} />}
+                    kvAt={runBus(selCon)?.kv ?? null} goCableBus={(c) => { bus.emit("cablebus:open", { connector: { ...CONNECTORS[c.kind].defaults, ...c }, current_a: analysis.connectors[c.id]?.i_a, kv: runBus(c)?.kv }); goTo("cablebus"); }} />
+                : <SystemSummary sys={sys} analysis={analysis} checks={checks} motors={motors} />}
             </aside>
           </div>
-        ) : view === "tcc" ? <CoordinationView sys={sys} analysis={analysis} updateCon={updateCon} /> : <Schedule updateEq={updateEq} updateCon={updateCon} setCode={(code) => setSys((s) => ({ ...s, code }))} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
+        ) : view === "tcc" ? <CoordinationView sys={sys} analysis={analysis} updateCon={updateCon} /> : <Schedule projectN={projectN} updateEq={updateEq} updateCon={updateCon} setCode={(code) => setSys((s) => ({ ...s, code }))} checks={checks} sys={sys} analysis={analysis} select={(s) => { setSelection(s); setView("site"); }} />}
       </main>
       {lineupFor && sys.equipment.some((e) => e.id === lineupFor) && <GearLineupModal sys={sys} analysis={analysis} gearId={lineupFor} onClose={() => setLineupFor(null)} />}
     </div>

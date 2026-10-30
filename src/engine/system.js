@@ -13,7 +13,7 @@ import { shortCircuit, cMax } from "./shortcircuit.js";
 import AMPACITY from "./pecalc/data/ampacity_nec.json" with { type: "json" };
 import TABLE9 from "./pecalc/data/reactance_nec_table9.json" with { type: "json" };
 import { reactancePer1000ft } from "./reactanceDerived.js";
-import { racOhmPerM, cableOdMm } from "./pecalc/conductors.js";
+import { racOhmPerM, rdcOhmPerM, cableOdMm } from "./pecalc/conductors.js";
 import { defaultTerminalTemp } from "./pecalc/lugs.js";
 
 export const SQRT3 = Math.sqrt(3);
@@ -42,29 +42,28 @@ export const NODE_KINDS = new Set(["switchgear", "mcc", "panel"]);
 // Cross-section areas: AWG from the ASTM B258 formula, kcmil = 0.5067 mm² per kcmil.
 const AWG = { "14": 2.08, "12": 3.31, "10": 5.26, "8": 8.37, "6": 13.3, "4": 21.2, "3": 26.7, "2": 33.6, "1": 42.4, "1/0": 53.5, "2/0": 67.4, "3/0": 85.0, "4/0": 107.2 };
 // 700, 800, 900 and 1250–2000 kcmil have no NEC Table 9 row; their reactance is DERIVED (see reactanceDerived.js).
-export const CONDUCTOR_SIZES = [...Object.keys(AWG), "250", "300", "350", "400", "500", "600", "700", "750", "800", "900", "1000", "1250", "1500", "1750", "2000"];
+// Spelled out: Object.keys(AWG) would list the integer-like keys ("1", "2", ...) first, out of size order.
+export const CONDUCTOR_SIZES = ["14", "12", "10", "8", "6", "4", "3", "2", "1", "1/0", "2/0", "3/0", "4/0", "250", "300", "350", "400", "500", "600", "700", "750", "800", "900", "1000", "1250", "1500", "1750", "2000"];
 export function areaMm2(size) {
   if (AWG[size]) return AWG[size];
   const k = Number(size); if (!isFinite(k) || k <= 0) throw new Error(`Unknown conductor size "${size}"`);
   return k * 0.506707;
 }
-// AC resistance per conductor at operating temperature, ohm per 1000 ft: IEC 60287-1-1 skin and
+// AC resistance per conductor at the given conductor temperature (callers pass the insulation rating), ohm per 1000 ft: IEC 60287-1-1 skin and
 // proximity factors from the ported pecalc conductor model, cables touching (spacing = cable OD).
 export function racPer1000ft(size, material = "Cu", tempC = 75) {
   return racOhmPerM(size, material, tempC, 60, cableOdMm(size)) * 304.8;
 }
-// DC resistance at operating temperature, ohm per 1000 ft per conductor (IEC 60228 resistivities, α from IEC 60287).
+// DC resistance per conductor, ohm per 1000 ft: the pecalc conductor model (NEC Table 8 areas, stranding factor).
 export function rdcPer1000ft(size, material = "Cu", tempC = 75) {
-  const rho20 = material === "Al" ? 2.8264e-8 : 1.7241e-8, alpha = material === "Al" ? 0.00403 : 0.00393;
-  const r_per_m = (rho20 * (1 + alpha * (tempC - 20))) / (areaMm2(size) * 1e-6);
-  return r_per_m * 304.8;
+  return rdcOhmPerM(size, material, tempC) * 304.8;
 }
 // NEC Table 9 where it has the size; otherwise the DERIVED (interpolated/extrapolated) value.
 export function xlPer1000ft(size, raceway = "steel") {
   const col = TABLE9[raceway] || TABLE9.steel;
   return reactancePer1000ft(size, raceway)?.xl ?? col["1000"];
 }
-// Table ampacity per conductor: 310.16 for cable in raceway, 310.17 (free air) for cable bus.
+// Insulation-column ampacity per conductor: 310.16 for cable in raceway, 310.17 (free air) for cable bus.
 export function tableAmpacity(kind, size, material = "Cu", tempC = 75) {
   const t = kind === "cablebus" ? AMPACITY.free_air : AMPACITY.raceway;
   const row = t?.[material]?.[size];
@@ -86,8 +85,8 @@ export function connectorTerminalC(c, insulationAmpacityA = null) {
 
 // Allowable ampacity per set (A) used for loading and the 240.4(B)/(C) checks: the lesser of the
 // insulation-column ampacity and the terminal-temperature column (NEC 110.14(C)), as in pecalc sizing.js.
-// Cable in raceway takes the terminal column from 310.16; cable bus takes it from the free-air table, as
-// the pecalc cable bus check does. Above 2 kV (kv > 2) the 60/75 C termination rule does not apply and the
+// The terminal column always comes from 310.16, for cable bus too, as the pecalc cable bus check does for NEC
+// since pecalc #22 (web #44): a termination sees the raceway-table rating, not the free-air one. Above 2 kV (kv > 2) the 60/75 C termination rule does not apply and the
 // insulation column is returned unchanged. A user `ampacity_a` overrides everything.
 export function connectorAmpacity(c, kv = null) {
   if (c.kind === "direct") return { per_set_a: null, insulation_a: null, terminal_a: null, terminal_c: null, terminal_basis: null };
@@ -95,7 +94,7 @@ export function connectorAmpacity(c, kv = null) {
   let terminal_a = null, terminal_c = null, terminal_basis = null, per_set_a = insulation_a;
   if (insulation_a != null && !(kv > 2)) {
     [terminal_c, terminal_basis] = connectorTerminalC(c, insulation_a * (c.sets ?? 1));
-    terminal_a = tableAmpacity(c.kind, c.size, c.material, terminal_c);
+    terminal_a = tableAmpacity("cable", c.size, c.material, terminal_c);
     if (terminal_a != null) per_set_a = Math.min(insulation_a, terminal_a);
   }
   if (c.ampacity_a != null) per_set_a = c.ampacity_a;
@@ -193,9 +192,18 @@ export function compileSystem(sys) {
 
   let slackCount = 0;
   const scSources = [];
+  // Short-circuit source data must be positive: one zero (generator X/R, motor hp or LRC, utility MVA) would
+  // make every bus fault current NaN while the load flow still converges.
+  const positive = (e, keys) => {
+    const bad = keys.filter((k) => !(e[k] > 0));
+    if (bad.length) add("error", e.id, `${e.id}: ${bad.map((k) => `"${k}"`).join(", ")} must be greater than 0.`);
+    return bad.length === 0;
+  };
   for (const e of eq.values()) {
     const t0 = EQUIPMENT[e.type].terminals[0];
     const bid = busOf(term(e.id, t0)); const b = B(bid); const kv = busMeta[bid - 1].kv;
+    if (e.type === "generator" && !positive(e, ["kva", "xd2", "xr"])) continue;
+    if (e.type === "motor" && !positive(e, ["hp", "eff", "pf", "lrc", "xr"])) continue;
     if (e.type === "utility") {
       slackCount++;
       if (slackCount === 1) { b.type = "slack"; b.v = e.v_pu; b.angle = 0.0; }
@@ -207,9 +215,10 @@ export function compileSystem(sys) {
       //   "ANSI": S is a plain E/Z bolted value at nominal U (no c). z = base/S → I″k = c·S/(√3·U), Ibf = S/(√3·U).
       const cQ = e.sc_basis === "ANSI" ? 1 : cMax(kv);
       const z = (cQ * base_mva) / e.mva_sc, r = z / Math.sqrt(1 + e.xr * e.xr);
-      scSources.push({ bus: bid, r, x: r * e.xr, id: e.id, kind: "utility" });
+      if (positive(e, ["mva_sc", "xr"])) scSources.push({ bus: bid, r, x: r * e.xr, id: e.id, kind: "utility" });
     } else if (e.type === "generator") {
       if (b.type !== "slack") { b.type = "PV"; b.v = e.v_pu; b.p_gen = (b.p_gen ?? 0) + e.p_kw / 1000; }
+      else add("warn", e.id, `${e.id} is on the utility (swing) bus: the load flow cannot hold its output, so its power and loading are not reported. It still contributes fault current.`);
       const x = e.xd2 * (base_mva / (e.kva / 1000));
       scSources.push({ bus: bid, r: x / e.xr, x, id: e.id, kind: "generator" });
     } else if (e.type === "motor") {
@@ -328,6 +337,9 @@ export function analyseSystem(sys, opts = {}) {
     } else if (e.type === "utility") {
       const pg = r.p_gen_mw, qg = r.q_gen_mvar;
       Object.assign(info, { p_kw: pg * 1000, q_kvar: qg * 1000, s_kva: Math.hypot(pg, qg) * 1000, pf: pg / Math.max(Math.hypot(pg, qg), 1e-12) });
+    } else if (e.type === "generator" && c.lfCase.buses[bid - 1].type === "slack") {
+      // on the swing bus the bus generation is the utility's; see the compile warning
+      Object.assign(info, { p_kw: null, q_kvar: null, loading_pct: null, on_swing_bus: true });
     } else if (e.type === "generator") {
       Object.assign(info, { p_kw: r.p_gen_mw * 1000, q_kvar: r.q_gen_mvar * 1000, loading_pct: (100 * Math.hypot(r.p_gen_mw, r.q_gen_mvar) * 1000) / e.kva });
     } else if (e.type === "motor") {
@@ -351,6 +363,37 @@ export function analyseSystem(sys, opts = {}) {
       dir: b.p_from_mw >= 0 ? 1 : -1, from_bus: b.from, to_bus: b.to, ohms: b.meta.ohms,
     };
   });
+  // Close-coupled throats merge their two terminals into one bus, so they are not load-flow branches. Report
+  // closed ones anyway (current and direction from the equipment end) so the lineup, the TCC upstream walk and
+  // the code checks see an energized connector instead of a missing (= open) one. Gear-to-gear throats carry
+  // no measurable current: i_a is null there.
+  for (const cn of c.cons) {
+    if (cn.kind !== "direct" || cn.closed === false) continue;
+    const bid = c.busOf(cn.from);
+    if (bid == null) continue;                                    // de-energized island
+    const endFlow = (end) => {                                    // [current A, +1 power out of the terminal / -1 into it]
+      const { id, term } = parseEnd(end), e = c.eq.get(id), r = out.equipment[id];
+      if (!e || !r || r.deenergized) return null;
+      if (e.type === "transformer") {
+        const b = brRes.find((x) => x.meta.kind === "transformer" && x.meta.id === id);
+        if (!b) return null;
+        const forward = b.p_from_mw >= 0;                         // power flows HV -> LV
+        return term === "lv" ? [b.i_to_a, forward ? 1 : -1] : [b.i_from_a, forward ? -1 : 1];
+      }
+      if (e.type === "utility" || e.type === "generator") {
+        if (r.s_kva == null && r.p_kw == null) return null;
+        const s = r.s_kva ?? Math.hypot(r.p_kw, r.q_kvar ?? 0);
+        return [s / (SQRT3 * r.kv * r.v_pu), (r.p_kw ?? 0) >= 0 ? 1 : -1];
+      }
+      if (e.type === "capacitor") return [r.q_kvar / (SQRT3 * r.kv * r.v_pu), -1];
+      if (r.i_a != null) return [r.i_a, -1];                      // motor, load
+      return null;
+    };
+    const f = endFlow(cn.from), t = endFlow(cn.to);
+    const i_a = f?.[0] ?? t?.[0] ?? null;
+    const dir = f ? f[1] : t ? -t[1] : 1;
+    out.connectors[cn.id] = { direct: true, closed: true, i_a, dir, from_bus: bid, to_bus: bid, ampacity_a: null, loading_pct: null };
+  }
   out.totals = {
     load_kw: lf.total_load_mw * 1000, gen_kw: lf.total_gen_mw * 1000, loss_kw: lf.total_p_loss_mw * 1000,
     min_v: Math.min(...lf.buses.map((b) => b.v)), max_v: Math.max(...lf.buses.map((b) => b.v)),

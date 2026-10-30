@@ -81,3 +81,22 @@ test("O10: 240.4(B) uses the 75 °C terminal-limited ampacity of 500 kcmil Cu 90
   assert.equal(f90.ampacity_a, 430);
   assert.ok(f90.checks.find((x) => /240\.4\(B\)/.test(x.name)).ok);
 });
+
+test("regression: a generator incomer is sized from the generator FLA, not the bus rating", async () => {
+  const { LIBRARY } = await import("../src/engine/systemLibrary.js");
+  const sys = LIBRARY.find((l) => l.key === "industrial-plant").system;
+  const main = buildLineup(sys, analyseSystem(sys), "SWGR-LV").circuits.find((c) => c.tag === "C-GEN");
+  assert.equal(main.kind, "main");
+  // 1000 kVA at 480 V: 1000 / (√3 · 0.48) = 1202.8 A, next standard rating 1600 A (was the 4000 A bus rating)
+  assert.equal(main.trip, nextStandard(1000 / (Math.sqrt(3) * 0.48)));
+  assert.equal(main.trip, 1600);
+});
+
+test("regression: a feeder to a transformer primary is sized from the transformer rating, not today's load", () => {
+  const a = analyseSystem(EXAMPLE_SYSTEM);
+  const t1 = EXAMPLE_SYSTEM.equipment.find((e) => e.id === "T1");
+  const c = buildLineup(EXAMPLE_SYSTEM, a, "SWGR-MV").circuits.find((x) => x.tag === "C-T1");
+  const fla = t1.kva / (Math.sqrt(3) * t1.hv_kv);           // 2500 kVA at 13.8 kV: 104.6 A
+  assert.equal(c.trip, nextStandard(1.25 * fla));            // 130.7 A -> 150 A (was 80 A from the load current)
+  assert.ok(c.trip >= 1.25 * fla);
+});

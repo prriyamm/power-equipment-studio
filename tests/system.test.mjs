@@ -109,10 +109,12 @@ test("O10: NEC 110.14(C) terminal limit on LV connector ampacity", async () => {
   assert.equal(small.per_set_a, tableAmpacity("cable", "4", "Cu", 60));
   // 75 °C insulation is already the lesser column
   assert.equal(connectorAmpacity({ ...cab, insulation_c: 75 }, 0.48).per_set_a, 380);
-  // cable bus: same terminal rule, terminal column from the free-air table (as pecalc cablebus.js)
+  // cable bus: insulation column from the free-air table, terminal column from 310.16 (as pecalc cablebus.js
+  // for NEC): 500 kcmil Cu 90 °C free air 620 A, limited to the 310.16 75 °C rating 380 A at the terminals
   const cb = connectorAmpacity({ kind: "cablebus", size: "500", material: "Cu", sets: 1, insulation_c: 90 }, 0.48);
-  assert.equal(cb.per_set_a, tableAmpacity("cablebus", "500", "Cu", 75));
-  assert.ok(cb.per_set_a < tableAmpacity("cablebus", "500", "Cu", 90));
+  assert.equal(cb.insulation_a, tableAmpacity("cablebus", "500", "Cu", 90));
+  assert.equal(cb.terminal_a, tableAmpacity("cable", "500", "Cu", 75));
+  assert.equal(cb.per_set_a, 380);
   // MV (> 2 kV): unchanged, insulation column
   assert.equal(connectorAmpacity(cab, 13.8).per_set_a, 430);
   assert.equal(connectorAmpacity(cab, 13.8).terminal_c, null);
@@ -132,4 +134,45 @@ test("O10: system loading uses the terminal-limited ampacity (500 kcmil Cu 90 °
   assert.equal(r.connectors.F.ampacity_a, 760);
   assert.equal(r.connectors.F.terminal_c, 75);
   assert.ok(Math.abs(r.connectors.F.loading_pct - (100 * r.connectors.F.i_a) / 760) < 1e-9);
+});
+
+test("regression: a zero source parameter is an error, not NaN fault currents", () => {
+  const motor = EXAMPLE_SYSTEM.equipment.find((e) => e.type === "motor");
+  for (const patch of [{ hp: 0 }, { lrc: 0 }]) {
+    const sys = { ...EXAMPLE_SYSTEM, equipment: EXAMPLE_SYSTEM.equipment.map((e) => (e.id === motor.id ? { ...e, ...patch } : e)) };
+    const r = analyseSystem(sys);
+    assert.equal(r.ok, false);
+    assert.match(r.message, new RegExp(`${motor.id}: "${Object.keys(patch)[0]}" must be greater than 0`));
+  }
+  const gen = { id: "G", type: "generator", kv: 0.48, xr: 0, gx: 40, gy: 40 };
+  const lv = EXAMPLE_SYSTEM.equipment.find((e) => e.id === "SWGR-LV");
+  const sys = { ...EXAMPLE_SYSTEM, equipment: [...EXAMPLE_SYSTEM.equipment, gen], connectors: [...EXAMPLE_SYSTEM.connectors, { id: "C-G", kind: "direct", from: "G.out", to: `${lv.id}.bus` }] };
+  assert.match(analyseSystem(sys).message, /G: "xr" must be greater than 0/);
+});
+
+test("regression: a generator on the utility (swing) bus warns and reports no output or loading", () => {
+  const sys = { ...EXAMPLE_SYSTEM, equipment: [...EXAMPLE_SYSTEM.equipment, { id: "G", type: "generator", kv: 13.8, kva: 2000, p_kw: 1500, gx: 40, gy: 40 }],
+    connectors: [...EXAMPLE_SYSTEM.connectors, { id: "C-G", kind: "direct", from: "G.out", to: "UTIL.out" }] };
+  const r = analyseSystem(sys);
+  assert.ok(r.ok, r.message);
+  assert.ok(r.issues.some((i) => i.level === "warn" && i.ref === "G" && /swing/.test(i.msg)));
+  assert.equal(r.equipment.G.loading_pct, null);
+  assert.equal(r.equipment.G.p_kw, null);
+});
+
+test("regression: a closed close-coupled throat is reported, so the lineup and the TCC walk see it energized", async () => {
+  const { buildLineup } = await import("../src/engine/gear.js");
+  const { protectionPath } = await import("../src/engine/tcc.js");
+  const sys = { ...EXAMPLE_SYSTEM, connectors: EXAMPLE_SYSTEM.connectors.map((c) => (c.id === "CB-1" ? { id: "THROAT", kind: "direct", from: "T1.lv", to: "SWGR-LV.bus" } : c)) };
+  const a = analyseSystem(sys);
+  assert.ok(a.ok, a.message);
+  const r = a.connectors.THROAT;
+  assert.ok(r && !r.open && r.direct);
+  assert.equal(r.dir, 1);                                        // power flows from T1.lv into the gear
+  assert.ok(Math.abs(r.i_a - a.equipment.T1.i_lv_a) < 1e-9);
+  const main = buildLineup(sys, a, "SWGR-LV").circuits.find((c) => c.tag === "THROAT");
+  assert.equal(main.kind, "main");
+  assert.ok(main.load_a > 1000, `main load ${main.load_a}`);   // was 0 A when the throat had no result
+  const path = protectionPath(sys, a, "M1").devices.map((d) => d.connector);
+  assert.ok(path.includes("THROAT") && path.includes("C-UTIL"), path.join(" "));
 });

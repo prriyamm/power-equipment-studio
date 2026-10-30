@@ -151,9 +151,15 @@ export function simulateLoading(o) {
   }
   let pk = 0;
   for (let i = 1; i < steps.length; i++) if (steps[i].theta_h > steps[pk].theta_h) pk = i;
+  // An ambient step at an hour boundary raises the temperature at the start of that hour, which the steps record
+  // with the previous hour's ambient; take the peaks over the hourly rows too so the summary and the limit checks
+  // never sit below the hourly table.
+  let peak_theta_h = steps[pk].theta_h, peak_t_min = steps[pk].t_min;
+  for (const row of hourlyRows) if (row.theta_h_max > peak_theta_h + 1e-12) { peak_theta_h = row.theta_h_max; peak_t_min = row.hour * 60; }
+  const peak_theta_to = Math.max(...steps.map((s) => s.theta_to), ...hourlyRows.map((row) => row.theta_to_max));
   return {
     ok: true, steps, hourly: hourlyRows, dt_min: dt, cycles, converged, normal_life_h: life,
-    peak_theta_h: steps[pk].theta_h, peak_t_min: steps[pk].t_min, peak_theta_to: Math.max(...steps.map((s) => s.theta_to)),
+    peak_theta_h, peak_t_min, peak_theta_to,
     peak_k: Math.max(...K), feqa, eq_aging_h, lol_pct, normal_lol_pct: (24 * 100) / life,
     params: P,
   };
