@@ -26,7 +26,7 @@ export const SMALL_CONDUCTOR_MAX_OCPD = { Cu: SMALL_CONDUCTORS.Cu, Al: SMALL_CON
 export const SMALL_CONDUCTOR_STATUS = SMALL_CONDUCTORS._meta.status;
 
 export const nextStandard = (a) => NEC_240_6.find((r) => r >= a - 1e-9) ?? null;
-export const frameFor = (trip, mv) => (mv ? MV_FRAMES : LV_FRAMES).find((f) => f >= trip) ?? null;
+export const frameFor = (trip, mv) => (trip == null ? null : (mv ? MV_FRAMES : LV_FRAMES).find((f) => f >= trip) ?? null);
 
 /**
  * @param sys       system model
@@ -76,15 +76,17 @@ export function buildLineup(sys, analysis, gearId, opts = {}) {
       trip = nextStandard(Math.min(Math.max(fla, load_a), g.bus_a)) ?? g.bus_a;
     }
     const checks = [];
-    if (amp != null && !incoming) {
+    // above the largest 240.6(A) rating there is no standard device: say so instead of comparing against null
+    if (trip == null) checks.push({ name: "Standard rating available (240.6(A))", ok: false, value: Math.max(incoming ? load_a : minTrip, 15), limit: NEC_240_6.at(-1) });
+    if (amp != null && !incoming && trip != null) {
       const ok = trip <= 800 ? trip <= nextStandard(amp) : amp >= trip;
       checks.push({ name: trip <= 800 ? "Conductor protected (240.4(B) next size up)" : "Conductor ampacity ≥ trip (240.4(C))", ok, value: amp, limit: trip });
     }
     const small = c.kind !== "direct" ? SMALL_CONDUCTOR_MAX_OCPD[c.material]?.[String(c.size)] : undefined;
-    if (small != null && !incoming) checks.push({ name: "Small conductor OCPD limit (240.4(D))", ok: trip <= small, value: trip, limit: small });
-    if (!incoming) checks.push({ name: `Trip ≥ ${opts.rated100 ? "100" : "125"} % of continuous + 100 % of non-continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
+    if (small != null && !incoming && trip != null) checks.push({ name: "Small conductor OCPD limit (240.4(D))", ok: trip <= small, value: trip, limit: small });
+    if (!incoming && trip != null) checks.push({ name: `Trip ≥ ${opts.rated100 ? "100" : "125"} % of continuous + 100 % of non-continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
     const frame = frameFor(trip, mv);
-    if (frame == null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
+    if (frame == null && trip != null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
     circuits.push({ tag: c.id, kind: incoming ? "main" : "feeder", to: far ? (far.name || far.id) : farId, toId: farId, conductor: c.kind === "direct" ? "close-coupled" : `${c.sets}×3×${c.size} ${c.material}`,
       load_a, ampacity_a: amp, trip, frame, open: c.closed === false, checks, ok: checks.every((k) => k.ok) });
   }

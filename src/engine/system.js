@@ -243,7 +243,8 @@ export function compileSystem(sys) {
     const f = busOf(term(e.id, "hv")), t = busOf(term(e.id, "lv"));
     if (f === t) { add("error", e.id, `${e.id} HV and LV terminals are shorted together.`); continue; }
     const zpu = (e.z_pct / 100) * (base_mva / (e.kva / 1000)), r = zpu / Math.sqrt(1 + e.xr * e.xr);
-    const br = { from: f, to: t, r, x: r * e.xr };
+    // rate_a (MVA, nameplate) lets the load-flow case and the N-1 screen report branch loading
+    const br = { from: f, to: t, r, x: r * e.xr, rate_a: e.kva / 1000 };
     if (e.tap_pct) br.tap = 1 + e.tap_pct / 100;
     branches.push(br); branchMeta.push({ kind: "transformer", id: e.id, rating_kva: e.kva });
   }
@@ -260,8 +261,10 @@ export function compileSystem(sys) {
     } catch (err) { add("error", c.id, err.message); continue; }
     if (!kv) continue;
     const zb = (kv * kv) / base_mva;
-    branches.push({ from: f, to: t, r: rOhm / zb, x: xOhm / zb });
     const amp = connectorAmpacity(c, kv), perSet = amp.per_set_a;
+    const br = { from: f, to: t, r: rOhm / zb, x: xOhm / zb };
+    if (perSet != null) br.rate_a = (SQRT3 * kv * perSet * c.sets) / 1000;   // MVA at nominal voltage
+    branches.push(br);
     branchMeta.push({ kind: c.kind, id: c.id, ampacity_a: perSet != null ? perSet * c.sets : null, terminal_c: c.ampacity_a != null ? null : amp.terminal_c, ohms: { r: rOhm, x: xOhm }, kv });
   }
 
@@ -320,9 +323,11 @@ export function analyseSystem(sys, opts = {}) {
     const r = busRes(bid), kv = kvOf(bid);
     const info = { bus: bid, kv, v_pu: r.v, v_kv: r.v * kv, angle: r.angle_deg, vflag: r.vflag, ik_ka: sc?.buses[bid - 1]?.ik_ka, ip_ka: sc?.buses[bid - 1]?.ip_ka, xr_fault: sc?.buses[bid - 1]?.xr };
     if (NODE_KINDS.has(e.type)) {
-      // bus throughput: power entering the bus from upstream branches
+      // bus throughput: power entering the bus from upstream branches, plus a utility or generator close-coupled
+      // to the bus (its injection is bus generation, not a branch)
       let sIn = 0;
       for (const b of connected(bid)) { const pIn = b.to === bid ? -b.p_to_mw : -b.p_from_mw; if (pIn > 0) sIn += b.to === bid ? b.s_to_mva : b.s_from_mva; }
+      if ((r.p_gen_mw ?? 0) > 0) sIn += Math.hypot(r.p_gen_mw, r.q_gen_mvar ?? 0);
       const ia = (sIn * 1000) / (SQRT3 * kv * r.v);
       info.bus_i_a = ia; info.loading_pct = (100 * ia) / e.bus_a;
       info.sc_duty_pct = info.ik_ka != null ? (100 * info.ik_ka) / e.sc_ka : null;

@@ -176,3 +176,45 @@ test("regression: a closed close-coupled throat is reported, so the lineup and t
   const path = protectionPath(sys, a, "M1").devices.map((d) => d.connector);
   assert.ok(path.includes("THROAT") && path.includes("C-UTIL"), path.join(" "));
 });
+
+// Large power transformer substation used by the regressions below: 2 x 200 MVA 230/69 kV in parallel, 300 MW.
+const parallel200 = () => ({
+  name: "2 x 200 MVA", base_mva: 100,
+  equipment: [
+    { id: "UTIL", type: "utility", kv: 230, mva_sc: 20000, xr: 30, gx: 0, gy: 0 },
+    { id: "YARD", type: "switchgear", kv: 230, bus_a: 3000, sc_ka: 63, gx: 4, gy: 0 },
+    { id: "TA", type: "transformer", kva: 200000, hv_kv: 230, lv_kv: 69, z_pct: 12, xr: 50, gx: 8, gy: 0 },
+    { id: "TB", type: "transformer", kva: 200000, hv_kv: 230, lv_kv: 69, z_pct: 12, xr: 50, gx: 8, gy: 8 },
+    { id: "BUS", type: "switchgear", kv: 69, bus_a: 4000, sc_ka: 40, gx: 14, gy: 4 },
+    { id: "LOAD", type: "load", kw: 300000, pf: 0.95, gx: 20, gy: 4 },
+  ],
+  connectors: [
+    { id: "D-U", kind: "direct", from: "UTIL.out", to: "YARD.bus" },
+    { id: "D-AH", kind: "direct", from: "YARD.bus", to: "TA.hv" }, { id: "D-BH", kind: "direct", from: "YARD.bus", to: "TB.hv" },
+    { id: "D-AL", kind: "direct", from: "TA.lv", to: "BUS.bus" }, { id: "D-BL", kind: "direct", from: "TB.lv", to: "BUS.bus" },
+    { id: "D-L", kind: "direct", from: "BUS.bus", to: "LOAD.in" },
+  ],
+});
+
+test("regression: compiled branches carry MVA ratings, so the N-1 screen sees a transformer overload", async () => {
+  const { screenN1 } = await import("../src/engine/contingency.js");
+  const a = analyseSystem(parallel200());
+  assert.ok(a.ok, a.message);
+  assert.deepEqual(a.compiled.lfCase.branches.map((b) => b.rate_a), [200, 200]);
+  assert.ok(Math.abs(a.lf.branches[0].loading_pct - a.equipment.TA.loading_pct) < 1, "load-flow loading matches the System");
+  // losing one unit puts about 316 MVA (plus reactive) on the other 200 MVA unit
+  const n1 = screenN1(a.compiled.lfCase);
+  for (const row of n1.rows) assert.ok(row.overloads.length === 1 && row.overloads[0].loading_pct > 150, JSON.stringify(row));
+  // cables are rated from their ampacity at nominal voltage
+  const ex = analyseSystem(EXAMPLE_SYSTEM);
+  const k = ex.compiled.branchMeta.findIndex((m) => m.id === "C-MCC");
+  assert.ok(Math.abs(ex.compiled.lfCase.branches[k].rate_a - (Math.sqrt(3) * 0.48 * ex.compiled.branchMeta[k].ampacity_a) / 1000) < 1e-12);
+});
+
+test("regression: gear fed by a close-coupled source counts the source in its bus current", () => {
+  const a = analyseSystem(parallel200());
+  const yard = a.equipment.YARD, u = a.equipment.UTIL;
+  // the 230 kV yard carries the utility injection (was 0 A: only branch inflows were counted)
+  assert.ok(Math.abs(yard.bus_i_a - u.s_kva / (Math.sqrt(3) * 230 * yard.v_pu)) < 1e-6, `${yard.bus_i_a}`);
+  assert.ok(yard.bus_i_a > 700);
+});
