@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  lineupTrips,
   ratedCurrent, allowedRating, nec4503, cec26, arcEnergyCheck, serviceLabelCheck, protectionCodeChecks, PROT_DATA, PROT_DATA_STATUS, complianceReportChecks,
 } from "../src/engine/protchecks.js";
 import { analyseSystem, EXAMPLE_SYSTEM } from "../src/engine/system.js";
@@ -206,4 +207,13 @@ test("project code and protection inputs survive save / load", () => {
   assert.equal(back.connectors.find((c) => c.id === "CB-1").aer_method, "zsi");
   assert.throws(() => parseSystem({ ...JSON.parse(serializeSystem(s)), code: "IEC" }), /code/);
   assert.equal(parseSystem(serializeSystem(EXAMPLE_SYSTEM)).code, undefined);
+});
+
+test("regression: lineupTrips keeps the source-end feeder trip whatever the equipment order", () => {
+  const a = analyseSystem(EXAMPLE_SYSTEM);
+  const feeder = lineupTrips(EXAMPLE_SYSTEM, a)["C-MCC"];
+  const mccFirst = { ...EXAMPLE_SYSTEM, equipment: [...EXAMPLE_SYSTEM.equipment].sort((x, y) => (y.id === "MCC-1") - (x.id === "MCC-1")) };
+  assert.equal(mccFirst.equipment[0].id, "MCC-1");
+  assert.equal(lineupTrips(mccFirst, analyseSystem(mccFirst))["C-MCC"], feeder);
+  assert.ok(feeder < 800, `feeder trip ${feeder} should be the SWGR-LV feeder, not the MCC main`);
 });

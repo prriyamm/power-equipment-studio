@@ -1,4 +1,4 @@
-# Power Equipment Studio (web)
+# Power Equipment Studio
 
 A browser version of Power Equipment Studio: an ETAP-style engineering workspace for
 transformer, switchgear and cable bus packages, with modern equipment-level visuals.
@@ -7,12 +7,16 @@ That file is published as a Claude Artifact.
 
 | Workspace | What it does |
 |---|---|
-| **System** | The package as equipment: isometric site plan, orbitable 3D model (procedural equipment, loading / bus-voltage / fault-current overlays), auto-generated one-line diagram. Live load flow, IEC 60909 short circuit, breaker switching with de-energized islands, switchgear lineup elevations and breaker schedules (NEC 240), arc-flash study (IEEE 1584-2018, PLACEHOLDER coefficients), project save/load, example library, undo/redo. |
+| **System** | The package as equipment: isometric site plan, orbitable 3D model (procedural equipment, loading / bus-voltage / fault-current overlays), auto-generated one-line diagram. Live load flow, IEC 60909 short circuit, breaker switching with de-energized islands, switchgear lineup elevations and breaker schedules (NEC 240), Coordination view (TCC), arc-flash study (IEEE 1584-2018, PLACEHOLDER coefficients), motor-start voltage dip, 24 h load profile, IEEE C57.91 transformer loading, protection code checks (NEC 450.3, 240.87, 110.16(B); CEC 26-250/26-254), equipment design checks (pecalc cable bus, bus and transformer) with design push-back from the module workspaces, project save/load, example library, undo/redo. |
 | **Load flow** | Newton-Raphson bus model, one-line editor, data tables, results, scenarios and comparison, IEEE 14-bus self-test, Q-limits, N−1 screening, short circuit. Byte-compatible with the Python `loadflow` CLI. |
-| **Cable bus** | Check and designer (port of pecalc): current sharing, table/datasheet/IEC 60287 ampacity, shield and enclosure losses, magnetic field map, fault forces, cross-section and iso enclosure view. |
+| **Cable bus** | Check, Simulate and Designer tabs (port of pecalc): current sharing, table/datasheet/IEC 60287 ampacity, DLO 2000 V cable library, CSA C22.2 No. 273 Figure 3 phase arrangements, shield and enclosure losses, shield bonding and standing voltage, magnetic field map, fault forces, cross-section and iso enclosure view. Simulate: short circuit and temperature rise, virtual short-circuit lab test. |
 | **Feeder & cable** | Feeder sizing with parallel sets, NEC 110.14(C)/215, voltage drop, withstand, lug selection. |
 | **Switchgear bus** | Rac/Rdc and lamination sharing, temperature rise, short-circuit bracing, support span. |
-| **Transformer** | Preliminary core-type design, impedance tuning, losses, DOE efficiency, fault withstand, core-and-coil drawing. |
+| **Transformer** | Preliminary core-type design, impedance tuning, losses, DOE efficiency (10 CFR 431.196 minimum), fault withstand, core-and-coil drawing. |
+
+Every workspace except Load flow exports a printable calculation package (HTML). The navigation rail has a
+graphics quality menu and shows the pecalc engine version and table-data fingerprint, which reports and
+project files also record.
 
 ## Develop
 
@@ -27,7 +31,9 @@ repo (`npm i playwright-core` in any scratch folder), then
 `PLAYWRIGHT_MODULE=<that folder> node scripts/qa-mobile.mjs [--reports] [--widths=375,390,768,1440] [--verbose]`.
 It opens every workspace view and fails on horizontal page scroll; see the header of the script for all checks.
 
-Open `dist/index.html` in a browser. React 18 and Tailwind load from CDNs; everything else is inline.
+Open `dist/index.html` in a browser. React 18, three.js r128 (cdnjs) and Tailwind load from CDNs, and the
+IBM Plex fonts from Google Fonts; everything else is inline. System files saved before the rename
+(format `power-studio-system`) still load (`LEGACY_FORMATS` in `src/engine/systemio.js`).
 
 ## Layout
 

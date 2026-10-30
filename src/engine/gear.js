@@ -11,6 +11,7 @@
  * they are typical values, not a specific manufacturer's catalogue.
  * ========================================================================== */
 import { EQUIPMENT, CONNECTORS } from "./system.js";
+import SMALL_CONDUCTORS from "./pecalc/data/nec_240_4d_small_conductors.json" with { type: "json" };
 
 export const NEC_240_6 = [15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500,
   600, 700, 800, 1000, 1200, 1600, 2000, 2500, 3000, 4000, 5000, 6000];
@@ -19,8 +20,10 @@ export const MV_FRAMES = [1200, 2000, 3000];
 // typical section geometry, inches (W × H × D)
 export const SECTION_IN = { lv: { w: 22, wMain: 30, h: 90, d: 60, perSection: 3 }, mv: { w: 36, wMain: 36, h: 95, d: 96, perSection: 2 } };
 
-// NEC 240.4(D) small-conductor OCPD limits (A), regardless of ampacity. [UNVERIFIED: entered from memory]
-export const SMALL_CONDUCTOR_MAX_OCPD = { Cu: { "14": 15, "12": 20, "10": 30 }, Al: { "12": 15, "10": 25 } };
+// NEC 240.4(D) small-conductor OCPD limits (A), regardless of ampacity: the same table as the pecalc feeder
+// sizing (pecalc/data/nec_240_4d_small_conductors.json, status in its _meta).
+export const SMALL_CONDUCTOR_MAX_OCPD = { Cu: SMALL_CONDUCTORS.Cu, Al: SMALL_CONDUCTORS.Al };
+export const SMALL_CONDUCTOR_STATUS = SMALL_CONDUCTORS._meta.status;
 
 export const nextStandard = (a) => NEC_240_6.find((r) => r >= a - 1e-9) ?? null;
 export const frameFor = (trip, mv) => (mv ? MV_FRAMES : LV_FRAMES).find((f) => f >= trip) ?? null;
@@ -59,9 +62,16 @@ export function buildLineup(sys, analysis, gearId, opts = {}) {
     // 215.3: 125 % of the continuous share plus 100 % of the non-continuous share
     const minTrip = load_a * (1 + (factor - 1) * cont);
     let trip = nextStandard(Math.max(incoming ? load_a : minTrip, 15));
-    // incoming mains are sized to the bus (or the transformer secondary) rather than today's load
+    // a feeder to a transformer primary protects the transformer: at least 125 % of its rated primary current
+    // (NEC 450.3), as the Coordination view and the 450.3 check set the same device, not 125 % of today's load
+    if (!incoming && far?.type === "transformer" && farEnd.endsWith(".hv")) {
+      const xf = { ...EQUIPMENT.transformer.defaults, ...far };
+      trip = nextStandard(Math.max(minTrip, 1.25 * xf.kva / (Math.sqrt(3) * xf.hv_kv), 15)) ?? trip;
+    }
+    // incoming mains are sized to the source rating (transformer secondary or generator FLA), else the bus,
+    // rather than today's load
     if (incoming) {
-      const src = far?.type === "transformer" ? ({ ...EQUIPMENT.transformer.defaults, ...far }) : null;
+      const src = far?.type === "transformer" || far?.type === "generator" ? ({ ...EQUIPMENT[far.type].defaults, ...far }) : null;
       const fla = src ? (src.kva / (Math.sqrt(3) * g.kv)) : g.bus_a;
       trip = nextStandard(Math.min(Math.max(fla, load_a), g.bus_a)) ?? g.bus_a;
     }
@@ -72,7 +82,7 @@ export function buildLineup(sys, analysis, gearId, opts = {}) {
     }
     const small = c.kind !== "direct" ? SMALL_CONDUCTOR_MAX_OCPD[c.material]?.[String(c.size)] : undefined;
     if (small != null && !incoming) checks.push({ name: "Small conductor OCPD limit (240.4(D))", ok: trip <= small, value: trip, limit: small });
-    if (!incoming) checks.push({ name: `Trip ≥ ${opts.rated100 ? "100" : "125"} % of continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
+    if (!incoming) checks.push({ name: `Trip ≥ ${opts.rated100 ? "100" : "125"} % of continuous + 100 % of non-continuous load (215.3)`, ok: trip >= minTrip - 1e-9, value: trip, limit: minTrip });
     const frame = frameFor(trip, mv);
     if (frame == null) checks.push({ name: "Frame available", ok: false, value: trip, limit: (mv ? MV_FRAMES : LV_FRAMES).at(-1) });
     circuits.push({ tag: c.id, kind: incoming ? "main" : "feeder", to: far ? (far.name || far.id) : farId, toId: farId, conductor: c.kind === "direct" ? "close-coupled" : `${c.sets}×3×${c.size} ${c.material}`,

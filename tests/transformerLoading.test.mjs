@@ -150,3 +150,14 @@ test("integration: overloading T1 raises the hot spot and loss of life", () => {
   const b = transformerLoadingStudy(small, "T1", prof2, { params: g, ambient: 30 });
   assert.ok(b.peak_theta_h > a.peak_theta_h && b.lol_pct > a.lol_pct);
 });
+
+test("regression: an ambient step at an hour boundary is in the peaks, never below the hourly table", () => {
+  // load drops sharply at 12:00 as the ambient jumps 20 -> 40 °C: the hot spot peaks right at the boundary
+  const ambient = Array.from({ length: 24 }, (_, h) => (h < 12 ? 20 : 40));
+  const K = Array.from({ length: 24 }, (_, h) => (h >= 8 && h < 12 ? 1.4 : 0.3));
+  const r = simulateLoading({ K, ambient, params: P });
+  assert.ok(r.ok, r.message);
+  const hourlyH = Math.max(...r.hourly.map((x) => x.theta_h_max)), hourlyTO = Math.max(...r.hourly.map((x) => x.theta_to_max));
+  assert.ok(r.peak_theta_h >= hourlyH - 1e-12, `${r.peak_theta_h} < ${hourlyH}`);
+  assert.ok(r.peak_theta_to >= hourlyTO - 1e-12, `${r.peak_theta_to} < ${hourlyTO}`);
+});

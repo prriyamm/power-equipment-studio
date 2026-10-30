@@ -1,7 +1,7 @@
 /* Coordination view: log-log time-current curves along the protective path from a chosen load to the utility. */
 const { useMemo, useState } = React;
 import { protectionPath, coordination, deviceTimes, cableDamageTime, IEEE_CURVES } from "../engine/tcc.js";
-import { buildLineup } from "../engine/gear.js";
+import { lineupTrips } from "../engine/protchecks.js";
 import { EQUIPMENT, NODE_KINDS } from "../engine/system.js";
 import { Section, Pill, Btn, NumField, fmt, cx } from "./common.jsx";
 
@@ -33,12 +33,8 @@ export function CoordinationView({ sys, analysis, updateCon }) {
 
   const P = useMemo(() => {
     if (!analysis?.ok || !valid) return null;
-    // feeder trip ratings from the gear lineups so the TCC matches the breaker schedule
-    const trips = {};
-    for (const g of sys.equipment.filter((e) => NODE_KINDS.has(e.type))) {
-      try { for (const c of buildLineup(sys, analysis, g.id).circuits) if (!(g.kv > 1)) trips[c.tag] ??= c.trip; } catch (err) { /* gear without circuits */ }
-    }
-    try { return protectionPath(sys, analysis, valid, trips); } catch (err) { return { error: err.message }; }
+    // feeder trip ratings from the gear lineups so the TCC matches the breaker schedule (same map as the code checks)
+    try { return protectionPath(sys, analysis, valid, lineupTrips(sys, analysis)); } catch (err) { return { error: err.message }; }
   }, [sys, analysis, valid]);
   const coord = useMemo(() => (P && !P.error ? coordination(P) : []), [P]);
 
@@ -87,7 +83,8 @@ export function CoordinationView({ sys, analysis, updateCon }) {
   P.damage.forEach((dm, k) => {
     const pts = [];
     if (dm.kind === "cable") {
-      for (const I of Is) { const t = cableDamageTime(I / dm.ratio, dm.size, dm.material, dm.sets, dm.insulation_c >= 90 ? 90 : 75, dm.insulation_c >= 90 ? 250 : 200); if (t && t >= y0 && t <= 10) pts.push([X(I), Y(t)]); }
+      // ICEA P-32-382 final temperature: 250 °C for 90 °C thermoset, 150 °C for 60/75 °C thermoplastic.
+      for (const I of Is) { const t = cableDamageTime(I / dm.ratio, dm.size, dm.material, dm.sets, dm.insulation_c >= 90 ? 90 : 75, dm.insulation_c >= 90 ? 250 : 150); if (t && t >= y0 && t <= 10) pts.push([X(I), Y(t)]); }
     } else if (dm.kind === "transformer") {
       for (const I of Is) { const pu = I / dm.fla_ref; const t = 1250 / (pu * pu); if (pu >= 1.2 && t >= 2 && t <= y1) pts.push([X(I), Y(t)]); }
     }

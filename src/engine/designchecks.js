@@ -89,6 +89,8 @@ export function designChecks(sys, analysis) {
     const kv = busKv(r.from_bus) ?? busKv(r.to_bus);
     const sc = [scAt(r.from_bus), scAt(r.to_bus)].filter(Boolean).sort((a, b) => b.ik_ka - a.ik_ka)[0];
     try {
+      // pecalc takes the bolted symmetrical current (no voltage factor), so I″k / c: 5 % (LV) or 10 % (MV) below
+      // the c-factored I″k the gear SC duty uses. Engine review O14 tracks the choice of one basis.
       const res = cableBusCheck(c, r.i_a, kv, sc ? sc.ik_ka / sc.c : null, sc?.xr);
       out[c.id] = { kind: "cablebus", passed: res.passed, checks: res.checks, summary: `worst cable ${Math.round(res.max_loading_pct)} % · VD ${res.vd_pct} %${res.fault_force_lbf_per_ft ? ` · ${Math.round(res.fault_force_lbf_per_ft)} lbf/ft` : ""}`, result: res };
     } catch (err) { out[c.id] = { kind: "cablebus", passed: false, error: err.message, checks: [] }; }
