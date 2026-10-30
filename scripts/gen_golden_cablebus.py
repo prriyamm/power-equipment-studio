@@ -4,9 +4,10 @@ Usage: python3 scripts/gen_golden_cablebus.py
 Set PECALC_ROOT to the pecalc `calculations` directory and PECALC_EXAMPLES to the
 `examples` directory if they are not at the defaults below.
 
-Covers cablebus.analyse (LV and MV, Cu/Al, 1-12 conductors per phase, 1-4 tiers, every ampacity
-method, shield bonding variants, enclosures, faults), candidate_patterns, cablebus_design.design_options
-and drawing.cablebus_svg. SVG strings are stored as a SHA-256 hash, with a few full examples.
+Covers cablebus.analyse (LV and MV, Cu/Al, 1-12 conductors per phase, every CSA 273 Figure 3 arrangement,
+staggered tiers, 4-tier user patterns, every ampacity method, shield bonding variants, enclosures, faults),
+candidate_patterns, figure3_match, cablebus_design.design_options and drawing.cablebus_svg. SVG strings are
+stored as a SHA-256 hash, with a few full examples.
 """
 import hashlib
 import itertools
@@ -22,7 +23,8 @@ ROOT = os.environ.get("PECALC_ROOT", str(Path.home() / "Projects/power-equipment
 EXAMPLES = Path(os.environ.get("PECALC_EXAMPLES", str(Path(ROOT).parent / "examples")))
 sys.path.insert(0, ROOT)
 
-from pecalc.cablebus import CableBusInput, analyse, candidate_patterns, datasheet_shield_derating  # noqa: E402
+from pecalc.cablebus import (CableBusInput, analyse, candidate_patterns, datasheet_shield_derating,  # noqa: E402
+                             figure3_match, figure3_patterns, pattern_positions)
 from pecalc.cablebus_design import DesignRequest, design_options  # noqa: E402
 from pecalc.drawing import cablebus_svg  # noqa: E402
 
@@ -76,7 +78,9 @@ vectors = []
 rng = random.Random(20260101)
 
 # 1. LV 600 V sweep: current x size x material x layout, table method (code free-air ampacity).
-LAYOUTS = [(1, 1), (2, 1), (2, 2), (3, 1), (3, 3), (4, 1), (4, 2), (5, 1), (6, 1), (6, 2), (6, 3)]
+# (conductors per phase, tiers); tiers None = any Figure 3 arrangement.
+LAYOUTS = [(1, 1), (1, 2), (2, 2), (2, None), (3, 2), (3, 3), (4, 2), (4, 3), (5, None), (6, 2), (6, 3), (8, None),
+           (10, None)]
 combos = list(itertools.product([600.0, 1000.0, 1600.0, 2000.0, 3000.0, 4000.0, 5000.0],
                                 ["250", "500", "750", "1000"], ["Cu", "Al"], LAYOUTS))
 rng.shuffle(combos)
@@ -133,7 +137,7 @@ example["file"] = "examples/cablebus-15kv-2000a.json"
 
 # 4. MV: voltage class x construction x bonding x layout, calculated and datasheet methods.
 mv = list(itertools.product([4160, 6900, 13800, 15000, 25000, 34500], ["500", "750", "1000", "1500"],
-                            ["Cu", "Al"], [(2, 1), (3, 1), (3, 3), (4, 2), (6, 2), (6, 3)],
+                            ["Cu", "Al"], [(2, 2), (3, None), (3, 3), (4, 2), (6, 2), (6, 3)],
                             ["none", "single_point", "both_ends"]))
 rng.shuffle(mv)
 for k, (v, size, mat, (n, t), bond) in enumerate(mv[:110]):
@@ -166,7 +170,8 @@ extras = [
     dict(LV, ampacity_method="datasheet", cable_ampacity_a=600.0, cable_ampacity_ambient_c=30.0, ambient_c=50.0),
     dict(LV, ambient_c=95.0), dict(LV, ambient_c=20.0), dict(LV, insulation_temp_c=75, terminal_temp_c=75),
     dict(LV, insulation_temp_c=60, terminal_temp_c=60), dict(LV, terminal_temp_c=75),
-    dict(LV, spacing_mm=30.0), dict(LV, spacing_mm=80.0, tier_spacing_mm=95.0, tiers=1),
+    dict(LV, spacing_mm=30.0), dict(LV, spacing_mm=80.0, tier_spacing_mm=95.0, tiers=2),
+    dict(LV, tiers=1),                                                         # no 1-tier Figure 3 layout: error
     dict(LV, conductors_per_phase=4, tiers=2, spacing_mm=70.0, tier_spacing_mm=110.0),
     dict(LV, pattern="ABCCBA", conductors_per_phase=2), dict(LV, pattern="ABCABC", conductors_per_phase=2),
     dict(LV, pattern="ABCCBA/CBAABC", conductors_per_phase=4, tiers=2),
@@ -191,11 +196,11 @@ extras = [
     dict(LV, material="Al", size="1/0", conductors_per_phase=2),
     dict(LV, size="500 kcmil"), dict(LV, size="#2", conductors_per_phase=3), dict(LV, size="4/0"),
 ]
-mvb = mv_inputs(15000, 3, 1, "750", current_a=2000.0)
+mvb = mv_inputs(15000, 3, None, "750", current_a=2000.0)
 extras += [
-    mv_inputs(15000, 2, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=60.0),
-    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=60.0),
-    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="both_ends", length_m=60.0),
+    mv_inputs(15000, 2, None, "750", current_a=2000.0, shield_bonding="single_point", length_m=60.0),
+    mv_inputs(15000, 3, None, "750", current_a=2000.0, shield_bonding="single_point", length_m=60.0),
+    mv_inputs(15000, 3, None, "750", current_a=2000.0, shield_bonding="both_ends", length_m=60.0),
     dict(mvb, shield_bonding="both_ends", shield_area_mm2=20.0, shield_mean_diameter_mm=35.0),
     dict(mvb, shield_bonding="both_ends", shield_temp_c=100.0),
     dict(mvb, shield_bonding="both_ends", shield_mm=0.0),                      # missing shield data
@@ -294,12 +299,12 @@ extras += [
     dict(voltage_v=1000.0, current_a=1000.0, conductors_per_phase=2, size="750", cable_od_mm=40.0),
     dict(voltage_v=1000.0, current_a=1000.0, conductors_per_phase=2, size="750", cable_od_mm=10.0),   # error
     dict(voltage_v=600.0, current_a=1000.0, conductors_per_phase=2, size="750"),
-    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0),
-    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0,
+    mv_inputs(15000, 3, None, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0),
+    mv_inputs(15000, 3, None, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0,
               shield_voltage_limit_v=1000.0),
-    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0,
+    mv_inputs(15000, 3, None, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0,
               terminal_temp_c=75),
-    mv_inputs(15000, 3, 1, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0, ambient_c=90.0),
+    mv_inputs(15000, 3, None, "750", current_a=2000.0, shield_bonding="single_point", length_m=100.0, ambient_c=90.0),
     dict(voltage_v=600.0, current_a=500.0, conductors_per_phase=1, cable_type="dlo_2000v",
          cable_id="southwire_dlo_2000v:444.4", insulation_temp_c=90),               # no Table 310.16 row
     dict(voltage_v=600.0, current_a=2000.0, conductors_per_phase=6, tiers=2, size="500", tier_spacing_mm=40.0),
@@ -318,26 +323,52 @@ extras += [
 for e in extras:
     vectors.append(run_analyse(e))
 
-# 4 tiers (conductors per phase a multiple of 4: every tier holds complete A-B-C sets), LV and MV, with enclosures
-# and faults; plus the errors for counts that cannot be split into 4 tiers.
+# 4 tiers: user patterns only (Figure 3 has none, so they fail the Figure 3 check), LV and MV, with enclosures
+# and faults; plus the errors for auto with 4 tiers and for wrong tier counts.
+P4, P8, P12 = "ABC/CAB/BCA/ABC", "ABCCBA/ABCCBA/ABCCBA/ABCCBA", "ABCCBAABC/ABCCBAABC/ABCCBAABC/ABCCBAABC"
 four = [
-    dict(voltage_v=600.0, current_a=2500.0, conductors_per_phase=4, tiers=4, size="750"),
-    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", length_m=61.0,
+    dict(voltage_v=600.0, current_a=2500.0, conductors_per_phase=4, tiers=4, size="750", pattern=P4),
+    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, size="750", length_m=61.0, pattern=P8,
          enclosure_width_mm=500.0, enclosure_height_mm=400.0, fault_ka=65.0, x_over_r=15.0),
-    dict(voltage_v=600.0, current_a=6000.0, conductors_per_phase=12, tiers=4, size="750", material="Al",
+    dict(voltage_v=600.0, current_a=6000.0, conductors_per_phase=12, tiers=4, size="750", material="Al", pattern=P12,
          enclosure_width_mm=700.0, enclosure_height_mm=400.0, covers_continuous=True),
-    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", pattern="ABCCBA/ABCCBA/ABCCBA/ABCCBA"),
-    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", spacing_mm=70.0,
+    dict(voltage_v=600.0, current_a=5000.0, conductors_per_phase=8, tiers=4, size="750", pattern=P8, spacing_mm=70.0,
          tier_spacing_mm=95.0, enclosure_width_mm=600.0, enclosure_height_mm=450.0),
-    mv_inputs(15000, 4, 4, "750", current_a=3000.0, shield_bonding="single_point", length_m=60.0,
+    mv_inputs(15000, 4, 4, "750", current_a=3000.0, shield_bonding="single_point", length_m=60.0, pattern=P4,
               enclosure_width_mm=600.0, enclosure_height_mm=700.0, fault_ka=40.0, shield_voltage_limit_v=25.0),
-    mv_inputs(15000, 8, 4, "500", current_a=4000.0, shield_bonding="both_ends", length_m=60.0),
-    dict(voltage_v=600.0, conductors_per_phase=6, tiers=4), dict(voltage_v=600.0, conductors_per_phase=3, tiers=4),
-    dict(voltage_v=600.0, conductors_per_phase=5, tiers=4), dict(voltage_v=600.0, conductors_per_phase=4, tiers=4,
-                                                                 pattern="ABC/ABC/ABC"),
+    mv_inputs(15000, 8, 4, "500", current_a=4000.0, shield_bonding="both_ends", length_m=60.0, pattern=P8),
+    dict(voltage_v=600.0, conductors_per_phase=8, tiers=4), dict(voltage_v=600.0, conductors_per_phase=4, tiers=4),
+    dict(voltage_v=600.0, conductors_per_phase=12), dict(voltage_v=600.0, conductors_per_phase=4, tiers=4,
+                                                         pattern="ABC/ABC/ABC"),
 ]
 for k, e in enumerate(four):
-    vectors.append(run_analyse(e, svg_full=(k in (1, 4))))
+    vectors.append(run_analyse(e, svg_full=(k in (1, 3))))
+
+# Every Figure 3 arrangement as an explicit pattern (750 kcmil Cu, 600 V, enclosure, fault), the same arrangements
+# reversed tier by tier and renamed, the pattern grammar errors, and auto skipping arrangements that do not fit.
+for n in range(1, 11):
+    for k, p in enumerate(figure3_patterns(n)):
+        vectors.append(run_analyse(dict(voltage_v=600.0, current_a=480.0 * n, conductors_per_phase=n, size="750",
+                                        pattern=p, enclosure_width_mm=1100.0, enclosure_height_mm=400.0,
+                                        fault_ka=50.0, x_over_r=15.0, length_m=61.0), svg_full=(k == 0 and n in (3, 5))))
+    mirrored = "/".join(r[::-1] if not r.startswith("+") else "+" + r[:0:-1] for r in figure3_patterns(n)[-1].split("/"))
+    vectors.append(run_analyse(dict(voltage_v=600.0, current_a=480.0 * n, conductors_per_phase=n, size="750",
+                                    pattern=mirrored.translate(str.maketrans("ABC", "BCA")))))
+vectors += [run_analyse(i) for i in [
+    dict(voltage_v=600.0, conductors_per_phase=3, pattern="AB+CAB/CABC."),       # '+' inside a tier
+    dict(voltage_v=600.0, conductors_per_phase=3, pattern="ABCAB//CABC"),        # empty tier
+    dict(voltage_v=600.0, conductors_per_phase=3, pattern="ABCAB/CABC-"),        # unknown character
+    dict(voltage_v=600.0, conductors_per_phase=3, pattern="ABCAB/CABC.", tiers=3),
+    dict(voltage_v=600.0, conductors_per_phase=3, pattern="ABCAB/CABCA"),        # 4 x A
+    dict(voltage_v=600.0, current_a=3000.0, conductors_per_phase=4, size="750", enclosure_width_mm=800.0,
+         enclosure_height_mm=120.0),                                               # 3 tiers skipped
+    dict(voltage_v=600.0, current_a=3000.0, conductors_per_phase=4, size="750", enclosure_width_mm=800.0,
+         enclosure_height_mm=60.0),                                                # nothing fits: error
+    dict(voltage_v=600.0, current_a=3000.0, conductors_per_phase=4, size="750", enclosure_width_mm=800.0,
+         enclosure_height_mm=60.0, pattern="ABCABC/CABCAB"),                       # one pattern: its own error
+    dict(voltage_v=600.0, current_a=1500.0, conductors_per_phase=3, size="750", tiers=2, spacing_mm=70.0,
+         tier_spacing_mm=60.0),
+]]
 
 # 5b. Cable library (DLO 2000 V): standard-size DLO on the code table, non-standard sizes on the printed
 # free-air rating, the 1111 kcmil row with its unstated basis, and the refusals (voltage over rating etc.).
@@ -378,11 +409,22 @@ for k, e in enumerate(dlo_cases):
 
 # 6. candidate_patterns
 patterns = []
-for n, t in itertools.product(range(1, 13), (1, 2, 3, 4, 6)):
+for n, t in itertools.product(range(1, 13), (None, 1, 2, 3, 4, 6)):
     try:
         patterns.append({"n": n, "tiers": t, "patterns": candidate_patterns(n, t)})
     except ValueError as e:
         patterns.append({"n": n, "tiers": t, "error": str(e)})
+
+# 6b. figure3_match and pattern_positions over Figure 3, mirrored, renamed and non-Figure-3 patterns.
+MATCH = [(p, n) for n in range(1, 11) for p in figure3_patterns(n)] + [
+    ("BCA", 1), ("CBA", 1), ("+B/CA", 1), ("ABC/BCA", 2), (".CABC/BACBA", 3), ("ABCCBA", 2), ("ABCABCABC", 3),
+    ("ABC/ABC/ABC/ABC", 4), ("ACBBCA/ACBBCA", 4), ("ACBBCA/+ACBBCA", 4), ("CAC/BBB/ACA", 3), ("+.ABC/BCA.", 2)]
+figure3 = []
+for p, n in MATCH:
+    try:
+        figure3.append({"pattern": p, "n": n, "match": figure3_match(p, n), "positions": pattern_positions(p)})
+    except ValueError as e:
+        figure3.append({"pattern": p, "n": n, "error": str(e)})
 
 # 7. design_options
 MVD = dict(insulation="EPR", insulation_mm=7.2, shield_mm=0.13, jacket_mm=2.0)
@@ -462,7 +504,7 @@ for lam, ref in [(0.0, 0.0), (0.21, 0.0), (0.21, 0.1), (0.44, 0.0), (0.1, 0.21),
 
 out = {"_meta": {"source": "pecalc.cablebus, cablebus_design, drawing (Python)",
                  "generator": "scripts/gen_golden_cablebus.py"},
-       "vectors": vectors, "example": example, "patterns": patterns, "designs": designs,
+       "vectors": vectors, "example": example, "patterns": patterns, "figure3": figure3, "designs": designs,
        "datasheet_shield_derating": derating}
 dest = Path(__file__).resolve().parent.parent / "tests/golden/cablebus.json"
 dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")

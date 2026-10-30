@@ -2,15 +2,16 @@
    Pure module: no DOM, no React.
 
    For a required voltage and current, every practical combination of conductor size, conductors per phase
-   and stacked tiers (1 to 4) is laid out with the code spacing (one cable diameter clear between cables
-   and between tiers, NEC 370 / CSA C22.2 No. 273 free-air basis), fitted into the smallest standard
-   enclosure, and run through the full cable bus analysis. The best options are then checked for
+   and stacked tiers that CSA C22.2 No. 273 Figure 3 has an arrangement for (1 to 10 per phase, 1 to 3 tiers)
+   is laid out with the code spacing (one cable diameter clear between cables and between tiers, NEC 370 /
+   CSA C22.2 No. 273 free-air basis), fitted into the smallest standard enclosure, and run through the full
+   cable bus analysis (best Figure 3 pattern). The best options are then checked for
    short-circuit forces on the support blocks.
 
    Enclosure sizes and clearances are catalogue/design inputs, not code values. */
 import * as cond from "./conductors.js";
 import { cableBusInput, analyse, construction, perCableAmpacity, resolveMethod, pyG, defaultTerminalTempC,
-  requireAmbientBelow, terminationAmpacity } from "./cablebus.js";
+  requireAmbientBelow, terminationAmpacity, figure3Patterns, patternPositions } from "./cablebus.js";
 import * as validate from "./validate.js";
 import { freeAirAmpacity } from "./thermal.js";
 import { pyRound, pyFixed } from "./util.js";
@@ -97,9 +98,10 @@ function _estimateAmpacity(base, od) {
   return perCableAmpacity(base)[0];
 }
 
-function _fitEnclosure(req, per_tier, tiers, od) {
+/** Smallest catalogue enclosure for a layout `span` pitches wide (outer cable centres) and `tiers` high. */
+function _fitEnclosure(req, span, tiers, od) {
   const pitch = 2 * od;
-  const need_w = (per_tier - 1) * pitch + od + 2 * req.edge_clearance_mm;
+  const need_w = span * pitch + od + 2 * req.edge_clearance_mm;
   const need_h = (tiers - 1) * pitch + od + 2 * req.block_lip_mm + 2 * req.vertical_clearance_mm;
   let best = null;
   for (const w of req.enclosure_widths_in) {
@@ -161,11 +163,17 @@ export function designOptions(req) {
       notes.push(`${cond.sizeLabel(size)}: needs ${n_min} per phase (> ${req.max_per_phase}); skipped.`);
       continue;
     }
+    if (!figure3Patterns(n_min).length) {
+      notes.push(`${cond.sizeLabel(size)}: needs ${n_min} per phase; CSA 273 Figure 3 covers 1 to 10; skipped.`);
+      continue;
+    }
     for (let n = n_min; n <= Math.min(req.max_per_phase, n_min + req.extra_per_phase); n++) {
       for (const tiers of req.tier_options) {
-        if ((3 * n) % tiers || ((3 * n) / tiers) % 3) continue;
-        const per_tier = (3 * n) / tiers;
-        const fit = _fitEnclosure(req, per_tier, tiers, od);
+        const pats = figure3Patterns(n, tiers);
+        if (!pats.length) continue;
+        // Widest Figure 3 arrangement with this tier count, in pitches (analyse picks among them).
+        const span = Math.max(...pats.map((p) => Math.max(...patternPositions(p).map((q) => q[0]))));
+        const fit = _fitEnclosure(req, span, tiers, od);
         if (fit === null) continue;
         considered += 1;
         const inp = { ...base, field_distances_m: [...base.field_distances_m], conductors_per_phase: n, tiers,

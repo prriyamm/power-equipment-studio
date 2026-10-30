@@ -27,7 +27,8 @@ export function cableBusCheck(c, current_a, kv, fault_ka, xr) {
   const sets = c.sets ?? 1;
   const inp = {
     voltage_v: kv * 1000, current_a: Math.max(current_a, 1), length_m: (c.length_ft ?? 100) * 0.3048,
-    material: c.material ?? "Cu", size: String(c.size ?? "750"), conductors_per_phase: sets, tiers: 1,
+    material: c.material ?? "Cu", size: String(c.size ?? "750"), conductors_per_phase: sets,
+    tiers: null, // best CSA 273 Figure 3 arrangement for the set count
     insulation_temp_c: c.insulation_c ?? 90,
     // NEC 110.14(C) terminal rating (marking or 60/75 C default) at LV, as the System loading uses (O10)
     terminal_temp_c: kv > 2 ? Math.min(c.insulation_c ?? 90, 90) : connectorTerminalC({ kind: "cablebus", ...c, sets })[0],

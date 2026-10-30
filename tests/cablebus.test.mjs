@@ -68,6 +68,18 @@ function checkAnalyse(v, i) {
     forced.input = { ...forced.input, pattern: "auto" };
     r = forced;
   }
+  if (r.patterns_compared.some((c, k) => c.pattern !== expected.patterns_compared[k]?.pattern)) {
+    // Mirror-image Figure 3 arrangements (e.g. ABC/CAB and ABC/BCA) tie exactly, so their order in the list is
+    // floating-point noise too. Same set, and the JS order must still follow the ranking key.
+    const sortP = (l) => [...l].sort((x, y) => (x.pattern < y.pattern ? -1 : 1));
+    close(sortP(r.patterns_compared), sortP(expected.patterns_compared), 1e-2, `${label}.patterns_compared`);
+    r.patterns_compared.slice(1).forEach((c, k) => {
+      const p = r.patterns_compared[k];
+      assert.ok(p.max_share_pct < c.max_share_pct || (p.max_share_pct === c.max_share_pct &&
+        p.loss_w_per_m <= c.loss_w_per_m + 0.011), `${label}: patterns_compared out of order at ${k + 1}`);
+    });
+    r = { ...r, patterns_compared: expected.patterns_compared };
+  }
   close(r, expected, rel, label);
   if (v.svg_sha256) {
     const svg = cablebusSvg(inp, r);
@@ -95,7 +107,8 @@ test("golden: vector set covers the required ranges", () => {
   assert.ok(Math.min(...amps) <= 600 && Math.max(...amps) >= 5000);
   assert.ok(ok.some((v) => v.inputs.material === "Al") && ok.some((v) => (v.inputs.material ?? "Cu") === "Cu"));
   for (const n of [1, 2, 3, 4, 5, 6]) assert.ok(ok.some((v) => v.inputs.conductors_per_phase === n), `${n} per phase`);
-  for (const t of [1, 2, 3]) assert.ok(ok.some((v) => (v.inputs.tiers ?? 1) === t), `${t} tiers`);
+  for (const t of [1, 2, 3, 4]) assert.ok(ok.some((v) => v.result.input.tiers === t), `${t} tiers`);
+  assert.ok(ok.some((v) => (v.result.pattern ?? "").includes("+")), "staggered tiers");
   const methods = new Set(ok.map((v) => v.result.input.ampacity_method));
   for (const m of ["auto", "table", "datasheet", "calculated"]) assert.ok(methods.has(m), `method ${m}`);
   for (const b of ["none", "single_point", "both_ends"]) {
@@ -120,6 +133,19 @@ test(`golden: candidate_patterns (${G.patterns.length} cases)`, () => {
   }
 });
 
+test(`golden: figure3_match and pattern_positions (${G.figure3.length} cases)`, () => {
+  for (const f of G.figure3) {
+    if (f.error) {
+      assert.throws(() => cb.figure3Match(f.pattern, f.n), (e) => e.message === f.error);
+      continue;
+    }
+    assert.equal(cb.figure3Match(f.pattern, f.n), f.match, `${f.pattern} n=${f.n}`);
+    close(cb.patternPositions(f.pattern), f.positions, REL, `positions ${f.pattern}`);
+  }
+  // Every Figure 3 arrangement identifies as itself or an earlier, equivalent one.
+  assert.ok(G.figure3.filter((f) => f.match).length >= 37);
+});
+
 test(`golden: ${G.designs.length} design_options runs match`, () => {
   G.designs.forEach((d, i) => {
     const label = `design ${i} ${JSON.stringify(d.request)}`;
@@ -137,9 +163,43 @@ test(`golden: ${G.designs.length} design_options runs match`, () => {
 
 const LVBUS = (o) => cb.cableBusInput(o);
 
-test("CableBus: patterns generated", () => {
-  assert.ok(cb.candidatePatterns(2, 1).includes("ABCCBA"));
-  assert.throws(() => cb.candidatePatterns(2, 4));
+test("CableBus: auto patterns are CSA 273 Figure 3", () => {
+  assert.deepEqual(cb.candidatePatterns(2), ["ABC/CAB", "ABC/BCA", "ABC/CBA"]);
+  assert.deepEqual(cb.candidatePatterns(3, 3), ["ACA/BBB/CAC", "+ABC/BCA./+ABC"]);
+  assert.deepEqual(cb.candidatePatterns(1, 1), ["ABC"]);
+  assert.throws(() => cb.candidatePatterns(2, 1), /no arrangement of 2 conductors per phase in 1 tier/);
+  assert.throws(() => cb.candidatePatterns(11), /covers 1 to 10 conductors per phase/);
+});
+
+test("CableBus: Figure 3 data and matching", () => {
+  for (let n = 1; n <= 10; n++) {
+    const pats = cb.figure3Patterns(n);
+    assert.ok(pats.length >= 2);
+    for (const p of pats) {
+      assert.ok(p.split("/").length <= 3, p);          // Clause 4.12.2: 3 layers maximum
+      for (const ph of "ABC") assert.equal(cb.patternPositions(p).filter((q) => q[2] === ph).length, n, p);
+      assert.ok(cb.figure3Match(p, n), p);
+    }
+  }
+  assert.equal(cb.figure3Match("ABC/BCA", 2), "2-1");     // the figure lists both: mirrored and renamed
+  assert.equal(cb.figure3Match("BCA", 1), "1-1");
+  assert.equal(cb.figure3Match(".CABC/BACBA", 3), "3-3"); // mirror image of CBAC./ABCAB
+  assert.equal(cb.figure3Match("ABCCBA", 2), null);
+  assert.deepEqual(cb.patternPositions("+A/BC"), [[0.5, 0, "A", 0], [0, 1, "B", 0], [1, 1, "C", 1]]);
+  assert.throws(() => cb.patternPositions("AB+C"), /optional leading/);
+});
+
+test("CableBus: a pattern outside Figure 3 fails the arrangement check; auto skips what does not fit", () => {
+  const r = cb.analyse(LVBUS({ voltage_v: 600, current_a: 2000, conductors_per_phase: 4, size: "750",
+    pattern: "ABC/ABC/ABC/ABC", enclosure_width_mm: 500, enclosure_height_mm: 500 }));
+  const c = r.checks.find((k) => k.name.startsWith("Phase arrangement"));
+  assert.equal(c.passed, false);
+  assert.match(c.note, /4\.12\.4/);
+  assert.equal(r.input.tiers, 4);
+  const fit = cb.analyse(LVBUS({ voltage_v: 600, current_a: 3000, conductors_per_phase: 4, size: "750",
+    enclosure_width_mm: 800, enclosure_height_mm: 120 }));
+  assert.equal(fit.input.tiers, 2);
+  assert.ok(fit.checks.find((k) => k.name.startsWith("Phase arrangement")).passed);
 });
 
 test("CableBus: reference concept 4000 A, 600 V, 6 x 750 kcmil Cu per phase", () => {
@@ -222,8 +282,9 @@ test("CableBusDesigner: LV options pass and fit enclosures", () => {
   assert.ok(passing.length >= 3);
   for (const o of passing) {
     assert.ok(o.max_loading_pct <= 95.0);
-    const per_tier = (3 * o.per_phase) / o.tiers;
-    const needed_w = (per_tier - 1) * 2 * o.cable_od_mm + o.cable_od_mm + 2 * 25;
+    assert.ok(cb.figure3Match(o.pattern, o.per_phase), o.pattern);
+    const span = Math.max(...cb.patternPositions(o.pattern).map((q) => q[0]));
+    const needed_w = span * 2 * o.cable_od_mm + o.cable_od_mm + 2 * 25;
     assert.ok(o.inside_w_mm + 2.0 >= needed_w); // OD is reported rounded
   }
   const tags = new Set(r.options.flatMap((o) => o.tags));
@@ -232,17 +293,20 @@ test("CableBusDesigner: LV options pass and fit enclosures", () => {
 
 test("CableBusDesigner: more tiers gives a narrower enclosure", () => {
   // 2000 A (was 4000 A): with the termination limit now taken from Table 310.16 (380 A per 500 kcmil conductor
-  // at 75 C), 4000 A needs 11+ per phase and no 1-tier layout fits the enclosure catalogue.
+  // at 75 C), 4000 A needs 11+ per phase, beyond Figure 3.
   const r = ds.designOptions(ds.designRequest({ voltage_v: 600, current_a: 2000, sizes: ["500"], top_n: 20 }));
   const widths = {};
   for (const o of r.options) (widths[o.per_phase] ??= {})[o.tiers] = o.inside_w_mm;
-  const pairs = [];
-  for (const w of Object.values(widths)) {
-    const stacked = Object.keys(w).map(Number).filter((t) => t > 1);
-    if (1 in w && Object.keys(w).length > 1) pairs.push([w[1], w[Math.max(...stacked)]]);
-  }
-  assert.ok(pairs.length, "expected a design available in 1 tier and in 2 or 3 tiers");
-  for (const [one, stacked] of pairs) assert.ok(stacked < one);
+  const pairs = Object.values(widths).filter((w) => 2 in w && 3 in w);
+  assert.ok(pairs.length, "expected a design available in 2 and in 3 tiers");
+  for (const w of pairs) assert.ok(w[3] < w[2]);
+});
+
+test("CableBusDesigner: only Figure 3 tier counts; beyond 10 per phase the size is skipped", () => {
+  const r = ds.designOptions(ds.designRequest({ voltage_v: 600, current_a: 4000, top_n: 30 }));
+  assert.ok(r.options.length && r.options.every((o) => o.tiers === 2 || o.tiers === 3));
+  const r3 = ds.designOptions(ds.designRequest({ voltage_v: 600, current_a: 4500, sizes: ["500"] }));
+  assert.ok(r3.notes.some((n) => n.includes("Figure 3 covers 1 to 10")));
 });
 
 test("CableBusDesigner: MV needs construction and checks blocks", () => {
@@ -291,11 +355,13 @@ test("short-circuit withstand (pecalc #12): ICEA P-32-382 hand check, skipped wi
 
 test("drawing (Check tab path): one support block per tier and a tier-pitch dimension per tier gap", () => {
   const blockRects = (svg) => svg.split("\n").filter((l) => l.startsWith("<rect") && l.includes("fill='#e9b9a1'") && l.includes("rx='3'"));
-  for (const tiers of [1, 2, 3]) {
+  // Figure 3: one tier only for 1 per phase; 6 per phase in 2 or 3 tiers.
+  for (const [n, tiers] of [[1, 1], [6, 2], [6, 3]]) {
     // enclosure sized as the Check form's auto-size does (src/ui/cablebus.jsx toInput)
-    const base = { voltage_v: 600, current_a: 3000, conductors_per_phase: 6, tiers, size: "750" };
+    const base = { voltage_v: 600, current_a: 500 * n, conductors_per_phase: n, tiers, size: "750" };
     const r0 = cb.analyse(LVBUS(base)), od = r0.cable_od_mm, pitch = r0.pitch_mm;
-    const inp = LVBUS({ ...base, enclosure_width_mm: Math.ceil(((18 / tiers - 1) * pitch + od + 50) / 10) * 10,
+    const span = Math.max(...cb.patternPositions(r0.pattern).map((q) => q[0]));
+    const inp = LVBUS({ ...base, pattern: r0.pattern, enclosure_width_mm: Math.ceil((span * pitch + od + 50) / 10) * 10,
       enclosure_height_mm: Math.ceil(((tiers - 1) * pitch + od + 70) / 10) * 10 });
     const res = cb.analyse(inp);
     const plain = cablebusSvg(inp, res);
@@ -304,7 +370,7 @@ test("drawing (Check tab path): one support block per tier and a tier-pitch dime
     assert.equal(nTiers, tiers);
     assert.equal(blockRects(svg).length, tiers, `${tiers} tier(s): block rects`);
     assert.equal(blockRects(plain).length, tiers);
-    assert.equal(svg.split("<circle").length - 1 - 3, 18);
+    assert.equal(svg.split("<circle").length - 1 - 3, 3 * n);
     const labels = [...svg.matchAll(/>(\d+) mm<\/text>/g)].map((m) => Number(m[1]));
     assert.equal((svg.match(/>tier pitch</g) || []).length, tiers - 1, `${tiers} tier(s): tier pitch labels`);
     assert.equal(labels.length, tiers - 1);

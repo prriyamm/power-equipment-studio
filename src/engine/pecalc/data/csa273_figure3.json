@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "standard": "CSA/ANSI C22.2 No. 273:19, Cablebus",
+    "edition": "CSA/ANSI C22.2 No. 273:19",
+    "title": "Figure 3, Configuration for 3-phase/3-wire systems (see Clauses 4.12.2.1.1, 4.12.3.1 and 4.13)",
+    "status": "UNVERIFIED",
+    "transcribed": "2026-10-27",
+    "note": "Phase arrangements per number of conductors per phase (1 to 10), in the order they appear in the figure. Transcribed from the figure and checked against it by the maintainer; not yet signed off by an engineer. Figure notes: (1) neutrals may be added to these configurations; (2) empty circles designate an unused position not occupied by cable.",
+    "grammar": "Tiers top to bottom, separated by '/'. A, B, C = phase conductor; '.' = unused position (empty circle in the figure); a leading '+' shifts that tier right by half a pitch (staggered tiers)."
+  },
+  "arrangements": {
+    "1": ["ABC", "+A/BC"],
+    "2": ["ABC/CAB", "ABC/BCA", "ABC/CBA"],
+    "3": ["ABCAB/CABC.", "+ABCA/BCABC", "CBAC./ABCAB", "ACA/BBB/CAC", "+ABC/BCA./+ABC"],
+    "4": ["ABCABC/CABCAB", "ACBBCA/ACBBCA", "+ABCABC/BCABCA", "ABCABC/CBACBA", "ACAC/BBBB/CACA",
+          "+ABCA/BCABC/+ABC."],
+    "5": ["ABCABCAB/CABCABC.", "ABCABCAB/+CABCABC.", "+.ABCAB/.BCABC./+CABCA.", "ACACA/BBBBB/CACAC"],
+    "6": ["ABCABCABC/CABCABCAB", "+ABCABCABC/BCABCABCA", "ACACAC/BBBBBB/CACACA", "+ABCABC/BCABCA./+ABCABC"],
+    "7": ["ABCABCABCAB/CABCABCABC.", "ABCABCABCAB/+CABCABCABC.", "ACACACA/BBBBBBB/CACACAC",
+          "+ABCABCA/BCABCABC/+ABCABC."],
+    "8": ["ABCABCABCABC/CABCABCABCAB", "+ABCABCABCABC/BCABCABCABCA", "ACACACAC/BBBBBBBB/CACACACA",
+          "+.BCABCABC/.CABCABCA/+ABCABCAB."],
+    "9": ["ABCABCABCABCAB/CABCABCABCABC.", "ABCABCABCABCAB/+CABCABCABCABC.", "ACACACACA/BBBBBBBBB/CACACACAC",
+          "+ABCABCABC/BCABCABCA./+ABCABCABC"],
+    "10": ["ABCABCABCABCABC/CABCABCABCABCAB", "ABCABCABCABCABC/+CABCABCABCABCAB", "ACACACACAC/BBBBBBBBBB/CACACACACA",
+           "+ABCABCABCA/BCABCABCABC/+ABCABCABC."]
+  }
+}
