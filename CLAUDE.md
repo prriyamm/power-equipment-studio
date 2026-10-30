@@ -1,10 +1,10 @@
-# Working in power-studio-web
+# Working in Power Equipment Studio (power-equipment-studio)
 
 - Standards scope: US and Canadian standards only (e.g. IEEE, ANSI, NEC/NFPA, UL, CSA, CEC, NEMA). Do not add
   or cite IEC, BS, EN, or other regional standards, tables, or conventions.
 - Keep `AGENTS.md` in sync: whenever this file changes, apply the same change to `AGENTS.md` in the same commit.
 - One self-contained HTML output. No runtime network fetches, no localStorage dependency. Allowed CDNs only
-  (cdnjs, jsdelivr, unpkg, cdn.tailwindcss.com). React is the global UMD build: write `const { useState } = React;`, never `import React`.
+  (cdnjs, jsdelivr, unpkg, cdn.tailwindcss.com; stylesheets and fonts from Google Fonts). React is the global UMD build: write `const { useState } = React;`, never `import React`.
 - `src/engine/` is pure: no DOM, no React, no globals. Export named functions. Every module gets `tests/<module>.test.mjs`.
 - Ports of Python `pecalc` (~/Projects/power-equipment-engineering/calculations/pecalc) must match the Python
   output. Generate vectors with a script in `scripts/` that imports pecalc, commit the JSON to `tests/golden/`,

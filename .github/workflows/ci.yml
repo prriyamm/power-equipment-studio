@@ -13,4 +13,4 @@ jobs:
       - run: npm test
       - run: npm run build
       - uses: actions/upload-artifact@v4
-        with: { name: power-studio-web, path: dist/index.html }
+        with: { name: power-equipment-studio, path: dist/index.html }

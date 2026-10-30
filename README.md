@@ -1,4 +1,4 @@
-# Power Equipment Studio (web)
+# Power Equipment Studio
 
 A browser version of Power Equipment Studio: an ETAP-style engineering workspace for
 transformer, switchgear and cable bus packages, with modern equipment-level visuals.

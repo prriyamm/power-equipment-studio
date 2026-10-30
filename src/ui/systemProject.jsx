@@ -158,7 +158,7 @@ export function ProjectMenu({ sys, setSys, history, onLoaded }) {
                   <Btn kind="primary-soft" onClick={() => fileRef.current?.click()}>Choose .json file</Btn>
                   <span className="text-faint text-[12px]">or paste the project JSON below</span>
                 </div>
-                <textarea className="code-area" rows={10} value={paste} onChange={(ev) => { setPaste(ev.target.value); setErr(null); }} placeholder='{"format":"power-studio-system","version":1, …}' aria-label="Project JSON" />
+                <textarea className="code-area" rows={10} value={paste} onChange={(ev) => { setPaste(ev.target.value); setErr(null); }} placeholder='{"format":"power-equipment-studio-system","version":1, …}' aria-label="Project JSON" />
                 {err && <div className="notice notice-crit">{err}</div>}
                 <div className="flex gap-2"><Btn kind="primary" disabled={!paste.trim()} onClick={() => ingest(paste)}>Open pasted JSON</Btn><Btn onClick={() => setDialog(null)}>Cancel</Btn></div>
                 <p className="text-faint text-[12px]">Opening a project replaces the current one. Use Undo to bring it back.</p>
