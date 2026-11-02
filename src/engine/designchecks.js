@@ -27,7 +27,8 @@ export function cableBusCheck(c, current_a, kv, fault_ka, xr) {
   const sets = c.sets ?? 1;
   const inp = {
     voltage_v: kv * 1000, current_a: Math.max(current_a, 1), length_m: (c.length_ft ?? 100) * 0.3048,
-    material: c.material ?? "Cu", size: String(c.size ?? "750"), conductors_per_phase: sets, tiers: 1,
+    material: c.material ?? "Cu", size: String(c.size ?? "750"), conductors_per_phase: sets,
+    tiers: null, // best CSA 273 Figure 3 arrangement for the set count
     insulation_temp_c: c.insulation_c ?? 90,
     // NEC 110.14(C) terminal rating (marking or 60/75 C default) at LV, as the System loading uses (O10)
     terminal_temp_c: kv > 2 ? Math.min(c.insulation_c ?? 90, 90) : connectorTerminalC({ kind: "cablebus", ...c, sets })[0],
@@ -88,6 +89,8 @@ export function designChecks(sys, analysis) {
     const kv = busKv(r.from_bus) ?? busKv(r.to_bus);
     const sc = [scAt(r.from_bus), scAt(r.to_bus)].filter(Boolean).sort((a, b) => b.ik_ka - a.ik_ka)[0];
     try {
+      // pecalc takes the bolted symmetrical current (no voltage factor), so I″k / c: 5 % (LV) or 10 % (MV) below
+      // the c-factored I″k the gear SC duty uses. Engine review O14 tracks the choice of one basis.
       const res = cableBusCheck(c, r.i_a, kv, sc ? sc.ik_ka / sc.c : null, sc?.xr);
       out[c.id] = { kind: "cablebus", passed: res.passed, checks: res.checks, summary: `worst cable ${Math.round(res.max_loading_pct)} % · VD ${res.vd_pct} %${res.fault_force_lbf_per_ft ? ` · ${Math.round(res.fault_force_lbf_per_ft)} lbf/ft` : ""}`, result: res };
     } catch (err) { out[c.id] = { kind: "cablebus", passed: false, error: err.message, checks: [] }; }

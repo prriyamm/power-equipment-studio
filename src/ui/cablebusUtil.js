@@ -1,6 +1,6 @@
 /* Pure helpers for the Cable bus workspace (no DOM, no React): unit-tested in tests/cablebusUi.test.mjs. */
 import * as cond from "../engine/pecalc/conductors.js";
-import { libraryEntries, cableSpec } from "../engine/pecalc/cablebus.js";
+import { libraryEntries, cableSpec, figure3Patterns, patternPositions } from "../engine/pecalc/cablebus.js";
 
 /* Cable type choices in the Check form. "dlo_2000v" takes its sizes from the cable library (data/dlo_cables.json). */
 export const CABLE_TYPE_CHOICES = [
@@ -43,34 +43,56 @@ export function applyCableType(f, type) {
   return { ...f, cable_type: type, cable_id: null, size };
 }
 
-/* Stacked tiers the workspace offers. The engine lays out any number of tiers (candidate_patterns builds one
-   row of complete A-B-C sets per tier); 4 is the limit asked for, not an engine limit. */
-export const MAX_TIERS = 4;
-export const TIER_CHOICES = [1, 2, 3, 4];
+/* Layouts follow CSA C22.2 No. 273 Figure 3: 1 to 10 conductors per phase, at most 3 tiers. */
+export const MAX_TIERS = 3;
+export const TIER_CHOICES = [1, 2, 3];
 /* Conductors-per-phase choices in the Check form. */
-export const COUNT_CHOICES = [1, 2, 3, 4, 5, 6, 8, 9, 10, 12];
+export const COUNT_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-/* Every tier must hold complete A-B-C sets: 3n conductors in `tiers` tiers, each a multiple of 3, which is
-   the same as n being a multiple of tiers (Python cablebus.candidate_patterns raises otherwise). */
-export function tierCompat(n, tiers) {
-  const total = 3 * n;
-  const valid = COUNT_CHOICES.filter((c) => c % tiers === 0);
-  if (!Number.isInteger(n) || !Number.isInteger(tiers) || n < 1 || tiers < 1) {
-    return { ok: false, per_tier: null, valid, message: "Conductors per phase and tiers must be whole numbers of at least 1." };
-  }
-  if (n % tiers === 0) return { ok: true, per_tier: total / tiers, valid, message: null };
-  const list = valid.length ? valid.join(", ") : "none of the listed values";
-  const why = total % tiers
-    ? `${total} conductors (3 phases x ${n}) cannot be split evenly into ${tiers} tiers`
-    : `${total / tiers} conductors per tier is not a multiple of 3`;
-  return { ok: false, per_tier: total / tiers, valid,
-    message: `${tiers} tiers need conductors per phase divisible by ${tiers} so every tier holds complete A-B-C sets (${list}). ${n} per phase: ${why}.` };
+/* Tier counts Figure 3 has for n per phase. */
+export function figure3Tiers(n) {
+  return [...new Set(figure3Patterns(n).map((p) => p.split("/").length))].sort((a, b) => a - b);
 }
 
-/* Largest tier count <= `tiers` that fits n conductors per phase (always >= 1). */
+/* Arrangement choices for the form: [pattern, label]; "auto" is the best Figure 3 arrangement (with the chosen
+   tier count). Labels use the figure's own order, e.g. "3-2 · +ABCA/BCABC". */
+export function arrangementChoices(n, tiers) {
+  const all = figure3Patterns(n);
+  return [["auto", "Best (Figure 3)"], ...all.map((p, k) => [p, `${n}-${k + 1} · ${p}`])
+    .filter(([p]) => tiers === null || tiers === undefined || p.split("/").length === tiers)];
+}
+
+/* Whether Figure 3 has an arrangement for n per phase in `tiers` tiers (null = any). The engine raises otherwise
+   (candidate_patterns); `valid` lists the conductor counts that have this tier count. */
+export function tierCompat(n, tiers) {
+  const any = tiers === null || tiers === undefined;
+  const valid = any ? COUNT_CHOICES : COUNT_CHOICES.filter((c) => figure3Tiers(c).includes(tiers));
+  if (!Number.isInteger(n) || n < 1 || (!any && (!Number.isInteger(tiers) || tiers < 1))) {
+    return { ok: false, valid, message: "Conductors per phase and tiers must be whole numbers of at least 1." };
+  }
+  const have = figure3Tiers(n);
+  if (!have.length) return { ok: false, valid, message: `CSA 273 Figure 3 covers 1 to 10 conductors per phase (got ${n}).` };
+  if (any || have.includes(tiers)) return { ok: true, valid, message: null };
+  return { ok: false, valid,
+    message: `CSA 273 Figure 3 has no ${tiers}-tier arrangement for ${n} per phase (it has ${have.join(" or ")} tiers).` };
+}
+
+/* Largest Figure 3 tier count <= `tiers` for n per phase, or null (any) when there is none. */
 export function fittingTiers(n, tiers) {
-  for (let t = Math.min(tiers, MAX_TIERS); t > 1; t--) if (n % t === 0) return t;
-  return 1;
+  const have = figure3Tiers(n).filter((t) => tiers === null || tiers === undefined || t <= tiers);
+  return have.length ? have[have.length - 1] : null;
+}
+
+/* Layout envelope in pitches for the enclosure auto-size: widest span and most tiers over the arrangements the
+   engine may pick (one given pattern, or every Figure 3 arrangement with the chosen tier count). */
+export function layoutEnvelope(n, tiers, pattern = "auto") {
+  let pats = pattern && pattern !== "auto" ? [pattern] : figure3Patterns(n, tiers);
+  if (!pats.length) pats = figure3Patterns(n);
+  if (!pats.length) return { span: 3 * n - 1, tiers: 1 };
+  try {
+    return { span: Math.max(...pats.map((p) => Math.max(...patternPositions(p).map((q) => q[0])))),
+      tiers: Math.max(...pats.map((p) => p.split("/").length)) };
+  } catch { return { span: 3 * n - 1, tiers: 1 }; }
 }
 
 /* Simulate tab: the first-cycle phase-current peak at the selected closing angle, found from the plotted

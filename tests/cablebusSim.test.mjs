@@ -76,7 +76,8 @@ test("golden: helpers (I2t, adiabatic, equivalence, first peak, enclosure, stead
 // --- hand checks ------------------------------------------------------------------
 
 const BUS = { voltage_v: 600.0, current_a: 3000.0, conductors_per_phase: 4, size: "750", fault_ka: 50.0,
-  fault_clearing_s: 0.5, x_over_r: 15.0, enclosure_width_mm: 800.0, enclosure_height_mm: 120.0 };
+  fault_clearing_s: 0.5, x_over_r: 15.0, enclosure_width_mm: 800.0, enclosure_height_mm: 120.0,
+  pattern: "ABCABC/CABCAB" }; // CSA 273 Figure 3 arrangement 4-1 (asymmetric: one worst cable)
 const mk = (extra = {}, bus = {}) => sim.simInput({ bus: { ...BUS, ...bus }, ...extra });
 
 test("adiabatic temperature: 750 kcmil Cu, 50 kA, 0.5 s from 90 C", () => {

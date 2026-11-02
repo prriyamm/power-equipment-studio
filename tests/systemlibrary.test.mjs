@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LIBRARY } from "../src/engine/systemLibrary.js";
-import { analyseSystem, EQUIPMENT } from "../src/engine/system.js";
+import { analyseSystem, EQUIPMENT, NODE_KINDS } from "../src/engine/system.js";
+import { buildLineup } from "../src/engine/gear.js";
 import { dims } from "../src/ui/systemGeometry.js";
 import { parseSystem, serializeSystem } from "../src/engine/systemio.js";
 
@@ -21,6 +22,15 @@ for (const { key, system } of LIBRARY) {
     }
     for (const [id, c] of Object.entries(r.connectors)) if (c.loading_pct != null) assert.ok(c.loading_pct <= 100, `${id} loaded ${c.loading_pct.toFixed(1)} %`);
     assert.ok(r.totals.min_v > 0.95, `min V ${r.totals.min_v}`);
+  });
+
+  test(`${key}: every feeder passes its own lineup checks (240.4, 215.3)`, () => {
+    const r = analyseSystem(system);
+    for (const g of system.equipment.filter((e) => NODE_KINDS.has(e.type))) {
+      for (const c of buildLineup(system, r, g.id).circuits.filter((c) => c.kind === "feeder")) {
+        for (const k of c.checks) assert.ok(k.ok, `${g.id} ${c.tag}: ${k.name} (${k.value} vs ${k.limit})`);
+      }
+    }
   });
 
   test(`${key}: equipment does not overlap and keeps clearance`, () => {

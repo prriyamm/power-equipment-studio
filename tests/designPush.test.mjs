@@ -129,7 +129,7 @@ test("feeder: no recommended conductor means no design", () => {
 
 /* --------------------------------------------------------------- cable bus */
 test("cable bus: writes conductors, sets, length and a sharing-aware rating per set", () => {
-  const res = analyseCableBus(cableBusInput({ voltage_v: 480, current_a: 3000, size: "750", material: "Cu", conductors_per_phase: 5, tiers: 1, length_m: 25, insulation_temp_c: 90, terminal_temp_c: 90 }));
+  const res = analyseCableBus(cableBusInput({ voltage_v: 480, current_a: 3000, size: "750", material: "Cu", conductors_per_phase: 5, length_m: 25, insulation_temp_c: 90, terminal_temp_c: 90 }));
   const d = cableBusDesign(res);
   close(d.rating.value, (3000 * 100) / res.max_loading_pct);
   const s = sys0();

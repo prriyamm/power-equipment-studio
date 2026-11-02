@@ -86,9 +86,11 @@ export function cablebusSvg(inp, result, opts = {}) {
     "stroke='#333' marker-start='url(#a)' marker-end='url(#a)'/>");
   s.push(`<text x='${f1(xd + 8)}' y='${f1(Y(yc) - 4)}'>inside height</text>`);
   s.push(`<text x='${f1(xd + 8)}' y='${f1(Y(yc) + 12)}'>${mmIn(h_in)}</text>`);
-  if (rows.length > 1) {
-    const bottom = rows.filter((c) => Math.abs(c.y_mm - ymin) < 1e-6).sort((p, q) => p.x_mm - q.x_mm);
-    const [a, b] = bottom;
+  // Pitch dimension on the lowest tier with two cables (a Figure 3 trefoil has one cable on top).
+  const tierRows = tiers.map((ty) => rows.filter((c) => Math.abs(c.y_mm - ty) < 1e-3).sort((p, q) => p.x_mm - q.x_mm))
+    .filter((t) => t.length > 1);
+  if (tierRows.length) {
+    const [a, b] = tierRows[0];
     const yb = Y(a.y_mm) + (od / 2) * scale + 18 + block_lip_mm * scale;
     s.push(`<line x1='${f1(X(a.x_mm))}' y1='${f1(yb)}' x2='${f1(X(b.x_mm))}' y2='${f1(yb)}' stroke='#333' ` +
       "marker-start='url(#a)' marker-end='url(#a)'/>");

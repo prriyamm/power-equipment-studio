@@ -179,12 +179,18 @@ export function serviceLabelCheck(x) {
 }
 
 /* ------------------------------------------------------- system wiring */
-// Lineup trips per connector, as the Coordination view uses them (first gear that lists the circuit wins).
+// Lineup trips per connector, as the Coordination view uses them. A gear-to-gear run appears in both lineups:
+// the source-end feeder breaker protects it, so its trip wins over the load-end main, whatever the equipment order.
 export function lineupTrips(sys, analysis) {
   const trips = {};
   for (const g of sys.equipment.filter((e) => NODE_KINDS.has(e.type))) {
     const kv = { ...EQUIPMENT[g.type].defaults, ...g }.kv;
-    try { for (const c of buildLineup(sys, analysis, g.id).circuits) if (!(kv > 1)) trips[c.tag] ??= c.trip; } catch (err) { /* gear without circuits */ }
+    try {
+      for (const c of buildLineup(sys, analysis, g.id).circuits) {
+        if (kv > 1) continue;
+        if (c.kind === "feeder") trips[c.tag] = c.trip; else trips[c.tag] ??= c.trip;
+      }
+    } catch (err) { /* gear without circuits */ }
   }
   return trips;
 }
