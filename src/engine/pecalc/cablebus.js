@@ -22,6 +22,7 @@ import * as validate from "./validate.js";
 import NEC from "./data/ampacity_nec.json" with { type: "json" };
 import CEC from "./data/ampacity_cec.json" with { type: "json" };
 import DLO from "./data/dlo_cables.json" with { type: "json" };
+import FIGURE3 from "./data/csa273_figure3.json" with { type: "json" };
 
 export const PHASES = ["A", "B", "C"];
 export const CU_RHO20 = 1.7241e-8; // ohm m, annealed copper (shield tapes / wires)
@@ -55,11 +56,13 @@ const _DEFAULTS = {
   cable_type: "standard",
   cable_id: null,             // e.g. "southwire_dlo_2000v:444.4" (cable_type 'dlo_2000v' only)
   conductors_per_phase: 3,
-  tiers: 1,
+  tiers: null,                // null: any; set to the tier count of the chosen pattern by analyse()
   cable_od_mm: null,          // required above 2000 V; estimated for LV if omitted
   spacing_mm: null,           // centre-to-centre in a tier; default 2 x OD (1 OD clearance)
   tier_spacing_mm: null,      // centre-to-centre between tiers; default = spacing
-  pattern: "auto",            // e.g. "ABCCBA" or "ABCCBA/CBAABC" for tiers, or "auto"
+  // "auto": try the CSA 273 Figure 3 arrangements (with `tiers` tiers, if set) and keep the best current
+  // sharing. Or a pattern, e.g. "ABCAB/CABC." or "+ABCA/BCABC" (grammar at FIGURE3_REF).
+  pattern: "auto",
   insulation_temp_c: 90,
   // Equipment termination rating (NEC 110.14(C) / CEC 4-006). null = derive from the voltage: 75 C up to
   // 2000 V (NEC 110.14(C)(1)(b)), 90 C above 2000 V (NEC 110.40). An explicit value always wins.
@@ -168,7 +171,7 @@ export function validateInput(inp) {
   validate.positive("current_a", inp.current_a, "A");
   validate.positive("length_m", inp.length_m, "m");
   validate.positive("frequency_hz", inp.frequency_hz, "Hz");
-  validate.countAtLeast("tiers", inp.tiers);
+  if (inp.tiers !== null && inp.tiers !== undefined) validate.countAtLeast("tiers", inp.tiers);
   validate.countAtLeast("conductors_per_phase", inp.conductors_per_phase);
   if (inp.fault_ka !== null && inp.fault_ka !== undefined) validate.nonNegative("fault_ka", inp.fault_ka, "kA");
 }
@@ -347,47 +350,97 @@ function _libraryNotes(inp, spec, method) {
 
 // --- layout -----------------------------------------------------------------
 
-const _ROT = { A: "C", B: "A", C: "B" };
-const _rev = (s) => [...s].reverse().join("");
+// Phase arrangements of CSA C22.2 No. 273 Figure 3. Pattern grammar (also for a user pattern): tiers top to
+// bottom separated by '/', '.' = unused position, a leading '+' shifts the tier right by half a pitch.
+export const FIGURE3_REF = "CSA/ANSI C22.2 No. 273:19 Figure 3 (Clauses 4.12.2.1.1, 4.12.3.1, 4.13)";
 
-export function candidatePatterns(n_per_phase, tiers) {
-  const total = 3 * n_per_phase;
-  if (total % tiers) throw new Error(`${total} conductors cannot be split evenly into ${tiers} tiers`);
-  const per_tier = total / tiers;
-  if (per_tier % 3) throw new Error(`Each tier needs a multiple of 3 conductors (got ${per_tier})`);
-  const k = per_tier / 3;
-  const seq = "ABC".repeat(k);
-  let mirrored = "";
-  for (let i = 0; i < k; i++) mirrored += i % 2 === 0 ? "ABC" : "CBA";
-  const range = [...Array(tiers).keys()];
-  const rows = [
-    range.map(() => seq),
-    range.map(() => mirrored),
-    range.map((t) => (t % 2 === 0 ? mirrored : _rev(mirrored))),
-    range.map((t) => (t % 2 === 0 ? mirrored : [...mirrored].map((ch) => _ROT[ch]).join(""))),
-  ];
-  const out = [];
-  for (const r of rows) {
-    const p = r.join("/");
-    if (!out.includes(p)) out.push(p);
+const _tierCount = (p) => p.split("/").length;
+
+/** Figure 3 arrangements for n conductors per phase (all, or only those with this many tiers). */
+export function figure3Patterns(n_per_phase, tiers = null) {
+  const pats = FIGURE3.arrangements[String(n_per_phase)] || [];
+  return pats.filter((p) => tiers === null || tiers === undefined || _tierCount(p) === tiers);
+}
+
+/** Patterns tried by pattern 'auto': the Figure 3 arrangements, filtered by tier count when given. */
+export function candidatePatterns(n_per_phase, tiers = null) {
+  const pats = figure3Patterns(n_per_phase, tiers);
+  if (pats.length) return pats;
+  const have = figure3Patterns(n_per_phase);
+  if (!have.length) {
+    throw new Error(`CSA 273 Figure 3 covers 1 to 10 conductors per phase (got ${n_per_phase}): give a ` +
+      "pattern (an arrangement outside Figure 3 needs the Clause 4.12.4 temperature-rise test)");
+  }
+  const counts = [...new Set(have.map(_tierCount))].sort((a, b) => a - b);
+  throw new Error(`CSA 273 Figure 3 has no arrangement of ${n_per_phase} conductors per phase in ${tiers} ` +
+    `tier(s); it has ${counts.join(" or ")} tiers. Change tiers or give a pattern.`);
+}
+
+/** Tiers of a pattern as [offset in pitches, positions], top tier first. */
+export function parsePattern(pattern) {
+  return pattern.toUpperCase().split("/").map((row) => {
+    const off = row.startsWith("+") ? 0.5 : 0.0;
+    const body = off ? row.slice(1) : row;
+    if (!body || [...body].some((ch) => !PHASES.includes(ch) && ch !== ".")) {
+      throw new Error(`Pattern ${pyRepr(pattern)}: each tier is A, B, C or '.' (unused position), with an ` +
+        "optional leading '+' for a half-pitch shift; tiers are separated by '/'");
+    }
+    return [off, body];
+  });
+}
+
+/** Occupied positions as [x in pitches, tier, phase, position index]; x starts at 0. */
+export function patternPositions(pattern) {
+  const pos = [];
+  parsePattern(pattern).forEach(([off, body], t) => {
+    [...body].forEach((ph, i) => { if (ph !== ".") pos.push([off + i, t, ph, i]); });
+  });
+  const x0 = Math.min(...pos.map((p) => p[0]));
+  return pos.map(([x, t, ph, i]) => [x - x0, t, ph, i]);
+}
+
+/** Geometry of a pattern under mirror image and vertical flip, with the phase names dropped: each shape is the
+ * set of positions of each phase group, as a canonical string. */
+function _shapes(pattern) {
+  const pos = patternPositions(pattern).map(([x, t, ph]) => [Math.round(2 * x), t, ph]);
+  const xm = Math.max(...pos.map((p) => p[0])), tm = Math.max(...pos.map((p) => p[1]));
+  const out = new Set();
+  for (const fx of [false, true]) {
+    for (const ft of [false, true]) {
+      const groups = {};
+      for (const [x, t, ph] of pos) (groups[ph] ??= []).push(`${fx ? xm - x : x},${ft ? tm - t : t}`);
+      out.add(Object.values(groups).map((g) => g.sort().join(" ")).sort().join("|"));
+    }
   }
   return out;
 }
 
+/** Figure 3 arrangement this pattern is (same positions per phase group, up to phase naming, mirror image and
+ * vertical flip), as 'n-k' (k = order in the figure), or null. */
+export function figure3Match(pattern, n_per_phase) {
+  const mine = _shapes(pattern);
+  const pats = figure3Patterns(n_per_phase);
+  for (let k = 0; k < pats.length; k++) {
+    for (const s of _shapes(pats[k])) if (mine.has(s)) return `${n_per_phase}-${k + 1}`;
+  }
+  return null;
+}
+
 function _checkPattern(pattern, n_per_phase, tiers) {
-  const rows = pattern.toUpperCase().split("/");
-  if (rows.length !== tiers) throw new Error(`Pattern ${pyRepr(pattern)} has ${rows.length} tiers, expected ${tiers}`);
-  const flat = rows.join("");
+  const rows = parsePattern(pattern);
+  if (tiers !== null && tiers !== undefined && rows.length !== tiers) {
+    throw new Error(`Pattern ${pyRepr(pattern)} has ${rows.length} tiers, expected ${tiers}`);
+  }
+  const flat = rows.map(([, body]) => body).join("");
   for (const p of PHASES) {
     const n = [...flat].filter((ch) => ch === p).length;
     if (n !== n_per_phase) throw new Error(`Pattern ${pyRepr(pattern)} must contain ${n_per_phase} x ${p}`);
   }
-  if ([...flat].some((ch) => !PHASES.includes(ch))) throw new Error("Pattern may contain only A, B, C and '/'");
   return rows;
 }
 
 export function buildLayout(inp, pattern, od, spec = null) {
-  const rows = _checkPattern(pattern, inp.conductors_per_phase, inp.tiers);
+  _checkPattern(pattern, inp.conductors_per_phase, inp.tiers);
   const pitch = inp.spacing_mm || 2 * od;
   const tier_pitch = inp.tier_spacing_mm || pitch;
   let r_core, gmr;
@@ -398,13 +451,8 @@ export function buildLayout(inp, pattern, od, spec = null) {
     r_core = cond.racFromRdcOhmPerM(_libraryRdc(spec, inp.insulation_temp_c), spec.diameter_mm, inp.frequency_hz, pitch);
     gmr = cond.gmrFromDiameterMm(spec.diameter_mm);
   }
-  const out = [];
-  rows.forEach((row, t) => {
-    [...row].forEach((ph, i) => {
-      out.push(conductor({ x_mm: i * pitch, y_mm: t * tier_pitch, group: ph, r_ohm_per_m: r_core, gmr_mm: gmr,
-        label: `${ph}${t}${i}` }));
-    });
-  });
+  const out = patternPositions(pattern).map(([x, t, ph, i]) => conductor({ x_mm: x * pitch, y_mm: t * tier_pitch,
+    group: ph, r_ohm_per_m: r_core, gmr_mm: gmr, label: `${ph}${t}${i}` }));
   if (inp.shield_bonding === "both_ends") {
     if (!(inp.shield_area_mm2 && inp.shield_mean_diameter_mm)) {
       throw new Error("shield_area_mm2 and shield_mean_diameter_mm are required for both-ends bonding");
@@ -419,6 +467,9 @@ export function buildLayout(inp, pattern, od, spec = null) {
   if (inp.enclosure_width_mm) out.push(...enclosureFilaments(inp, out, od));
   return out;
 }
+
+/** The given enclosure does not hold the conductor group of a pattern. */
+export class EnclosureTooSmall extends Error {}
 
 /**
  * Thin-plate enclosure walls as parallel strips (bonded at both ends).
@@ -436,7 +487,7 @@ export function enclosureFilaments(inp, cores, od) {
   const w = inp.enclosure_width_mm;
   const h = inp.enclosure_height_mm || ymax - ymin + 2 * od;
   if (w < xmax - xmin + od || h < ymax - ymin + od) {
-    throw new Error(`Enclosure ${pyFixed(w, 0)} x ${pyFixed(h, 0)} mm is smaller than the conductor group ` +
+    throw new EnclosureTooSmall(`Enclosure ${pyFixed(w, 0)} x ${pyFixed(h, 0)} mm is smaller than the conductor group ` +
       `(${pyFixed(xmax - xmin + od, 0)} x ${pyFixed(ymax - ymin + od, 0)} mm)`);
   }
   const rho = AL_ALLOYS[inp.enclosure_alloy] * (1 + AL_ALPHA * (inp.enclosure_temp_c - 20));
@@ -828,8 +879,17 @@ export function analyse(inp, compareBonding = true) {
   const patterns = inp.pattern === "auto" ? candidatePatterns(inp.conductors_per_phase, inp.tiers)
     : [inp.pattern.toUpperCase()];
   const scored = [];
+  let too_small = null;
   for (const p of patterns) {
-    const cs = buildLayout(inp, p, od, spec);
+    let cs;
+    try {
+      cs = buildLayout(inp, p, od, spec);
+    } catch (e) {
+      // 'auto' skips the arrangements that do not fit the given enclosure.
+      if (!(e instanceof EnclosureTooSmall)) throw e;
+      too_small = too_small || e;
+      continue;
+    }
     const res = solveSharing(cs, cableBusGroups(inp, with_shields), inp.frequency_hz);
     const phase_idx = [];
     cs.forEach((c, i) => { if (PHASES.includes(c.group)) phase_idx.push(i); });
@@ -837,12 +897,19 @@ export function analyse(inp, compareBonding = true) {
     for (const l of res.losses_w_per_m) loss += l;
     scored.push([p, cs, res, Math.max(...phase_idx.map((i) => sharePct(res, i))), loss]);
   }
+  if (!scored.length) {
+    if (patterns.length === 1) throw too_small;
+    throw new EnclosureTooSmall(`No CSA 273 Figure 3 arrangement of ${inp.conductors_per_phase} conductors per ` +
+      `phase fits the enclosure (first: ${too_small.message})`);
+  }
   scored.sort((a, b) => {
     const ra = pyRound(a[3], 1), rb = pyRound(b[3], 1);
     return ra !== rb ? ra - rb : a[4] - b[4];
   });
   const [pattern, cs, res] = scored[0];
   const compared = scored.map(([p, , , m, l]) => ({ pattern: p, max_share_pct: pyRound(m, 1), loss_w_per_m: pyRound(l, 2) }));
+  inp.tiers = _tierCount(pattern);
+  const fig3 = figure3Match(pattern, inp.conductors_per_phase);
 
   const pitch = inp.spacing_mm || 2 * od;
   const labels = {};
@@ -968,11 +1035,19 @@ export function analyse(inp, compareBonding = true) {
       cond.sizeIndex(min_size), "size index", cond.sizeIndex(size) >= cond.sizeIndex(min_size),
       `min ${cond.sizeLabel(min_size)}`);
   }
+  check("Phase arrangement from CSA C22.2 No. 273 Figure 3", FIGURE3_REF, fig3 ? 1.0 : 0.0, 1.0, "match",
+    fig3 !== null,
+    fig3 ? `pattern ${pattern} is Figure 3 arrangement ${fig3} (same positions per phase group, up to phase naming ` +
+      "and mirror image)"
+      : `pattern ${pattern} is not a Figure 3 arrangement for ${inp.conductors_per_phase} conductors per phase: ` +
+      "the free-air ampacity basis needs a Figure 3 arrangement or the Clause 4.12.4 temperature-rise test");
   if (method === "table") {
     check("Spacing for free-air ampacity basis (>= 1 cable diameter clearance)",
       "NEC 370.80 / CEC 12-2252 [UNVERIFIED]", pitch - od, od, "mm", pitch - od >= od - 1e-6);
     if (inp.tiers > 1) {
-      const tier_pitch = inp.tier_spacing_mm || pitch; // centre-to-centre, same convention as spacing_mm
+      // Centre-to-centre, same convention as spacing_mm. A staggered tier sits half a pitch over, so its nearest
+      // cable is further away than tier_pitch: checking tier_pitch is conservative.
+      const tier_pitch = inp.tier_spacing_mm || pitch;
       check("Tier spacing for free-air ampacity basis (>= 1 cable diameter clearance between tiers)",
         "NEC 370.80 / CEC 12-2252 [UNVERIFIED]", tier_pitch - od, od, "mm", tier_pitch - od >= od - 1e-6);
     }

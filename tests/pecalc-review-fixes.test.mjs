@@ -252,7 +252,8 @@ test("datasheet shield derating: single-point not derated; both ends derated by 
   const sp = cb.analyse(cb.cableBusInput({ ...DS, shield_bonding: "single_point" }));
   assert.ok(sp.conductors.every((c) => c.ampacity_a === 900.0));
   assert.ok(!sp.ampacity_basis.includes("shield derating"));
-  const r = cb.analyse(cb.cableBusInput({ ...DS, shield_bonding: "both_ends" }));
+  // The PR #9 table was solved for the flat row ABCCBAABC (the old auto pick; not a CSA 273 Figure 3 arrangement).
+  const r = cb.analyse(cb.cableBusInput({ ...DS, shield_bonding: "both_ends", pattern: "ABCCBAABC" }));
   assert.ok(Math.max(...r.conductors.map((c) => c.ampacity_a)) < 900.0);
   const lam = Number(r.ampacity_basis.split("lambda1 ")[1].split(" ")[0]);
   const worst = r.conductors.reduce((m, c) => (c.loading_pct > m.loading_pct ? c : m));

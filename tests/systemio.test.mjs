@@ -23,17 +23,22 @@ test("defaults are stripped on save and restored on load", () => {
   const p = toProject({ name: "x", equipment: [{ id: "T", type: "transformer", name: "T", gx: 1, gy: 2, kva: 1000, z_pct: 5.75, xr: 7 }], connectors: [{ id: "c", kind: "cable", from: "T.hv", to: "T.lv", length_ft: 150, size: "2/0" }] });
   assert.deepEqual(p.equipment[0], { id: "T", type: "transformer", name: "T", gx: 1, gy: 2, kva: 1000 });
   assert.deepEqual(p.connectors[0], { id: "c", kind: "cable", from: "T.hv", to: "T.lv", size: "2/0" });
-  assert.equal(p.format, "power-studio-system");
+  assert.equal(p.format, "power-equipment-studio-system");
   const back = parseSystem(JSON.stringify(p));
   assert.equal(back.equipment[0].z_pct, 5.75);
   assert.equal(back.equipment[0].conn, "Dyn1");
   assert.equal(back.connectors[0].raceway, "steel");
 });
 
+test("files saved under the pre-rename format id still load", () => {
+  const legacy = { ...base(), format: "power-studio-system" };
+  assert.deepEqual(parseSystem(JSON.stringify(legacy)), parseSystem(JSON.stringify(base())));
+});
+
 test("parse errors are clear", () => {
   err("{nope", /Not valid JSON/);
   err([], /JSON object/);
-  err({ format: "other", version: 1 }, /Not a Power Studio system file/);
+  err({ format: "other", version: 1 }, /Not a Power Equipment Studio system file/);
   err({ ...base(), version: 2 }, /Unsupported system file version 2/);
   let b = base(); b.equipment[1].type = "flux-capacitor"; err(b, /Unknown equipment type "flux-capacitor"/);
   b = base(); b.equipment[2].id = b.equipment[1].id; err(b, /Duplicate equipment id/);

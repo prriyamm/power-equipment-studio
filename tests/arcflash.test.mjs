@@ -145,3 +145,15 @@ test("utility sc_basis: ANSI E/Z quote gives Ibf = quoted current at the utility
   const dflt = study(mk());
   near(dflt.ibf, iec.ibf); near(dflt.ik, iec.ik);
 });
+
+test("regression: the study gives no incident energy above 15 kV (outside IEEE 1584-2018)", () => {
+  const sys = { name: "34.5 kV", base_mva: 100, equipment: [
+      { id: "U", type: "utility", kv: 115, mva_sc: 6000, xr: 20, gx: 0, gy: 0 },
+      { id: "T", type: "transformer", kva: 125000, hv_kv: 115, lv_kv: 34.5, z_pct: 10, xr: 40, gx: 6, gy: 0 },
+      { id: "G34", type: "switchgear", kv: 34.5, bus_a: 3000, sc_ka: 40, gx: 12, gy: 0 }],
+    connectors: [{ id: "a", kind: "direct", from: "U.out", to: "T.hv" }, { id: "b", kind: "direct", from: "T.lv", to: "G34.bus" }] };
+  const rows = arcFlashStudy(analyseSystem(sys), sys, { allow_placeholder_data: true });
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].error, /above the IEEE 1584-2018 range/);
+  assert.equal(rows[0].e_cal_cm2, undefined);
+});

@@ -18,8 +18,8 @@ import { cableBusDesign } from "../engine/designPush.js";
 import { connectorTerminalC } from "../engine/system.js";
 import { SheathSection, sheathReport } from "./cablebusSheath.jsx";
 import { FieldMap } from "./cablebusField.jsx";
-import { tierCompat, fittingTiers, TIER_CHOICES, COUNT_CHOICES, CABLE_TYPE_CHOICES, conductorLabel, conductorDiameterMm,
-  libraryOptions, applyCableType, libraryErrorText } from "./cablebusUtil.js";
+import { tierCompat, fittingTiers, figure3Tiers, arrangementChoices, layoutEnvelope, TIER_CHOICES, COUNT_CHOICES,
+  CABLE_TYPE_CHOICES, conductorLabel, conductorDiameterMm, libraryOptions, applyCableType, libraryErrorText } from "./cablebusUtil.js";
 import { SimulateTab, SIM_STATE, simReport } from "./cablebusSim.jsx";
 
 const CSS = `
@@ -57,7 +57,7 @@ const CSS = `
 
 /* Starting state: the 15 kV, 2000 A, 3 x 750 kcmil Cu EPR per phase example. */
 const EXAMPLE = {
-  voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: 1,
+  voltage_v: 15000, current_a: 2000, size: "750", material: "Cu", conductors_per_phase: 3, tiers: null, pattern: "auto",
   cable_type: "standard", cable_id: null,
   insulation: "EPR", insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, shield_bonding: "both_ends",
   length_ft: 200, ambient_c: 40, insulation_temp_c: 90, terminal_temp_c: null, ampacity_method: "auto",
@@ -68,7 +68,7 @@ const EXAMPLE = {
 const DESIGN_EXAMPLE = {
   voltage_v: 15000, current_a: 2000, material: "Cu", length_ft: 200, ambient_c: 40, insulation: "EPR",
   insulation_mm: 7.2, shield_mm: 0.13, jacket_mm: 2.0, fault_ka: 40, fault_clearing_s: 0.5, x_over_r: 15, max_loading_pct: 95,
-  sizes: ["500", "750", "1000"], tiers: [1, 2, 3, 4], block_material: "GPO-3", ampacity_method: "auto",
+  sizes: ["500", "750", "1000"], tiers: [1, 2, 3], block_material: "GPO-3", ampacity_method: "auto",
 };
 const FT = 0.3048;
 const SIZE_CHOICES = cond.SIZES.slice(cond.SIZES.indexOf("1/0"));
@@ -97,7 +97,8 @@ function toInput(f) {
   const o = {
     voltage_v: f.voltage_v, current_a: f.current_a, size: f.size, material: lib ? "Cu" : f.material,
     cable_type: f.cable_type ?? "standard", cable_id: lib ? f.cable_id : null,
-    conductors_per_phase: f.conductors_per_phase, tiers: f.tiers, length_m: f.length_ft * FT,
+    conductors_per_phase: f.conductors_per_phase, tiers: f.tiers ?? null, pattern: f.pattern || "auto",
+    length_m: f.length_ft * FT,
     ambient_c: f.ambient_c, ampacity_method: f.ampacity_method, insulation_temp_c: lib ? 90 : f.insulation_temp_c,
     terminal_temp_c: f.terminal_temp_c, max_vd_pct: f.max_vd_pct, x_over_r: f.x_over_r,
     shield_bonding: mv ? f.shield_bonding : "none", covers_continuous: f.covers_continuous,
@@ -118,13 +119,21 @@ function toInput(f) {
   if (f.enclosure_on) {
     const od = autoOd(f);
     const pitch = 2 * (od || 0);
-    const per_tier = (3 * f.conductors_per_phase) / f.tiers;
-    const w = f.enc_w ?? Math.ceil(((per_tier - 1) * pitch + (od || 0) + 50) / 10) * 10;
-    const h = f.enc_h ?? Math.ceil(((f.tiers - 1) * pitch + (od || 0) + 70) / 10) * 10;
+    const env = layoutEnvelope(f.conductors_per_phase, f.tiers ?? null, f.pattern);
+    const w = f.enc_w ?? Math.ceil((env.span * pitch + (od || 0) + 50) / 10) * 10;
+    const h = f.enc_h ?? Math.ceil(((env.tiers - 1) * pitch + (od || 0) + 70) / 10) * 10;
     o.enclosure_width_mm = w; o.enclosure_height_mm = h;
   }
   return o;
 }
+
+/* Form state after a conductor-count change: a tier count or arrangement Figure 3 lacks for the new count resets. */
+function withCount(s, n) {
+  const tiers = s.tiers != null && figure3Tiers(n).includes(s.tiers) ? s.tiers : null;
+  const pattern = arrangementChoices(n, tiers).some(([v]) => v === s.pattern) ? s.pattern : "auto";
+  return { ...s, conductors_per_phase: n, tiers, pattern };
+}
+const tierLabel = (t) => (t === null ? "Any tiers" : `${t} tier${t > 1 ? "s" : ""}`);
 
 function solve(f) {
   try {
@@ -469,14 +478,33 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
               )
               : pick("size", "Size", SIZE_CHOICES.map((s) => [s, cond.sizeLabel(s)]))}
             {pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]], undefined, f.cable_type === "dlo_2000v")}
-            {pick("conductors_per_phase", "Conductors / phase", COUNT_CHOICES.map((n) => [n, String(n)]), Number)}
-            {pick("tiers", "Tiers", TIER_CHOICES.map((t) => [t, String(t)]), Number)}
+            <Field label="Conductors / phase">
+              <select id="cb-conductors_per_phase" className="num-input" value={f.conductors_per_phase}
+                onChange={(e) => setF((s) => withCount(s, Number(e.target.value)))}>
+                {COUNT_CHOICES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </Field>
+            <Field label="Tiers">
+              <select id="cb-tiers" className="num-input" value={f.tiers ?? ""}
+                onChange={(e) => setF((s) => ({ ...s, tiers: e.target.value === "" ? null : Number(e.target.value), pattern: "auto" }))}>
+                <option value="">Any</option>
+                {figure3Tiers(f.conductors_per_phase).map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+            <div className="cb-wide">
+              <Field label="Arrangement (CSA 273 Fig. 3)">
+                <select id="cb-pattern" className="num-input" value={f.pattern || "auto"}
+                  onChange={(e) => setF((s) => ({ ...s, pattern: e.target.value }))}>
+                  {arrangementChoices(f.conductors_per_phase, f.tiers ?? null).map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                </select>
+              </Field>
+            </div>
             {!tierFit.ok && (
               <div className="cb-wide cb-tierwarn" role="alert" id="cb-tier-warning">
                 <div>{tierFit.message}</div>
                 <div className="cb-tierfix">
-                  {tierFit.valid.map((n) => <button key={`n${n}`} type="button" className="cb-chip" onClick={() => setF((s) => ({ ...s, conductors_per_phase: n }))}>{n} per phase</button>)}
-                  <button type="button" className="cb-chip" onClick={() => setF((s) => ({ ...s, tiers: fittingTiers(s.conductors_per_phase, s.tiers) }))}>{fittingTiers(f.conductors_per_phase, f.tiers)} tier{fittingTiers(f.conductors_per_phase, f.tiers) > 1 ? "s" : ""}</button>
+                  {tierFit.valid.map((n) => <button key={`n${n}`} type="button" className="cb-chip" onClick={() => setF((s) => ({ ...s, conductors_per_phase: n, pattern: "auto" }))}>{n} per phase</button>)}
+                  <button type="button" className="cb-chip" onClick={() => setF((s) => ({ ...s, tiers: fittingTiers(s.conductors_per_phase, s.tiers), pattern: "auto" }))}>{tierLabel(fittingTiers(f.conductors_per_phase, f.tiers))}</button>
                 </div>
               </div>
             )}
@@ -665,7 +693,7 @@ export function CableBusWorkspace({ goTo }) {
       const k = sizeKey(c.size);
       if (k) n.size = k;
       if (c.material) n.material = c.material;
-      if (c.sets) { n.conductors_per_phase = c.sets; n.tiers = c.sets <= 3 ? 1 : c.sets % 2 === 0 ? 2 : c.sets % 3 === 0 ? 3 : 1; }
+      if (c.sets) { n.conductors_per_phase = c.sets; n.tiers = null; n.pattern = "auto"; }
       if (c.length_ft) n.length_ft = c.length_ft;
       if (c.insulation_c && [60, 75, 90].includes(c.insulation_c)) { n.insulation_temp_c = c.insulation_c; n.terminal_temp_c = c.insulation_c; }
       // LV: terminal rating per NEC 110.14(C) (marking, else 60/75 °C default), as the System design check uses
@@ -686,7 +714,7 @@ export function CableBusWorkspace({ goTo }) {
     const ci = o.case_inputs;
     setF((s) => ({
       ...s, voltage_v: req.voltage_v, current_a: req.current_a, material: req.material, size: o.size,
-      conductors_per_phase: o.per_phase, tiers: o.tiers, enclosure_on: true, enc_w: o.inside_w_mm, enc_h: o.inside_h_mm,
+      conductors_per_phase: o.per_phase, tiers: o.tiers, pattern: o.pattern, enclosure_on: true, enc_w: o.inside_w_mm, enc_h: o.inside_h_mm,
       cable_od_mm: Math.round(ci.cable_od_mm * 100) / 100, insulation: req.insulation, insulation_mm: req.insulation_mm ?? s.insulation_mm,
       shield_mm: req.shield_mm, jacket_mm: req.jacket_mm, shield_bonding: ci.shield_bonding, ampacity_method: req.ampacity_method,
       length_ft: req.length_m / FT, ambient_c: req.ambient_c, fault_ka: req.fault_ka ?? undefined, fault_clearing_s: req.fault_clearing_s ?? undefined, x_over_r: req.x_over_r,

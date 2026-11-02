@@ -27,16 +27,16 @@ const DOUBLE_ENDED = {
     { id: "CB-A", kind: "cablebus", from: "T1.lv", to: "LV-A.bus", size: "750", sets: 3, length_ft: 40 },
     { id: "CB-B", kind: "cablebus", from: "T2.lv", to: "LV-B.bus", size: "750", sets: 3, length_ft: 40 },
     { id: "TIE", kind: "cablebus", from: "LV-A.bus", to: "LV-B.bus", size: "750", sets: 3, length_ft: 30 },
-    { id: "C-LA1", kind: "cable", from: "LV-A.bus", to: "LOAD-A1.in", size: "500", sets: 3, length_ft: 120 },
-    { id: "C-LA2", kind: "cable", from: "LV-A.bus", to: "LOAD-A2.in", size: "500", sets: 2, length_ft: 140 },
-    { id: "C-LB1", kind: "cable", from: "LV-B.bus", to: "LOAD-B1.in", size: "500", sets: 3, length_ft: 120 },
+    { id: "C-LA1", kind: "cable", from: "LV-A.bus", to: "LOAD-A1.in", size: "500", sets: 4, length_ft: 120 },
+    { id: "C-LA2", kind: "cable", from: "LV-A.bus", to: "LOAD-A2.in", size: "500", sets: 3, length_ft: 140 },
+    { id: "C-LB1", kind: "cable", from: "LV-B.bus", to: "LOAD-B1.in", size: "500", sets: 4, length_ft: 120 },
     { id: "C-MB1", kind: "cable", from: "LV-B.bus", to: "M-B1.in", size: "500", sets: 1, length_ft: 150 },
   ],
 };
 
-/* ---------------------------------- industrial plant, 4.16 kV motors + generator */
+/* ---------------------------- industrial plant, 4.16 kV motors + on-site generator */
 const INDUSTRIAL = {
-  name: "Industrial plant with standby generator",
+  name: "Industrial plant with on-site generator",
   base_mva: 10,
   equipment: [
     { id: "UTIL", type: "utility", name: "Utility 13.8 kV", kv: 13.8, mva_sc: 500, xr: 15, gx: 0, gy: 0 },
@@ -44,7 +44,7 @@ const INDUSTRIAL = {
     { id: "T1", type: "transformer", name: "T1 2500 kVA (480 V)", kva: 2500, hv_kv: 13.8, lv_kv: 0.48, z_pct: 5.75, xr: 7, gx: 3, gy: 6 },
     { id: "T2", type: "transformer", name: "T2 5000 kVA (4.16 kV)", kva: 5000, hv_kv: 13.8, lv_kv: 4.16, z_pct: 6.5, xr: 10, gx: 9, gy: 6 },
     { id: "SWGR-LV", type: "switchgear", name: "480 V switchgear", kv: 0.48, bus_a: 4000, sc_ka: 65, sections: 5, gx: 0, gy: 11 },
-    { id: "GEN-1", type: "generator", name: "Standby generator 1000 kVA", kv: 0.48, kva: 1000, pf: 0.8, p_kw: 300, v_pu: 1.0, gx: -5, gy: 11 },
+    { id: "GEN-1", type: "generator", name: "Generator 1000 kVA", kv: 0.48, kva: 1000, pf: 0.8, p_kw: 300, v_pu: 1.0, gx: -5, gy: 11 },
     { id: "SWGR-5", type: "switchgear", name: "4.16 kV motor bus", kv: 4.16, bus_a: 1200, sc_ka: 40, sections: 3, gx: 10, gy: 11 },
     { id: "LOAD-1", type: "load", name: "Plant lighting and process", kw: 700, pf: 0.9, gx: 0, gy: 16 },
     { id: "MCC-1", type: "mcc", name: "MCC-1", kv: 0.48, bus_a: 800, sc_ka: 42, sections: 3, gx: 4.5, gy: 16 },
@@ -60,8 +60,8 @@ const INDUSTRIAL = {
     { id: "C-T2", kind: "cable", from: "SWGR-MV.bus", to: "T2.hv", size: "4/0", length_ft: 120, ...pvc },
     { id: "CB-1", kind: "cablebus", from: "T1.lv", to: "SWGR-LV.bus", size: "750", sets: 4, length_ft: 40 },
     { id: "CB-2", kind: "cablebus", from: "T2.lv", to: "SWGR-5.bus", size: "750", sets: 1, length_ft: 40, insulation_c: 90 },
-    { id: "C-GEN", kind: "cable", from: "GEN-1.out", to: "SWGR-LV.bus", size: "500", sets: 2, length_ft: 60 },
-    { id: "C-LOAD", kind: "cable", from: "SWGR-LV.bus", to: "LOAD-1.in", size: "500", sets: 3, length_ft: 150 },
+    { id: "C-GEN", kind: "cable", from: "GEN-1.out", to: "SWGR-LV.bus", size: "600", sets: 4, length_ft: 60 }, // 445.13: ≥ 115 % of 1203 A FLA
+    { id: "C-LOAD", kind: "cable", from: "SWGR-LV.bus", to: "LOAD-1.in", size: "500", sets: 4, length_ft: 150 },
     { id: "C-MCC", kind: "cable", from: "SWGR-LV.bus", to: "MCC-1.bus", size: "500", sets: 1, length_ft: 180 },
     { id: "C-MM", kind: "cable", from: "MCC-1.bus", to: "M-MCC.in", size: "2/0", length_ft: 80 },
     { id: "C-CAP", kind: "cable", from: "SWGR-LV.bus", to: "CAP-1.in", size: "500", sets: 2, length_ft: 30 },
@@ -85,19 +85,20 @@ const DATA_HALL = {
     { id: "CAP-A", type: "capacitor", name: "600 kvar bank", kvar: 600, gx: -3, gy: 11 },
     { id: "UPS-A1", type: "load", name: "UPS row A1", kw: 1000, pf: 0.95, gx: 0, gy: 17 },
     { id: "UPS-A2", type: "load", name: "UPS row A2", kw: 1000, pf: 0.95, gx: 4.5, gy: 17 },
-    { id: "UPS-B1", type: "load", name: "PDU row B1", kw: 1000, pf: 0.95, gx: 10, gy: 17 },
-    { id: "UPS-B2", type: "load", name: "PDU row B2", kw: 1000, pf: 0.95, gx: 14.5, gy: 17 },
+    { id: "UPS-B1", type: "load", name: "UPS row B1", kw: 1000, pf: 0.95, gx: 10, gy: 17 },
+    { id: "UPS-B2", type: "load", name: "UPS row B2", kw: 1000, pf: 0.95, gx: 14.5, gy: 17 },
   ],
   connectors: [
     { id: "C-UTIL", kind: "cable", from: "UTIL.out", to: "SWGR-MV.bus", size: "4/0", length_ft: 150, ...pvc },
     { id: "C-T1", kind: "cable", from: "SWGR-MV.bus", to: "T1.hv", size: "2/0", length_ft: 100, ...pvc },
     { id: "C-T2", kind: "cable", from: "SWGR-MV.bus", to: "T2.hv", size: "2/0", length_ft: 100, ...pvc },
-    { id: "CB-A", kind: "cablebus", from: "T1.lv", to: "LV-A.bus", size: "750", sets: 4, length_ft: 40 },
-    { id: "CB-B", kind: "cablebus", from: "T2.lv", to: "LV-B.bus", size: "750", sets: 4, length_ft: 40 },
-    { id: "CB-A1", kind: "cablebus", from: "LV-A.bus", to: "UPS-A1.in", size: "750", sets: 2, length_ft: 120 },
-    { id: "CB-A2", kind: "cablebus", from: "LV-A.bus", to: "UPS-A2.in", size: "750", sets: 2, length_ft: 140 },
-    { id: "CB-B1", kind: "cablebus", from: "LV-B.bus", to: "UPS-B1.in", size: "750", sets: 2, length_ft: 120 },
-    { id: "CB-B2", kind: "cablebus", from: "LV-B.bus", to: "UPS-B2.in", size: "750", sets: 2, length_ft: 140 },
+    // 3000 kVA at 480 V: FLA 3608 A; cable bus terminals at 310.16 75 C (475 A per 750 kcmil set), so 8 sets
+    { id: "CB-A", kind: "cablebus", from: "T1.lv", to: "LV-A.bus", size: "750", sets: 8, length_ft: 40 },
+    { id: "CB-B", kind: "cablebus", from: "T2.lv", to: "LV-B.bus", size: "750", sets: 8, length_ft: 40 },
+    { id: "CB-A1", kind: "cablebus", from: "LV-A.bus", to: "UPS-A1.in", size: "750", sets: 5, length_ft: 120 },
+    { id: "CB-A2", kind: "cablebus", from: "LV-A.bus", to: "UPS-A2.in", size: "750", sets: 5, length_ft: 140 },
+    { id: "CB-B1", kind: "cablebus", from: "LV-B.bus", to: "UPS-B1.in", size: "750", sets: 5, length_ft: 120 },
+    { id: "CB-B2", kind: "cablebus", from: "LV-B.bus", to: "UPS-B2.in", size: "750", sets: 5, length_ft: 140 },
     { id: "C-CAP", kind: "cable", from: "LV-A.bus", to: "CAP-A.in", size: "500", sets: 3, length_ft: 30 },
   ],
 };
@@ -105,6 +106,6 @@ const DATA_HALL = {
 export const LIBRARY = [
   { key: "unit-substation", name: "Unit substation", note: "13.8 kV utility, 2.5 MVA to 480 V gear with MCC, motors and a 4.16 kV motor bus.", system: EXAMPLE_SYSTEM },
   { key: "double-ended", name: "Double-ended substation", note: "Two 2000 kVA transformers on one MV bus, 480 V lineups joined by a cable bus tie.", system: DOUBLE_ENDED },
-  { key: "industrial-plant", name: "Industrial plant", note: "4.16 kV motor bus (three large motors), 480 V gear with MCC and a standby generator.", system: INDUSTRIAL },
-  { key: "data-hall", name: "Data hall", note: "Two 3000 kVA transformers, 480 V gear, cable bus runs to four UPS/PDU rows and a capacitor bank.", system: DATA_HALL },
+  { key: "industrial-plant", name: "Industrial plant", note: "4.16 kV motor bus (three large motors), 480 V gear with MCC and a 1000 kVA generator running in parallel.", system: INDUSTRIAL },
+  { key: "data-hall", name: "Data hall", note: "Two 3000 kVA transformers, 480 V gear, cable bus runs to four UPS rows, and a capacitor bank on cable.", system: DATA_HALL },
 ];

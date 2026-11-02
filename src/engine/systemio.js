@@ -4,7 +4,9 @@
 import { EQUIPMENT, CONNECTORS, compileSystem } from "./system.js";
 import { engineStamp, engineMismatch } from "./pecalc/datainfo.js";
 
-export const FORMAT = "power-studio-system";
+export const FORMAT = "power-equipment-studio-system";
+// Format id written by builds before the rename to Power Equipment Studio; still read, never written.
+export const LEGACY_FORMATS = ["power-studio-system"];
 export const VERSION = 1;
 
 const same = (a, b) => a === b || (typeof a === "number" && typeof b === "number" && Math.abs(a - b) < 1e-12);
@@ -48,7 +50,7 @@ export function parseSystemWithWarning(text) {
   let d;
   try { d = typeof text === "string" ? JSON.parse(text) : text; } catch (e) { throw new Error(`Not valid JSON: ${e.message}`); }
   if (!isObj(d)) throw new Error("A system file must be a JSON object.");
-  if (d.format !== FORMAT) throw new Error(`Not a Power Studio system file (format should be "${FORMAT}").`);
+  if (d.format !== FORMAT && !LEGACY_FORMATS.includes(d.format)) throw new Error(`Not a Power Equipment Studio system file (format should be "${FORMAT}").`);
   if (d.version !== VERSION) throw new Error(`Unsupported system file version ${JSON.stringify(d.version)}; this build reads version ${VERSION}.`);
   if (d.name !== undefined && typeof d.name !== "string") throw new Error('"name" must be a string.');
   const base_mva = d.base_mva ?? 10;

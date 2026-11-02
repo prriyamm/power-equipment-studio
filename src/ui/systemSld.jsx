@@ -17,7 +17,9 @@ function layoutSld(sys, analysis) {
   const edges = c.lfCase.branches.map((b, i) => ({ from: b.from, to: b.to, meta: c.branchMeta[i] }));
   const devicesAt = Array.from({ length: nBus + 1 }, () => []);
   for (const e of eq.values()) {
-    if (["motor", "load", "capacitor", "generator", "utility"].includes(e.type)) devicesAt[c.busOf(`${e.id}.${EQUIPMENT[e.type].terminals[0]}`)].push(e);
+    if (!["motor", "load", "capacitor", "generator", "utility"].includes(e.type)) continue;
+    const b = c.busOf(`${e.id}.${EQUIPMENT[e.type].terminals[0]}`);
+    if (b != null) devicesAt[b].push(e); // de-energized (switched off) devices have no live bus: not drawn
   }
   const util = [...eq.values()].find((e) => e.type === "utility");
   const root = util ? c.busOf(`${util.id}.out`) : 1;

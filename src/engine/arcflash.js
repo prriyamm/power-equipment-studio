@@ -192,8 +192,12 @@ export function arcFlashStudy(analysis, sys, opts = {}) {
     const assumed = !(raw.af_clearing_ms > 0);
     const clearing = assumed ? (kv > 1 ? opts.mv_clearing_ms ?? DEFAULT_CLEARING_MS.mv : opts.lv_clearing_ms ?? DEFAULT_CLEARING_MS.lv) : raw.af_clearing_ms;
     const inp = { voc_kv: kv, ibf_ka: ibf, gap_mm: raw.af_gap_mm ?? d.gap_mm, working_mm: raw.af_working_mm ?? d.working_mm, config: raw.af_config ?? d.config,
-      enclosure: d.enclosure, clearing_ms: clearing, clearing_reduced_ms: raw.af_clearing_reduced_ms, allow_placeholder_data: !!opts.allow_placeholder_data };
+      enclosure: d.enclosure, clearing_ms: clearing, clearing_reduced_ms: raw.af_clearing_reduced_ms ?? clearing, allow_placeholder_data: !!opts.allow_placeholder_data };
     try {
+      // No incident energy outside the model voltage range: a number (and a printable label) at 34.5 kV or
+      // 230 kV would look authoritative but IEEE 1584-2018 does not cover it. arcFlash() itself still runs
+      // with a warning for callers that want the extrapolation.
+      if (kv > 15) throw new Error(`${kv} kV is above the IEEE 1584-2018 range (208 V to 15 kV); use a method that covers this voltage.`);
       const res = arcFlash(inp);
       rows.push({ id: raw.id, name: raw.name, type: raw.type, class: cls, class_label: d.label, input: inp, clearing_assumed: assumed,
         note: assumed ? "assumed — set the upstream device clearing time" : null, ...res });
