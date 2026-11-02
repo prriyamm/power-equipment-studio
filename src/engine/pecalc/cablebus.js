@@ -84,6 +84,11 @@ const _DEFAULTS = {
   shield_area_mm2: null,
   shield_mean_diameter_mm: null,
   shield_temp_c: 80.0,
+  // Shield short-circuit withstand (optional): ground-fault current returning through the shields of the
+  // faulted phase's cables, shared equally, and the copper shield temperature limit [UNVERIFIED: 250 C is a
+  // typical figure; use the cable maker's value]. Needs fault_clearing_s and a shield area.
+  ground_fault_ka: null,
+  shield_sc_limit_c: 250.0,
   // Single-point bonding: length of one bonded (minor) section; the shield is grounded at one end of
   // each section and the standing voltage builds up to the open end. null = the whole run.
   shield_section_length_m: null,
@@ -823,6 +828,12 @@ export function analyse(inp, compareBonding = true) {
   if (inp.fault_clearing_s !== null && inp.fault_clearing_s !== undefined) {
     validate.clearingTime("fault_clearing_s", inp.fault_clearing_s);
   }
+  const gfk = inp.ground_fault_ka !== null && inp.ground_fault_ka !== undefined;
+  if (gfk) validate.positive("ground_fault_ka", inp.ground_fault_ka, "kA");
+  if (gfk && inp.shield_sc_limit_c <= inp.shield_temp_c) {
+    throw new Error(`shield_sc_limit_c (${pyG(inp.shield_sc_limit_c)} C) must exceed shield_temp_c ` +
+      `(${pyG(inp.shield_temp_c)} C)`);
+  }
   const spec = resolveCable(inp);
   let size;
   if (spec === null) {
@@ -1085,7 +1096,23 @@ export function analyse(inp, compareBonding = true) {
         "give fault_clearing_s");
       notes.push("Conductor short-circuit withstand not checked: give fault_clearing_s.");
     }
-    notes.push("Not checked: shield short-circuit withstand; mutual heating between stacked tiers.");
+    const shield_area = inp.shield_area_mm2 ||
+      (cons !== null && cons.shield_mm ? Math.PI * cons.shield_mean_diameter_mm * cons.shield_mm : null);
+    if (gfk && inp.fault_clearing_s && shield_area) {
+      // Copper shield, adiabatic (same ICEA form as the conductor); 1 mm2 = 1973.525 cmil.
+      const per_cable_ka = inp.ground_fault_ka / inp.conductors_per_phase;
+      const sh_ka = cond.adiabaticWithstandA("Cu", shield_area * 1973.525, inp.shield_temp_c,
+        inp.shield_sc_limit_c, inp.fault_clearing_s) / 1000;
+      check("Shield short-circuit withstand", "ICEA P-32-382 (copper shield)", sh_ka, per_cable_ka, "kA",
+        sh_ka >= per_cable_ka,
+        `${pyFixed(shield_area, 1)} mm2 Cu shield per cable, ${pyFloat(inp.fault_clearing_s)} s clearing, ` +
+        `${pyFloat(inp.shield_temp_c)}->${pyFloat(inp.shield_sc_limit_c)} C; ${pyFloat(inp.ground_fault_ka)} kA ground ` +
+        `fault shared equally by ${inp.conductors_per_phase} cables of the faulted phase`);
+      notes.push("Not checked: mutual heating between stacked tiers.");
+    } else {
+      const why = !gfk ? "give ground_fault_ka with the shield area" : "needs fault_clearing_s and a shield area";
+      notes.push(`Not checked: shield short-circuit withstand (${why}); mutual heating between stacked tiers.`);
+    }
   }
 
   if (with_shields) {
