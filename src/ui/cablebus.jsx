@@ -101,6 +101,7 @@ function toInput(f) {
     length_m: f.length_ft * FT,
     ambient_c: f.ambient_c, ampacity_method: f.ampacity_method, insulation_temp_c: lib ? 90 : f.insulation_temp_c,
     terminal_temp_c: f.terminal_temp_c, max_vd_pct: f.max_vd_pct, x_over_r: f.x_over_r,
+    support_condition: f.support_condition ?? "per_span",
     shield_bonding: mv ? f.shield_bonding : "none", covers_continuous: f.covers_continuous,
   };
   if (f.cable_ampacity_a) o.cable_ampacity_a = f.cable_ampacity_a;
@@ -457,6 +458,7 @@ function CheckTab({ f, setF, fromSystem, clearFrom }) {
             {num("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" })}
             {num("fault_clearing_s", "Fault clearing time", "s", { optional: true, ph: "none", hint: "enables conductor withstand check" })}
             {num("x_over_r", "Fault X/R", "")}
+            {pick("support_condition", "Support reaction", [["per_span", "Per span, 1.0 F·L"], ["continuous", "Continuous, 1.1 F·L"], ["pinned", "Single span, 0.5 F·L"]])}
           </div>
         </Section>
         <Section title="Conductors">

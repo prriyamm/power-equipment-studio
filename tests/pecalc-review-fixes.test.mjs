@@ -273,3 +273,14 @@ test("cable bus: analyse rejects voltage <= 0 or non-finite (validate.voltage)",
   assert.throws(() => cb.analyse(cb.cableBusInput({ voltage_v: 0 })), { message: "voltage_v must be greater than 0 V, got 0.0" });
   assert.throws(() => cb.analyse(cb.cableBusInput({ voltage_v: NaN })), { message: "voltage_v must be finite, got nan" });
 });
+
+test("cable bus support_condition scales the support load by k_r (P10)", () => {
+  const base = { voltage_v: 480, current_a: 2000, conductors_per_phase: 4, size: "500", material: "Cu", fault_ka: 65 };
+  const load = (c) => cb.analyse(cb.cableBusInput({ ...base, ...(c ? { support_condition: c } : {}) })).support_load_lbf;
+  const per = load("per_span");
+  assert.equal(load(), per);
+  for (const [c, k] of [["continuous", 1.1], ["pinned", 0.5], ["fixed", 0.5]]) {
+    assert.ok(Math.abs(load(c) - per * k) < 0.06 + per * 1e-4, c);
+  }
+  assert.throws(() => cb.analyse(cb.cableBusInput({ ...base, support_condition: "cantilever" })), /support_condition must be one of/);
+});

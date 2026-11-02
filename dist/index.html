@@ -11713,6 +11713,8 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
     x_over_r: 15,
     support_span_m: 0.9144,
     // block / support spacing along the run (36 in)
+    // Reaction factor k_r on F*L: per_span 1.0 (flexible cable, default), continuous 1.1, pinned / fixed 0.5.
+    support_condition: "per_span",
     max_vd_pct: 3,
     enclosure_width_mm: null,
     enclosure_height_mm: null,
@@ -11756,6 +11758,7 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
     requireAmbientBelow(ambient_c, conductor_temp_c);
     return ambientFactor(ambient_c, conductor_temp_c, rated_ambient_c);
   }
+  var SUPPORT_REACTION = { per_span: 1, continuous: 1.1, pinned: 0.5, fixed: 0.5 };
   function validateInput(inp) {
     voltage("voltage_v", inp.voltage_v);
     positive("current_a", inp.current_a, "A");
@@ -11764,6 +11767,9 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
     if (inp.tiers !== null && inp.tiers !== void 0) countAtLeast("tiers", inp.tiers);
     countAtLeast("conductors_per_phase", inp.conductors_per_phase);
     if (inp.fault_ka !== null && inp.fault_ka !== void 0) nonNegative("fault_ka", inp.fault_ka, "kA");
+    if (!Object.prototype.hasOwnProperty.call(SUPPORT_REACTION, inp.support_condition)) {
+      throw new Error(`support_condition must be one of ${Object.keys(SUPPORT_REACTION).join(", ")}, got ${pyRepr(inp.support_condition)}`);
+    }
   }
   function cableBusInput(overrides = {}) {
     for (const k of Object.keys(overrides)) {
@@ -12584,8 +12590,9 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
       const fr = faultForces(cs, share, inp.fault_ka, inp.x_over_r, { freq: inp.frequency_hz });
       f_nm = fr.worst_n_per_m;
       f_lbf = fr.worst_lbf_per_ft;
-      support = fr.worst_n_per_m * inp.support_span_m / 4.44822;
-      notes.push(`Fault: ${pyFloat3(inp.fault_ka)} kA rms sym, X/R ${pyFloat3(inp.x_over_r)}, first peak ${pyFixed(fr.peak_current_ka, 1)} kA; worst conductor force ${pyFixed(f_nm, 0)} N/m (${pyFixed(f_lbf, 0)} lbf/ft); load on one support over a ${pyFixed(inp.support_span_m, 3)} m span ~ ${pyFixed(support, 0)} lbf (static; compare with tested block strength).`);
+      const k_r = SUPPORT_REACTION[inp.support_condition];
+      support = fr.worst_n_per_m * inp.support_span_m * k_r / 4.44822;
+      notes.push(`Fault: ${pyFloat3(inp.fault_ka)} kA rms sym, X/R ${pyFloat3(inp.x_over_r)}, first peak ${pyFixed(fr.peak_current_ka, 1)} kA; worst conductor force ${pyFixed(f_nm, 0)} N/m (${pyFixed(f_lbf, 0)} lbf/ft); load on one support over a ${pyFixed(inp.support_span_m, 3)} m span (${inp.support_condition}, k_r ${k_r}) ~ ${pyFixed(support, 0)} lbf (static; compare with tested block strength).`);
       if (inp.fault_clearing_s) {
         const area = (spec !== null ? spec.area_cmil : AREA_CMIL[size]) * inp.conductors_per_phase;
         const withstand_ka = adiabaticWithstandA(
@@ -22517,6 +22524,7 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
       terminal_temp_c: f2.terminal_temp_c,
       max_vd_pct: f2.max_vd_pct,
       x_over_r: f2.x_over_r,
+      support_condition: f2.support_condition ?? "per_span",
       shield_bonding: mv ? f2.shield_bonding : "none",
       covers_continuous: f2.covers_continuous
     };
@@ -22784,7 +22792,7 @@ renders/s ${reg.total - last} \xB7 views ${live.length}
     const calc = f2.ampacity_method === "calculated";
     const lib = f2.cable_type === "dlo_2000v";
     const tierFit = tierCompat(f2.conductors_per_phase, f2.tiers);
-    return /* @__PURE__ */ React.createElement("div", { className: "cb-grid" }, /* @__PURE__ */ React.createElement("div", { className: "cb-form" }, /* @__PURE__ */ React.createElement(Section, { title: "System", aside: fromSystem && /* @__PURE__ */ React.createElement(Pill, { tone: "accent" }, /* @__PURE__ */ React.createElement("span", { className: "cb-from" }, "From System: ", fromSystem, /* @__PURE__ */ React.createElement("button", { type: "button", "aria-label": "Clear", onClick: clearFrom }, "\xD7"))) }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, num2("voltage_v", "Voltage, line-line", "V"), num2("current_a", "Current per phase", "A"), num2("length_ft", "Length", "ft", { hint: `${fmt(f2.length_ft * FT4, 1)} m` }), num2("ambient_c", "Ambient", "\xB0C"), num2("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" }), num2("fault_clearing_s", "Fault clearing time", "s", { optional: true, ph: "none", hint: "enables conductor withstand check" }), num2("x_over_r", "Fault X/R", ""))), /* @__PURE__ */ React.createElement(Section, { title: "Conductors" }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, /* @__PURE__ */ React.createElement("div", { className: "cb-wide" }, /* @__PURE__ */ React.createElement(Field, { label: "Cable type" }, /* @__PURE__ */ React.createElement("select", { id: "cb-cable_type", className: "num-input", value: f2.cable_type, onChange: (e) => setF((s) => applyCableType(s, e.target.value)) }, CABLE_TYPE_CHOICES.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))))), f2.cable_type === "dlo_2000v" ? /* @__PURE__ */ React.createElement(Field, { label: "Size (library)", hint: "manufacturer rows; non-standard sizes use the printed rating" }, /* @__PURE__ */ React.createElement("select", { id: "cb-cable_id", className: "num-input", value: f2.cable_id, onChange: (e) => setF((s) => ({ ...s, cable_id: e.target.value, size: e.target.value.split(":")[1] })) }, LIB.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.id, value: o.id }, o.label)))) : pick("size", "Size", SIZE_CHOICES.map((s) => [s, sizeLabel(s)])), pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]], void 0, f2.cable_type === "dlo_2000v"), /* @__PURE__ */ React.createElement(Field, { label: "Conductors / phase" }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "cb-grid" }, /* @__PURE__ */ React.createElement("div", { className: "cb-form" }, /* @__PURE__ */ React.createElement(Section, { title: "System", aside: fromSystem && /* @__PURE__ */ React.createElement(Pill, { tone: "accent" }, /* @__PURE__ */ React.createElement("span", { className: "cb-from" }, "From System: ", fromSystem, /* @__PURE__ */ React.createElement("button", { type: "button", "aria-label": "Clear", onClick: clearFrom }, "\xD7"))) }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, num2("voltage_v", "Voltage, line-line", "V"), num2("current_a", "Current per phase", "A"), num2("length_ft", "Length", "ft", { hint: `${fmt(f2.length_ft * FT4, 1)} m` }), num2("ambient_c", "Ambient", "\xB0C"), num2("fault_ka", "Fault current", "kA rms", { optional: true, ph: "none" }), num2("fault_clearing_s", "Fault clearing time", "s", { optional: true, ph: "none", hint: "enables conductor withstand check" }), num2("x_over_r", "Fault X/R", ""), pick("support_condition", "Support reaction", [["per_span", "Per span, 1.0 F\xB7L"], ["continuous", "Continuous, 1.1 F\xB7L"], ["pinned", "Single span, 0.5 F\xB7L"]]))), /* @__PURE__ */ React.createElement(Section, { title: "Conductors" }, /* @__PURE__ */ React.createElement("div", { className: "cb-fields" }, /* @__PURE__ */ React.createElement("div", { className: "cb-wide" }, /* @__PURE__ */ React.createElement(Field, { label: "Cable type" }, /* @__PURE__ */ React.createElement("select", { id: "cb-cable_type", className: "num-input", value: f2.cable_type, onChange: (e) => setF((s) => applyCableType(s, e.target.value)) }, CABLE_TYPE_CHOICES.map(([v, t]) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, t))))), f2.cable_type === "dlo_2000v" ? /* @__PURE__ */ React.createElement(Field, { label: "Size (library)", hint: "manufacturer rows; non-standard sizes use the printed rating" }, /* @__PURE__ */ React.createElement("select", { id: "cb-cable_id", className: "num-input", value: f2.cable_id, onChange: (e) => setF((s) => ({ ...s, cable_id: e.target.value, size: e.target.value.split(":")[1] })) }, LIB.map((o) => /* @__PURE__ */ React.createElement("option", { key: o.id, value: o.id }, o.label)))) : pick("size", "Size", SIZE_CHOICES.map((s) => [s, sizeLabel(s)])), pick("material", "Material", [["Cu", "Copper"], ["Al", "Aluminium"]], void 0, f2.cable_type === "dlo_2000v"), /* @__PURE__ */ React.createElement(Field, { label: "Conductors / phase" }, /* @__PURE__ */ React.createElement(
       "select",
       {
         id: "cb-conductors_per_phase",

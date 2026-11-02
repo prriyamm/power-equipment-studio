@@ -95,6 +95,8 @@ const _DEFAULTS = {
   insulation_sc_limit_c: 250.0, // XLPE/EPR; use 150 for thermoplastic
   x_over_r: 15.0,
   support_span_m: 0.9144,     // block / support spacing along the run (36 in)
+  // Reaction factor k_r on F*L: per_span 1.0 (flexible cable, default), continuous 1.1, pinned / fixed 0.5.
+  support_condition: "per_span",
   max_vd_pct: 3.0,
   enclosure_width_mm: null,
   enclosure_height_mm: null,
@@ -161,6 +163,8 @@ export function ambientFactorChecked(ambient_c, conductor_temp_c, rated_ambient_
 }
 
 /** Range checks on the numeric inputs, with messages that name the input. */
+export const SUPPORT_REACTION = { per_span: 1.0, continuous: 1.1, pinned: 0.5, fixed: 0.5 };
+
 export function validateInput(inp) {
   validate.voltage("voltage_v", inp.voltage_v);
   validate.positive("current_a", inp.current_a, "A");
@@ -169,6 +173,10 @@ export function validateInput(inp) {
   if (inp.tiers !== null && inp.tiers !== undefined) validate.countAtLeast("tiers", inp.tiers);
   validate.countAtLeast("conductors_per_phase", inp.conductors_per_phase);
   if (inp.fault_ka !== null && inp.fault_ka !== undefined) validate.nonNegative("fault_ka", inp.fault_ka, "kA");
+  if (!Object.prototype.hasOwnProperty.call(SUPPORT_REACTION, inp.support_condition)) {
+    throw new Error(`support_condition must be one of ${Object.keys(SUPPORT_REACTION).join(", ")}, ` +
+      `got ${pyRepr(inp.support_condition)}`);
+  }
 }
 
 /** CableBusInput dataclass: defaults plus overrides; unknown keys are rejected like Python's TypeError. */
@@ -1063,11 +1071,12 @@ export function analyse(inp, compareBonding = true) {
     const fr = faultForces(cs, share, inp.fault_ka, inp.x_over_r, { freq: inp.frequency_hz });
     f_nm = fr.worst_n_per_m;
     f_lbf = fr.worst_lbf_per_ft;
-    support = (fr.worst_n_per_m * inp.support_span_m) / 4.44822;
+    const k_r = SUPPORT_REACTION[inp.support_condition];
+    support = (fr.worst_n_per_m * inp.support_span_m * k_r) / 4.44822;
     notes.push(`Fault: ${pyFloat(inp.fault_ka)} kA rms sym, X/R ${pyFloat(inp.x_over_r)}, first peak ` +
       `${pyFixed(fr.peak_current_ka, 1)} kA; worst conductor force ${pyFixed(f_nm, 0)} N/m ` +
-      `(${pyFixed(f_lbf, 0)} lbf/ft); load on one support over a ${pyFixed(inp.support_span_m, 3)} m span ~ ` +
-      `${pyFixed(support, 0)} lbf (static; compare with tested block strength).`);
+      `(${pyFixed(f_lbf, 0)} lbf/ft); load on one support over a ${pyFixed(inp.support_span_m, 3)} m span ` +
+      `(${inp.support_condition}, k_r ${k_r}) ~ ${pyFixed(support, 0)} lbf (static; compare with tested block strength).`);
     if (inp.fault_clearing_s) {
       // ICEA P-32-382 adiabatic withstand of all paralleled conductors of one phase (equal fault sharing).
       const area = (spec !== null ? spec.area_cmil : cond.AREA_CMIL[size]) * inp.conductors_per_phase;
